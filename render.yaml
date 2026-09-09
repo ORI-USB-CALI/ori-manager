@@ -1,0 +1,48 @@
+projects:
+  - name: ori-manager-backend
+    environments:
+      # ==========================================
+      # 1. ENTORNO DE PRODUCCIÓN
+      # ==========================================
+      - name: Production
+        services:
+          - type: web
+            name: ori-manager-backend-api-production
+            runtime: docker
+            dockerfilePath: ./Dockerfile
+            plan: free
+            branch: main
+            autoDeploy: true
+            previews:
+              generation: "off"
+
+            envVars:
+              - key: PY_ENV
+                value: production
+              - key: PORT
+                value: "80"
+              - key: DATABASE_URL
+                sync: false
+
+      # ==========================================
+      # 2. ENTORNO DE STAGING (PRUEBAS)
+      # ==========================================
+      - name: Staging
+        services:
+          - type: web
+            name: ori-manager-backend-api-staging
+            runtime: docker
+            dockerfilePath: ./Dockerfile
+            plan: free
+            branch: develop
+            autoDeploy: true
+            previews:
+              generation: "off"
+
+            envVars:
+              - key: PY_ENV
+                value: staging
+              - key: PORT
+                value: "80"
+              - key: DATABASE_URL
+                sync: false
