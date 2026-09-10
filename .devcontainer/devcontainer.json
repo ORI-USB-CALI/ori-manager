@@ -47,10 +47,9 @@
       ]
     }
   },
+"remoteEnv": {
+  "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+},
 
-  "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
-  },
-
-  "postCreateCommand": "curl --proto '=https' --tlsv1.2 -LsSf https://releases.astral.sh/github/uv/releases/download/0.12.12/uv-installer.sh | sh"
+"postCreateCommand": "bash .devcontainer/setup.sh"
 }
