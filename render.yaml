@@ -1,74 +1,72 @@
 projects:
   - name: ori-manager
     environments:
-      # ==========================================
-      # 1. ENTORNO DE PRODUCCIÓN
-      # ==========================================
-      - name: Production
-        services:
-          # --- BACKEND ---
-          - type: web
-            name: ori-manager-backend-production
-            runtime: docker
-            rootDir: backend
-            dockerfilePath: ./Dockerfile
-            plan: free
-            branch: main
-            autoDeploy: true
-            previews:
-              generation: "off"
-            envVars:
-              - key: PY_ENV
-                value: production
-              - key: PORT
-                value: "80"
-              - key: DATABASE_URL
-                sync: false
-
-          # --- FRONTEND ---
-          - type: web
-            name: ori-manager-frontend-production
-            runtime: static
-            rootDir: frontend
-            buildCommand: npm run build
-            staticPublishPath: dist # Cambia a 'build' según tu framework (React/Vite/etc)
-            branch: main
-            autoDeploy: true
-            previews:
-              generation: "off"
-
-      # ==========================================
-      # 2. ENTORNO DE STAGING (PRUEBAS)
-      # ==========================================
       - name: Staging
         services:
-          # --- BACKEND ---
+          # ==========================================
+          # BACKEND — FastAPI
+          # ==========================================
           - type: web
             name: ori-manager-backend-staging
-            runtime: docker
-            rootDir: backend
-            dockerfilePath: ./Dockerfile
+            runtime: python
             plan: free
+            region: oregon
+            rootDir: backend
             branch: develop
-            autoDeploy: true
-            previews:
-              generation: "off"
+
+            buildCommand: uv sync --frozen --no-dev
+            startCommand: uv run --no-sync uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+
+            healthCheckPath: /health
+            autoDeployTrigger: checksPass
+
             envVars:
-              - key: PY_ENV
+              - key: APP_ENV
                 value: staging
-              - key: PORT
-                value: "80"
-              - key: DATABASE_URL
+
+              - key: PYTHON_VERSION
+                value: 3.13.15
+
+              - key: UV_VERSION
+                value: 0.12.12
+
+              - key: DATABASE_HOST
                 sync: false
 
-          # --- FRONTEND ---
+              - key: DATABASE_PORT
+                value: "5432"
+
+              - key: DATABASE_NAME
+                value: postgres
+
+              - key: DATABASE_USER
+                sync: false
+
+              - key: DATABASE_PASSWORD
+                sync: false
+
+              - key: DATABASE_SSLMODE
+                value: require
+
+          # ==========================================
+          # FRONTEND — React + Vite
+          # ==========================================
           - type: web
             name: ori-manager-frontend-staging
             runtime: static
             rootDir: frontend
-            buildCommand: npm run build
-            staticPublishPath: dist
             branch: develop
-            autoDeploy: true
-            previews:
-              generation: "off"
+
+            buildCommand: npm ci && npm run build
+            staticPublishPath: dist
+
+            autoDeployTrigger: checksPass
+
+            routes:
+              - type: rewrite
+                source: /*
+                destination: /index.html
+
+            envVars:
+              - key: NODE_VERSION
+                value: 24.21.0
