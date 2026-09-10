@@ -19,6 +19,7 @@ services:
       DATABASE_USER: ori_user
       DATABASE_PASSWORD: ori_dev_password
       UV_LINK_MODE: copy
+      DATABASE_SSLMODE: disable
 
   db:
     image: postgres:18
