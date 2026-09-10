@@ -1,0 +1,67 @@
+# ==========================================
+# Entornos Virtuales y Gestores de Python
+# ==========================================
+.venv/
+venv/
+ENV/
+env/
+.uv/
+
+# ==========================================
+# Byte-compiled / archivos temporales de Python
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==========================================
+# Configuración local y variables de entorno
+# ==========================================
+# NUNCA subir credenciales o secretos a Git
+.env
+.env.local
+.env.*.local
+*.env
+
+# ==========================================
+# IDEs y Editores de código
+# ==========================================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ==========================================
+# Pruebas, Cobertura y Reportes (pytest)
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# Archivos de empaquetado y build de Python
+# ==========================================
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+
+# ==========================================
+# Logs y bases de datos locales
+# ==========================================
+*.log
+*.sqlite
+*.sqlite3
