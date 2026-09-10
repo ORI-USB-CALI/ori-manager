@@ -1,21 +1,22 @@
 projects:
-  - name: ori-manager-backend
+  - name: ori-manager
     environments:
       # ==========================================
       # 1. ENTORNO DE PRODUCCIÓN
       # ==========================================
       - name: Production
         services:
+          # --- BACKEND ---
           - type: web
-            name: ori-manager-backend-api-production
+            name: ori-manager-backend-production
             runtime: docker
+            rootDir: backend
             dockerfilePath: ./Dockerfile
             plan: free
             branch: main
             autoDeploy: true
             previews:
               generation: "off"
-
             envVars:
               - key: PY_ENV
                 value: production
@@ -24,21 +25,34 @@ projects:
               - key: DATABASE_URL
                 sync: false
 
+          # --- FRONTEND ---
+          - type: static
+            name: ori-manager-frontend-production
+            rootDir: frontend
+            buildCommand: npm run build
+            staticPublishPath: dist # Cambia a 'build' según tu framework (React/Vite/etc)
+            plan: free
+            branch: main
+            autoDeploy: true
+            previews:
+              generation: "off"
+
       # ==========================================
       # 2. ENTORNO DE STAGING (PRUEBAS)
       # ==========================================
       - name: Staging
         services:
+          # --- BACKEND ---
           - type: web
             name: ori-manager-backend-api-staging
             runtime: docker
+            rootDir: backend
             dockerfilePath: ./Dockerfile
             plan: free
             branch: develop
             autoDeploy: true
             previews:
               generation: "off"
-
             envVars:
               - key: PY_ENV
                 value: staging
@@ -46,3 +60,15 @@ projects:
                 value: "80"
               - key: DATABASE_URL
                 sync: false
+
+          # --- FRONTEND ---
+          - type: static
+            name: ori-manager-frontend-staging
+            rootDir: frontend
+            buildCommand: npm run build
+            staticPublishPath: dist
+            plan: free
+            branch: develop
+            autoDeploy: true
+            previews:
+              generation: "off"
