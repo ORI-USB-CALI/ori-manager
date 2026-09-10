@@ -44,7 +44,7 @@ projects:
         services:
           # --- BACKEND ---
           - type: web
-            name: ori-manager-backend-api-staging
+            name: ori-manager-backend-staging
             runtime: docker
             rootDir: backend
             dockerfilePath: ./Dockerfile
