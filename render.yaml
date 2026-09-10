@@ -26,7 +26,7 @@ projects:
                 sync: false
 
           # --- FRONTEND ---
-          - type: static
+          - type: web_site
             name: ori-manager-frontend-production
             rootDir: frontend
             buildCommand: npm run build
@@ -62,7 +62,7 @@ projects:
                 sync: false
 
           # --- FRONTEND ---
-          - type: static
+          - type: web_site
             name: ori-manager-frontend-staging
             rootDir: frontend
             buildCommand: npm run build
