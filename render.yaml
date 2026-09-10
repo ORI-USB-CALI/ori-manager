@@ -26,8 +26,9 @@ projects:
                 sync: false
 
           # --- FRONTEND ---
-          - type: web_site
+          - type: web
             name: ori-manager-frontend-production
+            runtime: static
             rootDir: frontend
             buildCommand: npm run build
             staticPublishPath: dist # Cambia a 'build' según tu framework (React/Vite/etc)
@@ -62,8 +63,9 @@ projects:
                 sync: false
 
           # --- FRONTEND ---
-          - type: web_site
+          - type: web
             name: ori-manager-frontend-staging
+            runtime: static
             rootDir: frontend
             buildCommand: npm run build
             staticPublishPath: dist
