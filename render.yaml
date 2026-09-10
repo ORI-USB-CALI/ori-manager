@@ -66,7 +66,7 @@ projects:
             name: ori-manager-frontend-staging
             runtime: static
             rootDir: frontend
-            buildCommand: npm run build
+            buildCommand: npm install --include=optional && npm run build
             staticPublishPath: dist
             branch: develop
             autoDeploy: true
