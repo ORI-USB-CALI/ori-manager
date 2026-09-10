@@ -1,0 +1,56 @@
+{
+  "name": "ORI Manager Development",
+
+  "dockerComposeFile": "../compose.yaml",
+
+  "service": "workspace",
+
+  "workspaceFolder": "/workspace",
+
+  "shutdownAction": "stopCompose",
+
+  "remoteUser": "vscode",
+
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.13"
+    },
+
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "24"
+    }
+  },
+
+  "forwardPorts": [
+    8000,
+    5173
+  ],
+
+  "portsAttributes": {
+    "8000": {
+      "label": "FastAPI"
+    },
+    "5173": {
+      "label": "React + Vite"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+  },
+
+  "postCreateCommand": "curl --proto '=https' --tlsv1.2 -LsSf https://releases.astral.sh/github/uv/releases/download/0.12.12/uv-installer.sh | sh"
+}
