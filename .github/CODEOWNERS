@@ -1,0 +1,12 @@
+# Default ownership
+* @ORI-USB-CALI/tech-leads
+
+# Application areas
+/frontend/ @ORI-USB-CALI/frontend @ORI-USB-CALI/tech-leads
+/backend/  @ORI-USB-CALI/backend @ORI-USB-CALI/tech-leads
+
+# Infrastructure and repository governance
+/.github/       @ORI-USB-CALI/tech-leads
+/.devcontainer/ @ORI-USB-CALI/tech-leads
+/compose.yaml   @ORI-USB-CALI/tech-leads
+/render.yaml    @ORI-USB-CALI/tech-leads
