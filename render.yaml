@@ -32,7 +32,6 @@ projects:
             rootDir: frontend
             buildCommand: npm run build
             staticPublishPath: dist # Cambia a 'build' según tu framework (React/Vite/etc)
-            plan: free
             branch: main
             autoDeploy: true
             previews:
@@ -69,7 +68,6 @@ projects:
             rootDir: frontend
             buildCommand: npm run build
             staticPublishPath: dist
-            plan: free
             branch: develop
             autoDeploy: true
             previews:
