@@ -1,28 +1,28 @@
 projects:
   - name: ori-manager
     environments:
-      - name: Staging
+      - name: Production
         services:
           # ==========================================
           # BACKEND — FastAPI
           # ==========================================
           - type: web
-            name: ori-manager-backend-staging
+            name: ori-manager-backend-production
             runtime: python
             plan: free
             region: oregon
             rootDir: backend
-            branch: develop
+            branch: main
 
             buildCommand: uv sync --frozen --no-dev
             startCommand: uv run --no-sync uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 
             healthCheckPath: /health
-            autoDeployTrigger: checksPass
+            autoDeployTrigger: off
 
             envVars:
               - key: APP_ENV
-                value: staging
+                value: production
 
               - key: PYTHON_VERSION
                 value: 3.13.15
@@ -52,15 +52,15 @@ projects:
           # FRONTEND — React + Vite
           # ==========================================
           - type: web
-            name: ori-manager-frontend-staging
+            name: ori-manager-frontend-production
             runtime: static
             rootDir: frontend
-            branch: develop
+            branch: main
 
             buildCommand: npm ci && npm run build
             staticPublishPath: dist
 
-            autoDeployTrigger: checksPass
+            autoDeployTrigger: off
 
             routes:
               - type: rewrite

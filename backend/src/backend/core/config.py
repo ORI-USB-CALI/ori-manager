@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_name: str = "ori_manager"
     database_user: str = "ori_user"
     database_password: SecretStr
+    database_sslmode: str = "require"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
             host=self.database_host,
             port=self.database_port,
             database=self.database_name,
+            query={"sslmode": self.database_sslmode},
         )
 
 

@@ -1,7 +1,7 @@
 """initial database baseline
 
 Revision ID: 56626120dc9a
-Revises: 
+Revises:
 Create Date: 2026-09-10 16:35:14.559785
 
 """
