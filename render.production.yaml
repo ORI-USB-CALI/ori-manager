@@ -18,7 +18,7 @@ projects:
             startCommand: uv run --no-sync uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 
             healthCheckPath: /health
-            autoDeployTrigger: checksPass
+            autoDeployTrigger: off
 
             envVars:
               - key: APP_ENV
@@ -60,7 +60,7 @@ projects:
             buildCommand: npm ci && npm run build
             staticPublishPath: dist
 
-            autoDeployTrigger: checksPass
+            autoDeployTrigger: off
 
             routes:
               - type: rewrite
