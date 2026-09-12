@@ -82,7 +82,7 @@
     - Se debe decidir si se renueva o no.
 11. **Roles**
     - **Admin**: acceso total.
-    - **Usuario ORI**: puede ver toda la información a detalle, pero no puede crear, editar ni eliminar
+    - **Usuario ORI**: puede ver toda la información a detalle, pero no puede crear, editar ni eliminar.
     - **Invitado** (sin login): solo puede ver si existe un convenio con X entidad, sin detalles.
 12. **Trazabilidad**
     - Cada cambio, etapa, responsable y fecha debe quedar registrado en un historial.
