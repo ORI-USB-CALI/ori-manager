@@ -1,0 +1,97 @@
+name: Reporte de Incidencia (QA)
+description: Formulario interno para que el equipo de QA reporte hallazgos y bugs durante las fases de pruebas.
+title: "[QA-BUG]: "
+labels: ["qa", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Registro de Incidencia Interna - Equipo de QA
+        Utiliza este formulario para reportar fallos detectados durante las ejecuciones de pruebas funcionales, regresiones o validaciones de sprint.
+
+  - type: input
+    id: user_story
+    attributes:
+      label: Historia de Usuario
+      description: Código de la HU correspondiente.
+      placeholder: Ej. HU-1042 o #256
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción de la Incidencia
+      description: Detalla el comportamiento anómalo detectado durante la prueba.
+      placeholder: Ej. Al procesar el pago con tarjeta de crédito en staging, la API responde 500 pero el frontend se queda cargando indefinidamente.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidad / Impacto
+      description: Clasifica el impacto del hallazgo según la escala interna.
+      options:
+        - Bloqueante (Impide continuar con las pruebas o la release)
+        - Alta (Afecta una funcionalidad crítica sin workaround)
+        - Media (Afecta una funcionalidad no crítica o existe workaround)
+        - Baja (Detalle visual, error tipográfico o menor)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Entorno de Pruebas
+      description: Especifica el ambiente donde se replicó el fallo.
+      options:
+        - QA / Staging
+        - UAT / Pre-producción
+        - Producción (Hotfix)
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: Pasos para Replicar
+      description: Describe la secuencia exacta para reproducir el fallo.
+      placeholder: |
+        1. Iniciar sesión con usuario de rol 'Tester'
+        2. Navegar al módulo X
+        3. Ingresar los datos de prueba Y
+        4. Presionar el botón Z
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Resultado Esperado vs. Resultado Obtenido
+      description: Criterio de aceptación incumplido versus lo que ocurrió realmente.
+      placeholder: |
+        - Esperado: El sistema debe mostrar un mensaje de error 'Fondos insuficientes'.
+        - Obtenido: Redirección a pantalla en blanco (Crash).
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_data
+    attributes:
+      label: Datos de Prueba y Evidencias
+      description: Incluye payloads, credenciales/cuentas de prueba usadas, logs, o enlaces a capturas/videos.
+      placeholder: |
+        - Usuario: tester_qa_01
+        - Payload/ID: { "order_id": 99823 }
+        - Adjuntos / Logs: [Pegar evidencia o logs del navegador/servidor aquí]
+
+  - type: checkboxes
+    id: qa_checklist
+    attributes:
+      label: Checklist de QA
+      options:
+        - label: Se confirmó que la incidencia se replica de manera consistente.
+          required: true
+        - label: Se adjuntaron logs o respuestas de red (DevTools / Postman) si aplica.
+          required: false
