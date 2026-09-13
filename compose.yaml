@@ -26,6 +26,8 @@ services:
 
     restart: unless-stopped
 
+    ports:
+        - "5432:5432"
     environment:
       POSTGRES_DB: ori_manager
       POSTGRES_USER: ori_user
