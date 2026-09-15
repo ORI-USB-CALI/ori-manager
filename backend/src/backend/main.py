@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from backend.api.routers.auth import router as auth_router
 from backend.db.session import get_db
 
 app = FastAPI(
@@ -12,7 +13,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.include_router(auth_router, prefix="/api")
+
 DatabaseSession = Annotated[Session, Depends(get_db)]
+
 
 
 @app.get("/", tags=["Root"])
