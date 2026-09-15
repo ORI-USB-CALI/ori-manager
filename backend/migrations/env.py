@@ -5,10 +5,10 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.core.config import settings
 from backend.db.base import Base
+from backend.models.session import Session  # noqa
 
 # Import models so Alembic can see them in Base.metadata
 from backend.models.user import User  # noqa
-from backend.models.session import Session  # noqa
 
 config = context.config
 

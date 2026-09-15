@@ -1,10 +1,13 @@
 import uuid
-from typing import List
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.session import Session
 
 
 class User(Base):
@@ -15,6 +18,6 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    sessions: Mapped[List["Session"]] = relationship(
+    sessions: Mapped[list["Session"]] = relationship(
         "Session", back_populates="user", cascade="all, delete-orphan"
     )

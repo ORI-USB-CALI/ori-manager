@@ -40,7 +40,7 @@ def authenticate_user(db: DBSession, email: str, password: str) -> User:
 def create_session(db: DBSession, user_id: str, expire_days: int = 7) -> Session:
     """Create a new session in the database."""
     token = generate_session_token()
-    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=expire_days)
+    expires_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=expire_days)
     
     session_db = Session(
         user_id=user_id,
@@ -71,14 +71,14 @@ def get_valid_session(db: DBSession, token: str) -> Session | None:
     """Retrieve a session if it's valid and not expired."""
     stmt = select(Session).where(
         Session.token == token,
-        Session.is_valid == True, # noqa: E712
+        Session.is_valid == True,
     )
     session_db = db.execute(stmt).scalar_one_or_none()
     
     if not session_db:
         return None
         
-    if session_db.expires_at < datetime.datetime.now(datetime.timezone.utc):
+    if session_db.expires_at < datetime.datetime.now(datetime.UTC):
         # Invalidate expired session automatically
         session_db.is_valid = False
         db.commit()
