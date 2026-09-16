@@ -1,18 +1,18 @@
-from typing import Annotated
-
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 
-from backend.db.session import get_db
+from backend.api.deps import DatabaseSession
+from backend.api.errors import registrar_manejadores_de_errores
+from backend.api.routers.aliado import router as aliado_router
 
 app = FastAPI(
     title="ORI Manager API",
     version="0.1.0",
 )
 
-DatabaseSession = Annotated[Session, Depends(get_db)]
+registrar_manejadores_de_errores(app)
+app.include_router(aliado_router)
 
 
 @app.get("/", tags=["Root"])

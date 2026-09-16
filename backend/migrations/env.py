@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from backend import models  # noqa: F401  (registra los modelos en Base.metadata)
 from backend.core.config import settings
 from backend.db.base import Base
 
