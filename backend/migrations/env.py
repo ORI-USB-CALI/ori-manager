@@ -6,6 +6,9 @@ from sqlalchemy import engine_from_config, pool
 from backend.core.config import settings
 from backend.db.base import Base
 
+from backend.models.rol import Rol  # noqa
+from backend.models.usuario import Usuario  # noqa
+
 config = context.config
 
 if config.config_file_name is not None:
