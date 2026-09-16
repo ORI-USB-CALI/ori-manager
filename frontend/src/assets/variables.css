@@ -1,0 +1,33 @@
+:root {
+  --color-naranja-ori: #F36C21;
+  --color-rojo-usb: #D91A2A;
+  --color-magenta-ori: #D82374;
+
+  --color-bg: #F8F9FA;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #1A1D20;
+  --color-text-secondary: #5A626A;
+  --color-border: #E2E8F0;
+  --color-error: #EF4444;
+
+  --gradiente-ori: linear-gradient(135deg, #F36C21 0%, #D82374 50%, #D91A2A 100%);
+
+  --font-family-base: "Montserrat", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --font-size-h1: 28px;
+  --font-weight-h1: 700;
+  --font-size-h2: 22px;
+  --font-weight-h2: 600;
+  --font-size-h3: 18px;
+  --font-weight-h3: 600;
+  --font-size-base: 14px;
+  --font-weight-base: 400;
+  --font-size-small: 12px;
+  --font-weight-small: 500;
+
+  --radius-btn: 8px;
+  --radius-input: 6px;
+  --input-height: 42px;
+  --navbar-height: 64px;
+  --footer-height: 48px;
+}
