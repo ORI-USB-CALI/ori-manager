@@ -37,7 +37,6 @@
 - Interfaz sencilla, pensada para usuarios de la ORI.
 
 <aside>
-⛔
 
 ### Fuera del alcance inicial
 
