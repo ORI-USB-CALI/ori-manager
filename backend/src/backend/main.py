@@ -6,11 +6,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
+from backend.api import rutas_usuario
 
 app = FastAPI(
     title="ORI Manager API",
     version="0.1.0",
 )
+
+app.include_router(rutas_usuario.router)
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
 
