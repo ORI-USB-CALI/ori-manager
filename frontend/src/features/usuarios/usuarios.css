@@ -1,0 +1,94 @@
+.usuarios-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+.usuarios-page__encabezado {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.usuarios-page__encabezado p {
+  color: var(--color-text-secondary);
+  margin: 4px 0 0;
+}
+
+.usuarios-tabla-contenedor {
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-input);
+}
+
+.usuarios-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-base);
+}
+
+.usuarios-tabla th {
+  background: var(--color-rojo-usb);
+  color: #fff;
+  text-align: left;
+  padding: 12px 16px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-small);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.usuarios-tabla td {
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.usuarios-tabla tbody tr:hover {
+  background: var(--color-bg);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-small);
+}
+
+.badge-activo {
+  background: rgba(243, 108, 33, 0.12);
+  color: var(--color-naranja-ori);
+}
+
+.badge-inactivo {
+  background: rgba(90, 98, 106, 0.12);
+  color: var(--color-text-secondary);
+}
+
+.badge-rol {
+  background: rgba(216, 35, 116, 0.1);
+  color: var(--color-magenta-ori);
+}
+
+.usuarios-tabla__acciones {
+  display: flex;
+  gap: 8px;
+}
+
+.usuarios-tabla__acciones .btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--font-size-small);
+}
+
+.usuarios-estado-mensaje {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
