@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session as DBSession
 
 from backend.api.deps import get_current_user, get_session_token
+from backend.core.permisos import PERMISOS_POR_ROL
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.services.auth import (
@@ -79,4 +80,6 @@ def get_me(current_user: Annotated[User, Depends(get_current_user)]):
         "id": current_user.id,
         "email": current_user.email,
         "is_active": current_user.is_active,
+        "rol": current_user.rol,
+        "permisos": sorted(PERMISOS_POR_ROL[current_user.rol]),
     }

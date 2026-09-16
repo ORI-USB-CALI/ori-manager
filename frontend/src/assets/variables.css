@@ -1,0 +1,21 @@
+/* Tokens de la Guía de Estilo Técnica ORI USB Cali (docs/Guia_de_Estilo_Tecnica_ORI_USB_Cali.docx). */
+:root {
+  /* Colores Principales ORI/USB */
+  --color-naranja: #F36C21;
+  --color-rojo: #D91A2A;
+  --color-magenta: #D82374;
+
+  /* Gradiente Oficial ORI */
+  --gradiente-ori: linear-gradient(135deg, #F36C21 0%, #D82374 50%, #D91A2A 100%);
+
+  /* Neutros y Fondos */
+  --bg-main: #F8F9FA;
+  --bg-surface: #FFFFFF;
+  --text-primary: #1A1D20;
+  --text-secondary: #5A626A;
+  --border-color: #E2E8F0;
+  --color-error: #EF4444;
+
+  /* Tipografía */
+  --font-family: 'Montserrat', sans-serif;
+}

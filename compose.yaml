@@ -1,3 +1,12 @@
+x-db-env: &db-env
+  APP_ENV: development
+  DATABASE_HOST: db
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: ori_manager
+  DATABASE_USER: ori_user
+  DATABASE_PASSWORD: ori_dev_password
+  DATABASE_SSLMODE: disable
+
 services:
   workspace:
     image: mcr.microsoft.com/devcontainers/base:noble
@@ -12,14 +21,49 @@ services:
         condition: service_healthy
 
     environment:
-      APP_ENV: development
-      DATABASE_HOST: db
-      DATABASE_PORT: "5432"
-      DATABASE_NAME: ori_manager
-      DATABASE_USER: ori_user
-      DATABASE_PASSWORD: ori_dev_password
+      <<: *db-env
       UV_LINK_MODE: copy
-      DATABASE_SSLMODE: disable
+
+  backend:
+    build: ./backend
+
+    command: sh -c "uv run alembic upgrade head && uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000"
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - ./backend:/app
+      # El .venv construido en la imagen no debe quedar tapado por el del host.
+      - /app/.venv
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    environment:
+      <<: *db-env
+      UV_LINK_MODE: copy
+      # Los bind mounts desde Windows/WSL no emiten eventos de archivos.
+      WATCHFILES_FORCE_POLLING: "true"
+
+  frontend:
+    build: ./frontend
+
+    ports:
+      - "5173:5173"
+
+    volumes:
+      - ./frontend:/app
+      # node_modules de la imagen (binarios Linux), no los del host.
+      - /app/node_modules
+
+    depends_on:
+      - backend
+
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+      VITE_USE_POLLING: "true"
 
   db:
     image: postgres:18

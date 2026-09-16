@@ -5,6 +5,8 @@
 
   "service": "workspace",
 
+  "runServices": ["workspace", "db"],
+
   "workspaceFolder": "/workspace",
 
   "shutdownAction": "stopCompose",

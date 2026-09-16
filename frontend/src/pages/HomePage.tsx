@@ -1,8 +1,8 @@
 export function HomePage() {
   return (
-    <main>
-      <h1>ORI Manager</h1>
-      <p>Frontend base configured successfully.</p>
-    </main>
+    <section className="header-banner">
+      <h1>Sistema de Gestión ORI</h1>
+      <p>Oficina de Relaciones Internacionales — Universidad de San Buenaventura Cali</p>
+    </section>
   )
 }
