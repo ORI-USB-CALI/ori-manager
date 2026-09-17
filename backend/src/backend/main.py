@@ -5,8 +5,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.db.session import get_db
 from backend.api import rutas_usuario
+from backend.db.session import get_db
 
 app = FastAPI(
     title="ORI Manager API",
