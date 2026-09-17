@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -16,6 +17,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.usuario import Usuario
 
 _TIPOS_UNIDAD_SQL = ", ".join(f"'{tipo.value}'" for tipo in TipoUnidad)
 
@@ -63,4 +67,7 @@ class UnidadOrganizacional(Base):
     )
     subunidades: Mapped[list[UnidadOrganizacional]] = relationship(
         back_populates="unidad_padre",
+    )
+    usuarios: Mapped[list[Usuario]] = relationship(
+        back_populates="unidad_organizacional",
     )

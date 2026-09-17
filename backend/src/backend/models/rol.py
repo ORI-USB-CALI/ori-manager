@@ -1,9 +1,13 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, func, true
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
+
+if TYPE_CHECKING:
+    from backend.models.usuario import Usuario
 
 
 class Rol(Base):
@@ -38,3 +42,5 @@ class Rol(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    usuarios: Mapped[list["Usuario"]] = relationship(back_populates="rol")
