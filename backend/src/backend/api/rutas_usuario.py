@@ -10,6 +10,10 @@ router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 def listar(db: Session = Depends(get_db)):
     return usuario_service.listar_usuarios(db)
 
+@router.get("/{usuario_id}", response_model=UsuarioLeer)
+def obtener(usuario_id: int, db: Session = Depends(get_db)):
+    return usuario_service.obtener_usuario(db, usuario_id)
+
 @router.post("/", response_model=UsuarioLeer)
 def crear(usuario_in: UsuarioCrear, db: Session = Depends(get_db)):
     return usuario_service.crear_usuario(db, usuario_in)
@@ -22,6 +26,6 @@ def editar(usuario_id: int, usuario_in: UsuarioActualizar, db: Session = Depends
 def cambiar_rol(usuario_id: int, rol_in: UsuarioCambiarRol, db: Session = Depends(get_db)):
     return usuario_service.cambiar_rol(db, usuario_id, rol_in)
 
-@router.delete("/{usuario_id}")
+@router.post("/{usuario_id}/desactivar", response_model=UsuarioLeer)
 def desactivar(usuario_id: int, db: Session = Depends(get_db)):
     return usuario_service.desactivar_usuario(db, usuario_id)
