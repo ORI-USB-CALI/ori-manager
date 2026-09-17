@@ -47,3 +47,10 @@ class AliadoLeer(BaseModel):
     estado: EstadoAliado
     creado_en: datetime
     actualizado_en: datetime
+
+
+class AliadoListado(BaseModel):
+    """Página del listado más el total que cumple el filtro."""
+
+    items: list[AliadoLeer]
+    total: int

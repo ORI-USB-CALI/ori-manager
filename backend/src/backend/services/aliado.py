@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.models.aliado import Aliado
@@ -10,9 +11,9 @@ from backend.services.exceptions import (
     AliadoConConveniosVigentesError,
     AliadoDuplicadoError,
     AliadoNoEncontradoError,
-    PermisoDenegadoError,
     SectorEconomicoRequeridoError,
 )
+from backend.services.permisos import validar_rol
 
 ROLES_GESTION = {RolUsuario.ADMINISTRADOR_ORI, RolUsuario.GESTOR_ORI}
 ROLES_CONSULTA = ROLES_GESTION | {RolUsuario.REVISOR_ORI}
@@ -40,6 +41,17 @@ class DatosAliado:
 
 
 @dataclass
+class FiltrosAliado:
+    """Criterios de búsqueda del listado de aliados."""
+
+    buscar: str | None = None
+    tipo: TipoAliado | None = None
+    estado: EstadoAliado | None = None
+    limite: int = 20
+    desplazamiento: int = 0
+
+
+@dataclass
 class DatosEdicionAliado:
     nombre: str | None = None
     tipo: TipoAliado | None = None
@@ -50,11 +62,6 @@ class DatosEdicionAliado:
     telefono: str | None = None
     correo: str | None = None
     sitio_web: str | None = None
-
-
-def _validar_rol(rol: RolUsuario, roles_permitidos: set[RolUsuario]) -> None:
-    if rol not in roles_permitidos:
-        raise PermisoDenegadoError(f"El rol '{rol.value}' no tiene permiso para esta operación")
 
 
 def _validar_sector_economico(tipo: TipoAliado, sector_economico: str | None) -> None:
@@ -68,8 +75,40 @@ def buscar_por_identificacion(db: Session, identificacion: str) -> Aliado | None
     return db.scalar(select(Aliado).where(Aliado.identificacion == identificacion))
 
 
+def listar_aliados(
+    db: Session, filtros: FiltrosAliado, rol: RolUsuario
+) -> tuple[Sequence[Aliado], int]:
+    """Lista aliados filtrados y el total que cumple el filtro (sin paginar).
+
+    Buscar antes de crear es lo que evita los registros duplicados, así que la
+    búsqueda cubre identificación y nombre.
+    """
+    validar_rol(rol, ROLES_CONSULTA)
+
+    condiciones = []
+    if filtros.buscar:
+        patron = f"%{filtros.buscar.strip()}%"
+        condiciones.append(
+            or_(Aliado.identificacion.ilike(patron), Aliado.nombre.ilike(patron))
+        )
+    if filtros.tipo is not None:
+        condiciones.append(Aliado.tipo == filtros.tipo)
+    if filtros.estado is not None:
+        condiciones.append(Aliado.estado == filtros.estado)
+
+    total = db.scalar(select(func.count()).select_from(Aliado).where(*condiciones)) or 0
+    aliados = db.scalars(
+        select(Aliado)
+        .where(*condiciones)
+        .order_by(Aliado.nombre)
+        .limit(filtros.limite)
+        .offset(filtros.desplazamiento)
+    ).all()
+    return aliados, total
+
+
 def crear_aliado(db: Session, datos: DatosAliado, rol: RolUsuario) -> Aliado:
-    _validar_rol(rol, ROLES_GESTION)
+    validar_rol(rol, ROLES_GESTION)
     _validar_sector_economico(datos.tipo, datos.sector_economico)
 
     if buscar_por_identificacion(db, datos.identificacion) is not None:
@@ -84,7 +123,7 @@ def crear_aliado(db: Session, datos: DatosAliado, rol: RolUsuario) -> Aliado:
 
 
 def consultar_aliado(db: Session, aliado_id: int, rol: RolUsuario) -> Aliado:
-    _validar_rol(rol, ROLES_CONSULTA)
+    validar_rol(rol, ROLES_CONSULTA)
 
     aliado = db.get(Aliado, aliado_id)
     if aliado is None:
@@ -95,7 +134,7 @@ def consultar_aliado(db: Session, aliado_id: int, rol: RolUsuario) -> Aliado:
 def editar_aliado(
     db: Session, aliado_id: int, datos: DatosEdicionAliado, rol: RolUsuario
 ) -> Aliado:
-    _validar_rol(rol, ROLES_GESTION)
+    validar_rol(rol, ROLES_GESTION)
     aliado = consultar_aliado(db, aliado_id, rol)
 
     cambios = {campo: valor for campo, valor in asdict(datos).items() if valor is not None}
@@ -108,6 +147,17 @@ def editar_aliado(
 
     db.flush()
     return aliado
+
+
+def listar_convenios_de_aliado(
+    db: Session, aliado_id: int, rol: RolUsuario
+) -> Sequence[Convenio]:
+    """Convenios asociados al aliado, en cualquier estado."""
+    consultar_aliado(db, aliado_id, rol)
+
+    return db.scalars(
+        select(Convenio).where(Convenio.aliado_id == aliado_id).order_by(Convenio.id)
+    ).all()
 
 
 def _tiene_convenios_vigentes(db: Session, aliado_id: int) -> bool:
@@ -123,7 +173,7 @@ def _tiene_convenios_vigentes(db: Session, aliado_id: int) -> bool:
 
 
 def inactivar_aliado(db: Session, aliado_id: int, rol: RolUsuario) -> Aliado:
-    _validar_rol(rol, ROLES_GESTION)
+    validar_rol(rol, ROLES_GESTION)
     aliado = consultar_aliado(db, aliado_id, rol)
 
     if _tiene_convenios_vigentes(db, aliado_id):
@@ -137,7 +187,7 @@ def inactivar_aliado(db: Session, aliado_id: int, rol: RolUsuario) -> Aliado:
 
 
 def reactivar_aliado(db: Session, aliado_id: int, rol: RolUsuario) -> Aliado:
-    _validar_rol(rol, ROLES_GESTION)
+    validar_rol(rol, ROLES_GESTION)
     aliado = consultar_aliado(db, aliado_id, rol)
 
     aliado.estado = EstadoAliado.ACTIVO
