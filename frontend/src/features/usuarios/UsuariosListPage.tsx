@@ -71,10 +71,8 @@ export function UsuariosListPage() {
                       className="btn btn-secondary"
                       disabled={!usuario.activo || desactivarUsuario.isPending}
                       onClick={() => manejarDesactivar(usuario.id, usuario.nombre_completo)}
-                        >
-                      {usuario.activo ? 'Desactivar': 'Inactivo'}
-                   
-                      Desactivar
+                    >
+                      {usuario.activo ? 'Desactivar' : 'Inactivo'}
                     </button>
                   </td>
                 </tr>
