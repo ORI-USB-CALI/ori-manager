@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from backend.api.errors import registrar_manejadores_de_errores
 from backend.api.routers.convenio import router as convenio_router
 from backend.db.session import get_db
 
@@ -13,6 +14,7 @@ app = FastAPI(
     version="0.1.0",
 )
 
+registrar_manejadores_de_errores(app)
 app.include_router(convenio_router)
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
