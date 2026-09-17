@@ -10,6 +10,12 @@ password_hash = PasswordHash.recommended()
 def listar_usuarios(db: Session):
     return db.query(Usuario).all()
 
+def obtener_usuario(db: Session, usuario_id: int) -> Usuario:
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return usuario
+
 def crear_usuario(db: Session, user_in: UsuarioCrear):
     if db.query(Usuario).filter(Usuario.correo == user_in.correo).first():
         raise HTTPException(status_code=400, detail="El correo ya existe")
@@ -37,7 +43,7 @@ def editar_usuario(db: Session, usuario_id: int, user_in: UsuarioActualizar):
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    update_data = user_in.model_dump(exclude_unset=True)
+    update_data = user_in.model_dump(exclude_unset=True, exclude_none=True)
     for key, value in update_data.items():
         setattr(usuario, key, value)
         
@@ -68,4 +74,5 @@ def desactivar_usuario(db: Session, usuario_id: int):
         
     usuario.desactivar()
     db.commit()
-    return {"mensaje": "Usuario desactivado correctamente"}
+    db.refresh(usuario)
+    return usuario
