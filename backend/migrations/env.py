@@ -5,9 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.core.config import settings
 from backend.db.base import Base
-
-from backend.models.rol import Rol  # noqa
-from backend.models.usuario import Usuario  # noqa
+from backend.models import Rol, Usuario  # noqa: F401
 
 config = context.config
 
