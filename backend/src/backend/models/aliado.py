@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +51,12 @@ class Aliado(Base):
 
 class Convenio(Base):
     __tablename__ = "convenios"
+    __table_args__ = (
+        CheckConstraint(
+            "fecha_inicio IS NULL OR fecha_fin IS NULL OR fecha_inicio <= fecha_fin",
+            name="ck_convenios_fecha_inicio_fecha_fin",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -58,13 +64,13 @@ class Convenio(Base):
     aliado_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("aliados.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    codigo: Mapped[str] = mapped_column(String(100), nullable=False)
+    codigo: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     titulo: Mapped[str] = mapped_column(String(255), nullable=False)
     tipo_convenio: Mapped[str | None] = mapped_column(String(100), nullable=True)
     estado: Mapped[EstadoConvenio] = mapped_column(
         Enum(EstadoConvenio, name="estado_convenio_enum", native_enum=False),
         nullable=False,
-        default=EstadoConvenio.VIGENTE,
+        default=EstadoConvenio.EN_TRAMITE,
     )
     fecha_inicio: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fecha_fin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

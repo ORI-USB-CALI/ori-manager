@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from backend.core.security import require_permission
+from backend.core.security import UserTokenData, require_permission
 from backend.db.session import get_db
 from backend.models.aliado import Aliado
 from backend.schemas.aliado import AliadoDetalleRead
@@ -13,6 +13,8 @@ from backend.schemas.aliado import AliadoDetalleRead
 router = APIRouter(prefix="/aliados", tags=["Aliados"])
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
+
+PERMISO_CONVENIOS_READ = "convenios:read"
 
 
 @router.get(
@@ -24,10 +26,15 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 def obtener_detalle_aliado(
     aliado_id: uuid.UUID,
     db: DatabaseSession,
-    _: Annotated[object, Depends(require_permission("aliados:read"))],
+    current_user: Annotated[UserTokenData, Depends(require_permission("aliados:read"))],
 ) -> AliadoDetalleRead:
     """
     Endpoint para consultar el perfil del aliado y sus convenios (CA-01 a CA-08).
+
+    Requiere el permiso 'aliados:read' para consultar el aliado. La lista de
+    convenios asociados solo se incluye si, además, el usuario cuenta con el
+    permiso 'convenios:read'; en caso contrario se devuelve el aliado con la
+    lista de convenios vacía en lugar de denegar toda la consulta.
     """
     query = (
         select(Aliado)
@@ -42,4 +49,8 @@ def obtener_detalle_aliado(
             detail="Aliado no encontrado",
         )
 
-    return AliadoDetalleRead.model_validate(aliado)
+    detalle = AliadoDetalleRead.model_validate(aliado)
+    if PERMISO_CONVENIOS_READ not in current_user.permissions:
+        detalle.convenios = []
+
+    return detalle

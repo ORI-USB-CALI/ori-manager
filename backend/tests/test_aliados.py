@@ -1,8 +1,10 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -21,17 +23,6 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-@pytest.fixture(autouse=True)
-def setup_db():
-    Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-        Base.metadata.drop_all(bind=engine)
-
-
 def override_get_db():
     db = TestingSessionLocal()
     try:
@@ -40,7 +31,19 @@ def override_get_db():
         db.close()
 
 
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(autouse=True)
+def setup_db():
+    Base.metadata.create_all(bind=engine)
+    app.dependency_overrides[get_db] = override_get_db
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+        app.dependency_overrides.pop(get_db, None)
+
+
 client = TestClient(app)
 
 AUTH_HEADERS = {
@@ -142,6 +145,36 @@ def test_ca06_consultar_aliado_sin_autenticacion_o_permisos(setup_db):
     assert res_forbidden.status_code == 403
 
 
+def test_consultar_aliado_sin_permiso_convenios_oculta_lista_convenios(setup_db):
+    """Con 'aliados:read' pero sin 'convenios:read' se debe ver el aliado,
+    nunca sus convenios (validación de acceso a los convenios mostrados)."""
+    db = setup_db
+    aliado = Aliado(id=uuid.uuid4(), nombre="Aliado Con Convenios")
+    db.add(aliado)
+    db.commit()
+
+    convenio = Convenio(
+        id=uuid.uuid4(),
+        aliado_id=aliado.id,
+        codigo="CONV-OCULTO-001",
+        titulo="Convenio que no debe verse",
+        estado=EstadoConvenio.VIGENTE,
+    )
+    db.add(convenio)
+    db.commit()
+
+    solo_aliados_headers = {
+        "Authorization": "Bearer fake_token",
+        "X-User-Permissions": "aliados:read",
+    }
+    response = client.get(f"/api/v1/aliados/{aliado.id}", headers=solo_aliados_headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(aliado.id)
+    assert data["convenios"] == []
+
+
 def test_ca07_consistencia_convenios_otro_aliado(setup_db):
     db = setup_db
     aliado_a = Aliado(id=uuid.uuid4(), nombre="Aliado A")
@@ -201,3 +234,61 @@ def test_ca08_consultar_aliado_inactivo(setup_db):
     assert data["estado"] == "INACTIVO"
     assert len(data["convenios"]) == 1
     assert data["convenios"][0]["codigo"] == "CONV-HIST-01"
+
+
+def test_convenio_codigo_unico_a_nivel_de_base_de_datos(setup_db):
+    """El código de un convenio debe ser único en todo el sistema (MER: UQ),
+    incluso entre convenios de aliados distintos."""
+    db = setup_db
+    aliado_a = Aliado(id=uuid.uuid4(), nombre="Aliado A")
+    aliado_b = Aliado(id=uuid.uuid4(), nombre="Aliado B")
+    db.add_all([aliado_a, aliado_b])
+    db.commit()
+
+    db.add(
+        Convenio(
+            id=uuid.uuid4(),
+            aliado_id=aliado_a.id,
+            codigo="CONV-DUP-001",
+            titulo="Convenio original",
+            estado=EstadoConvenio.VIGENTE,
+        )
+    )
+    db.commit()
+
+    db.add(
+        Convenio(
+            id=uuid.uuid4(),
+            aliado_id=aliado_b.id,
+            codigo="CONV-DUP-001",
+            titulo="Convenio con código repetido",
+            estado=EstadoConvenio.VIGENTE,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+
+def test_convenio_fecha_inicio_no_puede_ser_posterior_a_fecha_fin(setup_db):
+    """Un convenio mostrado no puede tener fecha_inicio posterior a fecha_fin
+    (consistencia elemental de los datos, independiente de reglas de negocio)."""
+    db = setup_db
+    aliado = Aliado(id=uuid.uuid4(), nombre="Aliado Fechas Inválidas")
+    db.add(aliado)
+    db.commit()
+
+    db.add(
+        Convenio(
+            id=uuid.uuid4(),
+            aliado_id=aliado.id,
+            codigo="CONV-FECHA-001",
+            titulo="Convenio con fechas invertidas",
+            estado=EstadoConvenio.VIGENTE,
+            fecha_inicio=datetime(2027, 1, 1, tzinfo=UTC),
+            fecha_fin=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
