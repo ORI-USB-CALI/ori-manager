@@ -1,7 +1,6 @@
 // Tipos calcados de backend/src/backend/schemas/usuario.py en la rama
-// origin/feature/HU03-CRUD-de-usuarios (autor: Jesús Gelves, commit 837d986).
-// `id` se agrega aquí porque UsuarioListar/UsuarioLeer todavía no lo exponen
-// en esa rama; quitar el campo cuando el backend lo incluya.
+// feature/HU03-CRUD-de-usuarios. `id` viene expuesto en UsuarioListar y
+// UsuarioLeer desde el commit 4d39c6e (Jesús Gelves).
 
 export type CodigoRol = 'ADMINISTRADOR_ORI' | 'GESTOR_ORI' | 'REVISOR_ORI'
 

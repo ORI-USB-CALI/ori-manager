@@ -1,8 +1,4 @@
-import { USUARIOS_MOCK } from './mockData'
-import { ROLES_INTERNOS } from './types'
 import type {
-  CodigoRol,
-  RolLeer,
   UsuarioActualizar,
   UsuarioCambiarRol,
   UsuarioCrear,
@@ -10,119 +6,79 @@ import type {
   UsuarioListar,
 } from './types'
 
-// Capa swappable: replica 1:1 las 5 operaciones de
-// backend/src/backend/api/rutas_usuario.py (rama de Jesús). Para conectar la
-// API real, cambiar el cuerpo de cada función por un fetch a
-// `${import.meta.env.VITE_API_URL}/usuarios/...` manteniendo la firma; el
-// resto de la app (hooks, páginas) no debería necesitar cambios.
-//
-// obtenerUsuario() es la excepción: ese endpoint no existe todavía en la
-// rama de Jesús (no hay GET /usuarios/{id}). Se agregó aquí solo para poder
-// precargar el formulario de edición; cuando el backend lo defina, ajustar
-// esta función a la ruta real.
+// Integración real contra backend/src/backend/api/rutas_usuario.py
+// (rama feature/HU03-CRUD-de-usuarios). Ver mockData.ts si se necesita
+// volver a datos de prueba sin backend disponible.
 
-const RETRASO_SIMULADO_MS = 300
+const API_BASE_URL = import.meta.env.VITE_API_URL
 
-function retraso(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, RETRASO_SIMULADO_MS))
-}
-
-function rolPorCodigo(codigo: CodigoRol): RolLeer {
-  const rol = ROLES_INTERNOS.find((r) => r.codigo === codigo)
-  if (!rol) {
-    throw new Error('Rol no valido')
+async function leerRespuesta<T>(respuesta: Response): Promise<T> {
+  if (!respuesta.ok) {
+    let mensaje = `Error ${respuesta.status} al comunicarse con el servidor.`
+    try {
+      const cuerpo: unknown = await respuesta.json()
+      if (
+        cuerpo &&
+        typeof cuerpo === 'object' &&
+        'detail' in cuerpo &&
+        typeof (cuerpo as { detail: unknown }).detail === 'string'
+      ) {
+        mensaje = (cuerpo as { detail: string }).detail
+      }
+    } catch {
+      // el cuerpo no era JSON (p. ej. error 500 sin detalle); se usa el mensaje genérico
+    }
+    throw new Error(mensaje)
   }
-  return rol
+  return respuesta.json() as Promise<T>
 }
-
-let usuarios: UsuarioLeer[] = USUARIOS_MOCK.map((usuario) => ({ ...usuario }))
-let siguienteId = Math.max(...usuarios.map((u) => u.id)) + 1
 
 export async function listarUsuarios(): Promise<UsuarioListar[]> {
-  await retraso()
-  return usuarios.map(({ id, correo, nombre_completo, rol, activo }) => ({
-    id,
-    correo,
-    nombre_completo,
-    rol,
-    activo,
-  }))
+  const respuesta = await fetch(`${API_BASE_URL}/usuarios/`)
+  return leerRespuesta<UsuarioListar[]>(respuesta)
 }
 
 export async function obtenerUsuario(id: number): Promise<UsuarioLeer> {
-  await retraso()
-  const usuario = usuarios.find((u) => u.id === id)
-  if (!usuario) {
-    throw new Error('Usuario no encontrado')
-  }
-  return { ...usuario }
+  const respuesta = await fetch(`${API_BASE_URL}/usuarios/${id}`)
+  return leerRespuesta<UsuarioLeer>(respuesta)
 }
 
 export async function crearUsuario(datos: UsuarioCrear): Promise<UsuarioLeer> {
-  await retraso()
-  const correoDuplicado = usuarios.some(
-    (u) => u.correo.toLowerCase() === datos.correo.toLowerCase(),
-  )
-  if (correoDuplicado) {
-    throw new Error('El correo ya existe')
-  }
-
-  const nuevoUsuario: UsuarioLeer = {
-    id: siguienteId++,
-    correo: datos.correo,
-    nombre_completo: datos.nombre_completo,
-    documento_identidad: datos.documento_identidad ?? null,
-    telefono: datos.telefono ?? null,
-    cargo: datos.cargo ?? null,
-    rol: rolPorCodigo(datos.rol),
-    activo: true,
-    ultimo_acceso: null,
-  }
-
-  usuarios = [...usuarios, nuevoUsuario]
-  return { ...nuevoUsuario }
+  const respuesta = await fetch(`${API_BASE_URL}/usuarios/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(datos),
+  })
+  return leerRespuesta<UsuarioLeer>(respuesta)
 }
 
 export async function editarUsuario(
   id: number,
   datos: UsuarioActualizar,
 ): Promise<UsuarioLeer> {
-  await retraso()
-  const usuario = usuarios.find((u) => u.id === id)
-  if (!usuario) {
-    throw new Error('Usuario no encontrado')
-  }
-
-  const actualizado: UsuarioLeer = { ...usuario, ...datos }
-  usuarios = usuarios.map((u) => (u.id === id ? actualizado : u))
-  return { ...actualizado }
+  const respuesta = await fetch(`${API_BASE_URL}/usuarios/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(datos),
+  })
+  return leerRespuesta<UsuarioLeer>(respuesta)
 }
 
 export async function cambiarRolUsuario(
   id: number,
   datos: UsuarioCambiarRol,
 ): Promise<UsuarioLeer> {
-  await retraso()
-  const usuario = usuarios.find((u) => u.id === id)
-  if (!usuario) {
-    throw new Error('Usuario no encontrado')
-  }
-
-  const actualizado: UsuarioLeer = { ...usuario, rol: rolPorCodigo(datos.rol) }
-  usuarios = usuarios.map((u) => (u.id === id ? actualizado : u))
-  return { ...actualizado }
+  const respuesta = await fetch(`${API_BASE_URL}/usuarios/${id}/rol`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(datos),
+  })
+  return leerRespuesta<UsuarioLeer>(respuesta)
 }
 
-export async function desactivarUsuario(id: number): Promise<{ mensaje: string }> {
-  await retraso()
-  const usuario = usuarios.find((u) => u.id === id)
-  if (!usuario) {
-    throw new Error('Usuario no encontrado')
-  }
-  if (!usuario.activo) {
-    throw new Error('El usuario ya esta inactivo')
-  }
-
-  usuarios = usuarios.map((u) => (u.id === id ? { ...u, activo: false } : u))
-  return { mensaje: 'Usuario desactivado correctamente' }
+export async function desactivarUsuario(id: number): Promise<UsuarioLeer> {
+  const respuesta = await fetch(`${API_BASE_URL}/usuarios/${id}/desactivar`, {
+    method: 'POST',
+  })
+  return leerRespuesta<UsuarioLeer>(respuesta)
 }
