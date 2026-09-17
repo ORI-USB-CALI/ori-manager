@@ -51,6 +51,7 @@ class UsuarioLeer(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     correo: EmailStr
     nombre_completo: str
     documento_identidad: str | None
@@ -66,6 +67,7 @@ class UsuarioListar(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     correo: EmailStr
     nombre_completo: str
     rol: RolLeer
