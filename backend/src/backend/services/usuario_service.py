@@ -1,9 +1,10 @@
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 from pwdlib import PasswordHash
-from backend.models.usuario import Usuario
+from sqlalchemy.orm import Session
+
 from backend.models.rol import Rol
-from backend.schemas.usuario import UsuarioCrear, UsuarioActualizar, UsuarioCambiarRol
+from backend.models.usuario import Usuario
+from backend.schemas.usuario import UsuarioActualizar, UsuarioCambiarRol, UsuarioCrear
 
 password_hash = PasswordHash.recommended()
 
@@ -60,7 +61,7 @@ def cambiar_rol(db: Session, usuario_id: int, rol_in: UsuarioCambiarRol):
     if not rol:
         raise HTTPException(status_code=400, detail="Rol no valido")
         
-    usuario.rol_id = rol.id
+    usuario.rol = rol
     db.commit()
     db.refresh(usuario)
     return usuario
