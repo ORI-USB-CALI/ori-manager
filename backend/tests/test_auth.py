@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.core.permisos import PERMISOS_POR_ROL
 from backend.core.roles import CodigoRol
 from backend.services.sesiones import RepositorioSesionesMemoria
@@ -29,7 +30,7 @@ def test_login_valido_crea_cookie_http_only(
     assert "samesite=lax" in cookie
     assert "path=/" in cookie
     assert "max-age=604800" in cookie
-    assert "; secure" not in cookie
+    assert ("; secure" in cookie) == (settings.app_env != "development")
 
 
 def test_login_credenciales_incorrectas_y_usuario_inexistente(
