@@ -20,13 +20,20 @@ CODIGOS_ROL_OFICIALES = {
     "SOLICITANTE_INTERNO",
     "SOLICITANTE_EXTERNO",
 }
-
 PERMISOS_GESTION_USUARIOS = {
     "usuarios.ver",
     "usuarios.crear",
     "usuarios.editar",
     "usuarios.cambiar_rol",
     "usuarios.cambiar_estado",
+}
+PERMISOS_EPICA_02 = {
+    "aliados.ver",
+    "aliados.editar",
+    "aliados.cambiar_estado",
+    "convenios.ver",
+    "convenios.crear",
+    "convenios.editar",
 }
 
 
@@ -45,10 +52,9 @@ def test_tipo_usuario_solo_contiene_interno_y_externo() -> None:
     assert {tipo.value for tipo in TipoUsuario} == {"INTERNO", "EXTERNO"}
 
 
-def test_permisos_coinciden_con_el_alcance_de_gestion_de_usuarios() -> None:
+def test_permisos_coinciden_con_los_alcances_integrados() -> None:
     valores = [permiso.value for permiso in Permiso.__members__.values()]
-
-    assert set(valores) == PERMISOS_GESTION_USUARIOS
+    assert set(valores) == PERMISOS_GESTION_USUARIOS | PERMISOS_EPICA_02
     assert len(valores) == len(set(valores))
 
 
@@ -74,19 +80,23 @@ def test_administrador_ori_posee_todos_los_permisos_definidos() -> None:
     assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(Permiso)
 
 
-@pytest.mark.parametrize(
-    "codigo_rol",
-    [rol for rol in CodigoRol if rol is not CodigoRol.ADMINISTRADOR_ORI],
-)
-def test_otros_roles_no_reciben_permisos_de_gestion_de_usuarios(
-    codigo_rol: CodigoRol,
-) -> None:
-    assert permisos_para_rol(codigo_rol) == frozenset()
+def test_roles_reciben_solo_los_permisos_definidos_para_epica_02() -> None:
+    assert permisos_para_rol(CodigoRol.GESTOR_ORI) == frozenset(Permiso) - {
+        Permiso.USUARIOS_VER,
+        Permiso.USUARIOS_CREAR,
+        Permiso.USUARIOS_EDITAR,
+        Permiso.USUARIOS_CAMBIAR_ROL,
+        Permiso.USUARIOS_CAMBIAR_ESTADO,
+    }
+    assert permisos_para_rol(CodigoRol.REVISOR_ORI) == frozenset(
+        {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER}
+    )
+    assert permisos_para_rol(CodigoRol.SOLICITANTE_INTERNO) == frozenset()
+    assert permisos_para_rol(CodigoRol.SOLICITANTE_EXTERNO) == frozenset()
 
 
 def test_permisos_para_rol_devuelve_un_conjunto_inmutable() -> None:
     resultado = permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI)
-
     assert isinstance(resultado, frozenset)
     with pytest.raises(AttributeError):
         resultado.add(Permiso.USUARIOS_VER)  # type: ignore[attr-defined]
@@ -113,7 +123,6 @@ def test_contratos_no_dependen_de_frameworks_ni_persistencia(
         "backend.migrations",
         "backend.models",
     )
-
     assert not any(
         nombre == prefijo or nombre.startswith(f"{prefijo}.")
         for nombre in imports

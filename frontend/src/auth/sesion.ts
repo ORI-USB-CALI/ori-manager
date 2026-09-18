@@ -17,6 +17,12 @@ export type Permiso =
   | 'usuarios.editar'
   | 'usuarios.cambiar_rol'
   | 'usuarios.cambiar_estado'
+  | 'aliados.ver'
+  | 'aliados.editar'
+  | 'aliados.cambiar_estado'
+  | 'convenios.ver'
+  | 'convenios.crear'
+  | 'convenios.editar'
 
 export interface RolSesion {
   codigo: CodigoRol

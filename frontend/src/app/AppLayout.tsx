@@ -40,6 +40,10 @@ export function AppLayout() {
           <NavLink to="/" end>
             Inicio
           </NavLink>
+          {puede('aliados.ver') && <NavLink to="/aliados">Aliados</NavLink>}
+          {puede('convenios.crear') && (
+            <NavLink to="/convenios/nuevo">Nuevo convenio</NavLink>
+          )}
           {puede('usuarios.ver') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}
         </nav>
 
