@@ -1,8 +1,11 @@
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.usuario import Usuario
 from backend.services.sesiones import RepositorioSesionesMemoria
 
 
@@ -46,6 +49,48 @@ def test_listar_y_obtener_usuario(
     assert detalle.json()["correo"] == otro.correo
 
 
+def test_listado_y_detalle_excluyen_usuarios_externos(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    admin = _autenticar_admin(client, crear_usuario, entrar_como)
+    interno = crear_usuario()
+    externo = crear_usuario(
+        CodigoRol.SOLICITANTE_EXTERNO,
+        TipoUsuario.EXTERNO,
+    )
+
+    listado = client.get("/api/usuarios")
+
+    assert listado.status_code == 200
+    ids = {usuario["id"] for usuario in listado.json()}
+    assert ids >= {admin.id, interno.id}
+    assert externo.id not in ids
+    assert client.get(f"/api/usuarios/{externo.id}").status_code == 404
+    assert (
+        client.patch(
+            f"/api/usuarios/{externo.id}",
+            json={"cargo": "No permitido"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            f"/api/usuarios/{externo.id}/rol",
+            json={"rol": CodigoRol.GESTOR_ORI.value},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            f"/api/usuarios/{externo.id}/estado",
+            json={"activo": False},
+        ).status_code
+        == 404
+    )
+
+
 def test_crear_usuario_y_no_exponer_hash(
     client: TestClient,
     crear_usuario,
@@ -63,6 +108,25 @@ def test_crear_usuario_y_no_exponer_hash(
     serializado = respuesta.text
     assert "hash_contrasena" not in serializado
     assert "contrasena" not in serializado
+
+
+@pytest.mark.parametrize(
+    "campo",
+    ["correo", "contrasena", "nombre_completo", "rol"],
+)
+def test_creacion_rechaza_campos_obligatorios_ausentes(
+    campo: str,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    datos = _datos_usuario()
+    del datos[campo]
+
+    respuesta = client.post("/api/usuarios", json=datos)
+
+    assert respuesta.status_code == 422
 
 
 def test_creacion_exige_contrasena_minima(
@@ -125,6 +189,37 @@ def test_editar_datos_y_contrasena(
     assert login.status_code == 200
 
 
+def test_edicion_parcial_conserva_campos_no_enviados(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    usuario = crear_usuario(correo="parcial@example.com")
+    datos_antes = client.get(f"/api/usuarios/{usuario.id}").json()
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"cargo": "Coordinador"},
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["cargo"] == "Coordinador"
+    for campo in (
+        "correo",
+        "nombre_completo",
+        "documento_identidad",
+        "telefono",
+        "tipo_usuario",
+        "entidad_externa",
+        "activo",
+        "rol",
+        "unidad_organizacional_id",
+    ):
+        assert cuerpo[campo] == datos_antes[campo]
+
+
 def test_edicion_general_rechaza_rol_estado_y_tipo(
     client: TestClient,
     crear_usuario,
@@ -173,7 +268,9 @@ def test_cambio_de_rol_aplica_a_sesion_existente(
     admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
     usuario = crear_usuario(CodigoRol.GESTOR_ORI)
     token_usuario = entrar_como(usuario)
-    entrar_como(admin)
+    assert client.get("/api/usuarios").status_code == 403
+
+    token_admin = entrar_como(admin)
     respuesta = client.patch(
         f"/api/usuarios/{usuario.id}/rol",
         json={"rol": CodigoRol.ADMINISTRADOR_ORI.value},
@@ -182,6 +279,16 @@ def test_cambio_de_rol_aplica_a_sesion_existente(
 
     client.cookies.set("session_id", token_usuario)
     assert client.get("/api/usuarios").status_code == 200
+
+    client.cookies.set("session_id", token_admin)
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}/rol",
+        json={"rol": CodigoRol.GESTOR_ORI.value},
+    )
+    assert respuesta.status_code == 200
+
+    client.cookies.set("session_id", token_usuario)
+    assert client.get("/api/usuarios").status_code == 403
 
 
 def test_cambiar_estado_invalida_sesiones(
@@ -203,6 +310,36 @@ def test_cambiar_estado_invalida_sesiones(
     assert respuesta.status_code == 200
     assert respuesta.json()["activo"] is False
     assert sesiones.obtener_por_token(token_usuario) is None
+    client.cookies.clear()
+    login = client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+    )
+    assert login.status_code == 403
+    assert login.cookies.get("session_id") is None
+
+
+def test_desactivar_usuario_ya_inactivo_responde_409(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    usuario = crear_usuario()
+
+    primera = client.patch(
+        f"/api/usuarios/{usuario.id}/estado",
+        json={"activo": False},
+    )
+    segunda = client.patch(
+        f"/api/usuarios/{usuario.id}/estado",
+        json={"activo": False},
+    )
+
+    assert primera.status_code == 200
+    assert segunda.status_code == 409
+    assert segunda.json()["detail"] == "El usuario ya se encuentra inactivo"
+    assert client.get(f"/api/usuarios/{usuario.id}").json()["activo"] is False
 
 
 def test_correo_duplicado_responde_409(
@@ -225,6 +362,8 @@ def test_correo_duplicado_responde_409(
 
     assert crear.status_code == 409
     assert editar.status_code == 409
+    assert crear.json()["detail"] == "Ya existe un usuario con ese correo"
+    assert editar.json()["detail"] == "Ya existe un usuario con ese correo"
 
 
 def test_usuario_inexistente_responde_404(
@@ -262,9 +401,14 @@ def test_rol_inexistente_e_incompatibilidad_responden_422(
             tipo_usuario=TipoUsuario.INTERNO,
         ),
     )
+    invitado = client.post(
+        "/api/usuarios",
+        json={**_datos_usuario(), "rol": "INVITADO"},
+    )
 
     assert inexistente.status_code == 422
     assert incompatible.status_code == 422
+    assert invitado.status_code == 422
 
 
 def test_unidad_inexistente_responde_422(
@@ -298,7 +442,7 @@ def test_admin_no_puede_cambiar_su_rol_ni_desactivarse(
     assert estado.status_code == 409
 
 
-def test_usuario_externo_con_rol_externo_es_valido(
+def test_administracion_rechaza_creacion_de_usuario_externo(
     client: TestClient,
     crear_usuario,
     entrar_como,
@@ -313,5 +457,45 @@ def test_usuario_externo_con_rol_externo_es_valido(
         ),
     )
 
-    assert respuesta.status_code == 201
-    assert respuesta.json()["tipo_usuario"] == TipoUsuario.EXTERNO
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == (
+        "El módulo administrativo solo permite crear usuarios internos"
+    )
+
+
+def test_usuario_desactivado_conserva_identidad_y_ultimo_acceso(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario(correo="trazabilidad@example.com")
+
+    login = client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+    )
+    assert login.status_code == 200
+
+    entrar_como(admin)
+    antes = client.get(f"/api/usuarios/{usuario.id}").json()
+    assert antes["ultimo_acceso"] is not None
+
+    desactivar = client.patch(
+        f"/api/usuarios/{usuario.id}/estado",
+        json={"activo": False},
+    )
+    despues = client.get(f"/api/usuarios/{usuario.id}")
+
+    assert desactivar.status_code == 200
+    assert despues.status_code == 200
+    cuerpo = despues.json()
+    assert cuerpo["id"] == antes["id"]
+    assert cuerpo["correo"] == antes["correo"]
+    assert cuerpo["activo"] is False
+    assert cuerpo["ultimo_acceso"] == antes["ultimo_acceso"]
+    persistido = db.get(Usuario, usuario.id)
+    assert persistido is not None
+    assert persistido.id == antes["id"]
+    assert client.delete(f"/api/usuarios/{usuario.id}").status_code == 405

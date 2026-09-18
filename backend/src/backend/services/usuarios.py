@@ -41,6 +41,7 @@ class ServicioUsuarios:
             self.db.scalars(
                 select(Usuario)
                 .options(joinedload(Usuario.rol))
+                .where(Usuario.tipo_usuario == TipoUsuario.INTERNO.value)
                 .order_by(Usuario.correo)
             )
         )
@@ -49,13 +50,20 @@ class ServicioUsuarios:
         usuario = self.db.scalar(
             select(Usuario)
             .options(joinedload(Usuario.rol))
-            .where(Usuario.id == usuario_id)
+            .where(
+                Usuario.id == usuario_id,
+                Usuario.tipo_usuario == TipoUsuario.INTERNO.value,
+            )
         )
         if usuario is None:
             raise UsuarioNoEncontradoError
         return usuario
 
     def crear(self, datos: UsuarioCrear) -> Usuario:
+        if datos.tipo_usuario is not TipoUsuario.INTERNO:
+            raise ReferenciaUsuarioInvalidaError(
+                "El módulo administrativo solo permite crear usuarios internos"
+            )
         self._validar_correo_disponible(str(datos.correo))
         rol = self._obtener_rol(datos.rol)
         self._validar_compatibilidad(rol, datos.tipo_usuario)
@@ -119,6 +127,8 @@ class ServicioUsuarios:
         usuario = self.obtener(usuario_id)
         if usuario.id == actor.id and not activo:
             raise ConflictoUsuarioError("No puede desactivar su propio usuario")
+        if not usuario.activo and not activo:
+            raise ConflictoUsuarioError("El usuario ya se encuentra inactivo")
         usuario.activo = activo
         usuario = self._guardar(usuario)
         if not activo:

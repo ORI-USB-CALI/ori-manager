@@ -5,22 +5,26 @@ import { ApiError, apiFetch } from '../app/api'
 import {
   CLAVE_SESION,
   type CodigoRol,
-  type TipoUsuario,
   useSesion,
 } from '../auth/sesion'
 import { Select } from '../components/Select'
-import {
-  OPCIONES_TIPO,
-  type Usuario,
-  etiquetaTipo,
-  opcionesRol,
-} from './usuarios'
+import { type Usuario, etiquetaTipo, opcionesRol } from './usuarios'
 
 interface Props {
   usuario?: Usuario
   onGuardado: (mensaje: string) => Promise<unknown>
   onCerrar: () => void
 }
+
+type CampoCreacion = 'correo' | 'contrasena' | 'nombre_completo' | 'rol'
+type ErroresCreacion = Partial<Record<CampoCreacion, string>>
+
+const OPCIONES_ROL_INTERNO = [
+  { value: '', label: 'Seleccione un rol' },
+  ...opcionesRol('INTERNO'),
+]
+
+const PATRON_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function texto(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -37,8 +41,8 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
   const queryClient = useQueryClient()
   const { sesion, puede } = useSesion()
   const esPropio = usuario?.id === sesion?.id
-  const [tipo, setTipo] = useState<TipoUsuario>(usuario?.tipo_usuario ?? 'INTERNO')
-  const [rol, setRol] = useState<CodigoRol>(usuario?.rol.codigo ?? 'GESTOR_ORI')
+  const [rol, setRol] = useState<CodigoRol | ''>(usuario?.rol.codigo ?? '')
+  const [erroresCreacion, setErroresCreacion] = useState<ErroresCreacion>({})
 
   async function completar(mensaje: string, afectaSesion = false) {
     await onGuardado(mensaje)
@@ -84,9 +88,20 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
     dialogo.current?.showModal()
   }, [])
 
-  function cambiarTipo(nuevoTipo: TipoUsuario) {
-    setTipo(nuevoTipo)
-    setRol(opcionesRol(nuevoTipo)[0].value as CodigoRol)
+  function validarCreacion(form: FormData, contrasena: string): ErroresCreacion {
+    const errores: ErroresCreacion = {}
+    const correo = valorFormulario(form, 'correo')
+    if (!correo) errores.correo = 'El correo es obligatorio.'
+    else if (!PATRON_CORREO.test(correo)) errores.correo = 'Ingrese un correo válido.'
+    if (!valorFormulario(form, 'nombre_completo')) {
+      errores.nombre_completo = 'El nombre completo es obligatorio.'
+    }
+    if (!contrasena) errores.contrasena = 'La contraseña es obligatoria.'
+    else if (contrasena.length < 8) {
+      errores.contrasena = 'La contraseña debe tener al menos 8 caracteres.'
+    }
+    if (!rol) errores.rol = 'Seleccione un rol.'
+    return errores
   }
 
   function enviar(evento: FormEvent<HTMLFormElement>) {
@@ -95,11 +110,15 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
     const contrasena = String(form.get('contrasena') ?? '')
 
     if (!usuario) {
+      if (pendiente) return
+      const errores = validarCreacion(form, contrasena)
+      setErroresCreacion(errores)
+      if (Object.keys(errores).length > 0 || !rol) return
       const datos: Record<string, unknown> = {
         correo: valorFormulario(form, 'correo'),
         contrasena,
         nombre_completo: valorFormulario(form, 'nombre_completo'),
-        tipo_usuario: tipo,
+        tipo_usuario: 'INTERNO',
         rol,
       }
       for (const campo of [
@@ -140,7 +159,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
 
   return (
     <dialog ref={dialogo} className="modal" onClose={onCerrar} aria-labelledby="usuario-modal-titulo">
-      <form onSubmit={enviar}>
+      <form onSubmit={enviar} noValidate>
         <div className="modal-header">
           <div>
             <h2 id="usuario-modal-titulo">{usuario ? 'Gestionar usuario' : 'Nuevo usuario'}</h2>
@@ -172,12 +191,27 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
               <input
                 id="usuario-nombre"
                 name="nombre_completo"
-                className="form-control"
+                className={`form-control ${erroresCreacion.nombre_completo ? 'is-invalid' : ''}`}
                 defaultValue={usuario?.nombre_completo}
                 required
                 disabled={!puedeEditar}
                 autoFocus
+                aria-invalid={Boolean(erroresCreacion.nombre_completo)}
+                aria-describedby={
+                  erroresCreacion.nombre_completo ? 'usuario-nombre-error' : undefined
+                }
+                onChange={() =>
+                  setErroresCreacion((actuales) => ({
+                    ...actuales,
+                    nombre_completo: undefined,
+                  }))
+                }
               />
+              {erroresCreacion.nombre_completo && (
+                <small id="usuario-nombre-error" className="form-error">
+                  {erroresCreacion.nombre_completo}
+                </small>
+              )}
             </div>
             <div className="form-group form-span-2">
               <label className="form-label" htmlFor="usuario-correo">
@@ -187,12 +221,22 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 id="usuario-correo"
                 name="correo"
                 type="email"
-                className="form-control"
+                className={`form-control ${erroresCreacion.correo ? 'is-invalid' : ''}`}
                 defaultValue={usuario?.correo}
                 required
                 disabled={!puedeEditar}
                 autoComplete="username"
+                aria-invalid={Boolean(erroresCreacion.correo)}
+                aria-describedby={erroresCreacion.correo ? 'usuario-correo-error' : undefined}
+                onChange={() =>
+                  setErroresCreacion((actuales) => ({ ...actuales, correo: undefined }))
+                }
               />
+              {erroresCreacion.correo && (
+                <small id="usuario-correo-error" className="form-error">
+                  {erroresCreacion.correo}
+                </small>
+              )}
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor="usuario-documento">
@@ -250,32 +294,55 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 id="usuario-contrasena"
                 name="contrasena"
                 type="password"
-                className="form-control"
+                className={`form-control ${erroresCreacion.contrasena ? 'is-invalid' : ''}`}
                 minLength={8}
                 required={!usuario}
                 disabled={!puedeEditar}
                 autoComplete="new-password"
                 placeholder={usuario ? 'Vacío para conservar la actual' : 'Mínimo 8 caracteres'}
+                aria-invalid={Boolean(erroresCreacion.contrasena)}
+                aria-describedby={
+                  erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined
+                }
+                onChange={() =>
+                  setErroresCreacion((actuales) => ({
+                    ...actuales,
+                    contrasena: undefined,
+                  }))
+                }
               />
+              {erroresCreacion.contrasena && (
+                <small id="usuario-contrasena-error" className="form-error">
+                  {erroresCreacion.contrasena}
+                </small>
+              )}
             </div>
           </div>
 
           {!usuario ? (
             <div className="form-grid">
-              <Select
-                id="usuario-tipo"
-                label="Tipo de usuario"
-                value={tipo}
-                opciones={OPCIONES_TIPO}
-                onChange={(evento) => cambiarTipo(evento.target.value as TipoUsuario)}
-              />
-              <Select
-                id="usuario-rol"
-                label="Rol"
-                value={rol}
-                opciones={opcionesRol(tipo)}
-                onChange={(evento) => setRol(evento.target.value as CodigoRol)}
-              />
+              <div>
+                <Select
+                  id="usuario-rol"
+                  name="rol"
+                  label="Rol"
+                  value={rol}
+                  opciones={OPCIONES_ROL_INTERNO}
+                  required
+                  aria-invalid={Boolean(erroresCreacion.rol)}
+                  aria-describedby={erroresCreacion.rol ? 'usuario-rol-error' : undefined}
+                  className={erroresCreacion.rol ? 'is-invalid' : undefined}
+                  onChange={(evento) => {
+                    setRol(evento.target.value as CodigoRol | '')
+                    setErroresCreacion((actuales) => ({ ...actuales, rol: undefined }))
+                  }}
+                />
+                {erroresCreacion.rol && (
+                  <small id="usuario-rol-error" className="form-error">
+                    {erroresCreacion.rol}
+                  </small>
+                )}
+              </div>
             </div>
           ) : (
             <p className="dato-solo-lectura">
@@ -306,7 +373,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
               type="button"
               className="btn btn-outline"
               disabled={esPropio || pendiente || rol === usuario.rol.codigo}
-              onClick={() => cambiarRol.mutate(rol)}
+              onClick={() => rol && cambiarRol.mutate(rol)}
             >
               {cambiarRol.isPending ? 'Actualizando…' : 'Actualizar rol'}
             </button>
