@@ -41,11 +41,6 @@ export function opcionesRol(tipo: TipoUsuario) {
   }))
 }
 
-export const OPCIONES_TIPO = [
-  { value: 'INTERNO', label: 'Interno' },
-  { value: 'EXTERNO', label: 'Externo' },
-] as const
-
 export function etiquetaTipo(tipo: TipoUsuario): string {
   return tipo === 'INTERNO' ? 'Interno' : 'Externo'
 }
