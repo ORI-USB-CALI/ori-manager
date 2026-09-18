@@ -2,11 +2,12 @@ import { Link } from 'react-router-dom'
 
 export function NotFoundPage() {
   return (
-    <main>
+    <section className="card estado-vacio">
       <h1>404</h1>
-      <p>The requested page was not found.</p>
-
-      <Link to="/">Return to home</Link>
-    </main>
+      <p>La página solicitada no existe.</p>
+      <Link to="/" className="btn btn-primary">
+        Volver al inicio
+      </Link>
+    </section>
   )
 }
