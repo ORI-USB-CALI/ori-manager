@@ -1,0 +1,14 @@
+:root {
+  --color-naranja: #f36c21;
+  --color-rojo: #d91a2a;
+  --color-magenta: #d82374;
+  --gradiente-ori: linear-gradient(135deg, #f36c21 0%, #d82374 50%, #d91a2a 100%);
+  --bg-main: #f8f9fa;
+  --bg-surface: #ffffff;
+  --text-primary: #1a1d20;
+  --text-secondary: #5a626a;
+  --border-color: #e2e8f0;
+  --color-error: #dc2626;
+  --color-success: #15803d;
+  --font-family: 'Montserrat', system-ui, sans-serif;
+}
