@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../app/api'
 
 export type TipoAliado = 'UNIVERSIDAD' | 'COLEGIO' | 'EMPRESA' | 'ENTIDAD_GUBERNAMENTAL'
+export type TipoIdentificacion = 'NIT' | 'CEDULA_CIUDADANIA' | 'CEDULA_EXTRANJERIA' | 'PASAPORTE' | 'IDENTIFICACION_FISCAL_EXTRANJERA' | 'OTRO'
+export const TIPOS_IDENTIFICACION: TipoIdentificacion[] = ['NIT', 'CEDULA_CIUDADANIA', 'CEDULA_EXTRANJERIA', 'PASAPORTE', 'IDENTIFICACION_FISCAL_EXTRANJERA', 'OTRO']
 export type EstadoConvenio =
   | 'EN_TRAMITE'
   | 'VIGENTE'
@@ -30,6 +32,7 @@ export interface Aliado {
   tipo: TipoAliado
   sector_economico: string | null
   identificacion: string
+  tipo_identificacion: TipoIdentificacion
   pais_id: number | null
   ciudad: string | null
   direccion: string | null

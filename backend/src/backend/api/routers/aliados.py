@@ -11,7 +11,9 @@ from backend.models.enums import TipoAliado
 from backend.models.usuario import Usuario
 from backend.schemas.aliado import (
     AliadoActualizar,
+    AliadoAdministracion,
     AliadoCambiarEstado,
+    AliadoCorregirIdentificacion,
     AliadoLeer,
     AliadoListado,
     AliadoPerfil,
@@ -30,6 +32,7 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.ALIADOS_VER)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.ALIADOS_EDITAR)]
 PuedeCambiarEstado = Annotated[Usuario, requiere(Permiso.ALIADOS_CAMBIAR_ESTADO)]
+PuedeCorregirIdentificacion = Annotated[Usuario, requiere(Permiso.ALIADOS_CORREGIR_IDENTIFICACION)]
 
 
 def _lanzar_http(exc: ErrorAliado) -> NoReturn:
@@ -92,5 +95,31 @@ def cambiar_estado_aliado(
 ) -> Aliado:
     try:
         return ServicioAliados(db).cambiar_estado(aliado_id, datos.activo)
+    except ErrorAliado as exc:
+        _lanzar_http(exc)
+
+
+@router.patch("/{aliado_id}/identificacion", response_model=AliadoLeer)
+def corregir_identificacion_aliado(
+    aliado_id: int,
+    datos: AliadoCorregirIdentificacion,
+    db: DatabaseSession,
+    _: PuedeCorregirIdentificacion,
+) -> Aliado:
+    try:
+        return ServicioAliados(db).corregir_identificacion(aliado_id, datos)
+    except ErrorAliado as exc:
+        _lanzar_http(exc)
+
+
+@router.patch("/{aliado_id}/administracion", response_model=AliadoLeer)
+def actualizar_aliado_administracion(
+    aliado_id: int,
+    datos: AliadoAdministracion,
+    db: DatabaseSession,
+    _: PuedeCorregirIdentificacion,
+) -> Aliado:
+    try:
+        return ServicioAliados(db).actualizar_administracion(aliado_id, datos)
     except ErrorAliado as exc:
         _lanzar_http(exc)
