@@ -2,14 +2,20 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from backend.models.aliado import Aliado
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoConvenio, TipoAliado
+from backend.models.enums import EstadoConvenio, TipoAliado, TipoIdentificacion
 from backend.models.pais import Pais
-from backend.schemas.aliado import AliadoActualizar, DatosContraparteSolicitud
+from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.schemas.aliado import (
+    AliadoActualizar,
+    AliadoAdministracion,
+    AliadoCorregirIdentificacion,
+)
 
 
 class ErrorAliado(Exception):
@@ -121,6 +127,57 @@ class ServicioAliados:
         self.db.refresh(aliado)
         return aliado
 
+    def corregir_identificacion(
+        self, aliado_id: int, datos: AliadoCorregirIdentificacion
+    ) -> Aliado:
+        aliado = self.obtener(aliado_id)
+        duplicado = self.db.scalar(select(Aliado.id).where(
+            Aliado.tipo_identificacion == datos.tipo_identificacion.value,
+            Aliado.identificacion == datos.identificacion,
+            Aliado.id != aliado_id,
+        ))
+        if duplicado is not None:
+            raise ConflictoAliado("Ya existe un aliado con ese tipo y documento")
+        aliado.tipo_identificacion = datos.tipo_identificacion.value
+        aliado.identificacion = datos.identificacion
+        self.db.commit()
+        self.db.refresh(aliado)
+        return aliado
+
+    def actualizar_administracion(
+        self, aliado_id: int, datos: AliadoAdministracion
+    ) -> Aliado:
+        aliado = self.obtener(aliado_id)
+        cambios = datos.model_dump(exclude_unset=True)
+        tipo = cambios.get("tipo", aliado.tipo)
+        if tipo is None or ("nombre" in cambios and cambios["nombre"] is None):
+            raise ReferenciaAliadoInvalida("Nombre y tipo del aliado son obligatorios")
+        tipo_valor = tipo.value if isinstance(tipo, TipoAliado) else tipo
+        sector = cambios.get("sector_economico", aliado.sector_economico)
+        _validar_sector(tipo_valor, sector.strip() if sector else None)
+        pais_id = cambios.get("pais_id")
+        if pais_id is not None and self.db.get(Pais, pais_id) is None:
+            raise ReferenciaAliadoInvalida("El país seleccionado no existe")
+        duplicado = self.db.scalar(select(Aliado.id).where(
+            Aliado.tipo_identificacion == datos.tipo_identificacion.value,
+            Aliado.identificacion == datos.identificacion,
+            Aliado.id != aliado_id,
+        ))
+        if duplicado is not None:
+            raise ConflictoAliado("Ya existe un aliado con ese tipo y documento")
+        for campo, valor in cambios.items():
+            setattr(
+                aliado, campo,
+                valor.value if isinstance(valor, (TipoAliado, TipoIdentificacion)) else valor,
+            )
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ConflictoAliado("Ya existe un aliado con ese tipo y documento") from exc
+        self.db.refresh(aliado)
+        return aliado
+
 
 def _registrar_correo(db: Session, aliado: Aliado, correo: str | None) -> None:
     if not correo:
@@ -148,29 +205,61 @@ def _registrar_correo(db: Session, aliado: Aliado, correo: str | None) -> None:
     aliado.correo = correo
 
 
-def resolver_aliado_para_convenio(
-    db: Session,
-    convenio: Convenio,
-    datos: DatosContraparteSolicitud,
+def _buscar_por_identificacion(db: Session, solicitud: SolicitudConvenio) -> Aliado | None:
+    tipo = solicitud.tipo_identificacion_aliado_propuesto
+    identificacion = (solicitud.identificacion_aliado_propuesto or "").strip()
+    if not tipo or not identificacion:
+        return None
+    return db.scalar(select(Aliado).where(
+        Aliado.tipo_identificacion == tipo,
+        Aliado.identificacion == identificacion,
+    ))
+
+
+def resolver_aliado_existente_para_solicitud(
+    db: Session, solicitud: SolicitudConvenio
 ) -> Aliado | None:
-    """Asocia la contraparte al formalizar un convenio, usando identificación."""
+    """Reconoce la contraparte persistida sin crear un aliado."""
+    aliado = _buscar_por_identificacion(db, solicitud)
+    solicitud.aliado_id = aliado.id if aliado is not None else None
+    db.flush()
+    return aliado
+
+
+def resolver_aliado_para_convenio(db: Session, convenio: Convenio) -> Aliado | None:
+    """Asocia la contraparte persistida solo al formalizar el convenio."""
     if convenio.estado != EstadoConvenio.VIGENTE:
         return None
-
-    aliado = db.scalar(
-        select(Aliado).where(Aliado.identificacion == datos.identificacion)
-    )
+    solicitud = convenio.solicitud
+    aliado = db.get(Aliado, solicitud.aliado_id) if solicitud.aliado_id else None
+    if solicitud.aliado_id and aliado is None:
+        raise ReferenciaAliadoInvalida("El aliado de la solicitud no existe")
+    if aliado is None:
+        aliado = _buscar_por_identificacion(db, solicitud)
     if aliado is not None and not aliado.activo:
         raise ConflictoAliado(
             "El aliado está inactivo; debe reactivarse antes de asociarlo"
         )
     if aliado is None:
-        _validar_sector(datos.tipo.value, datos.sector_economico)
-        aliado = Aliado(**datos.model_dump(exclude={"correo"}), correo=datos.correo)
+        nombre = (solicitud.nombre_aliado_propuesto or "").strip()
+        identificacion = (solicitud.identificacion_aliado_propuesto or "").strip()
+        tipo_identificacion = solicitud.tipo_identificacion_aliado_propuesto
+        tipo = solicitud.tipo_aliado_propuesto
+        if not nombre or not identificacion or not tipo_identificacion or not tipo:
+            raise ReferenciaAliadoInvalida("Faltan datos persistidos de la contraparte")
+        if tipo_identificacion not in TipoIdentificacion or tipo not in TipoAliado:
+            raise ReferenciaAliadoInvalida("Tipo de contraparte o documento inválido")
+        sector = (solicitud.sector_economico_aliado_propuesto or "").strip() or None
+        _validar_sector(tipo, sector)
+        aliado = Aliado(
+            nombre=nombre, tipo=tipo, tipo_identificacion=tipo_identificacion,
+            identificacion=identificacion, sector_economico=sector,
+            correo=(solicitud.correo_aliado_propuesto or "").strip() or None,
+        )
         db.add(aliado)
         db.flush()
-    _registrar_correo(db, aliado, str(datos.correo) if datos.correo else None)
+    _registrar_correo(db, aliado, (solicitud.correo_aliado_propuesto or "").strip() or None)
     convenio.aliado_id = aliado.id
-    convenio.solicitud.aliado_id = aliado.id
+    solicitud.aliado_id = aliado.id
     db.flush()
     return aliado

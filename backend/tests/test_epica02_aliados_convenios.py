@@ -15,12 +15,16 @@ from backend.models.enums import (
     EstadoConvenio,
     EstadoSolicitud,
     TipoAliado,
+    TipoIdentificacion,
     TipoSolicitante,
 )
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.aliado import DatosContraparteSolicitud
-from backend.services.aliados import ConflictoAliado, resolver_aliado_para_convenio
+from backend.services.aliados import (
+    ConflictoAliado,
+    resolver_aliado_existente_para_solicitud,
+    resolver_aliado_para_convenio,
+)
 
 
 @pytest.fixture
@@ -29,7 +33,8 @@ def crear_aliado(db: Session) -> Callable[..., Aliado]:
         datos = {
             "nombre": "Universidad aliada",
             "tipo": TipoAliado.UNIVERSIDAD.value,
-            "identificacion": f"ALI-{uuid4().hex}",
+            "tipo_identificacion": TipoIdentificacion.NIT.value,
+            "identificacion": str(900000000 + (uuid4().int % 99999999)),
             "correo": "contacto@aliada.example",
             "activo": True,
         }
@@ -100,104 +105,132 @@ def _payload_convenio(solicitud_id: int, aliado_id: int | None = None) -> dict:
     }
 
 
-# HU04 CA-01 a CA-05: conversión automática y trazabilidad de correo.
-def test_hu04_ca01_en_tramite_no_crea_ni_asocia_aliado(
+# HU04 CA-01 a CA-05: contraparte persistida y formalización.
+def _contraparte(numero: str, correo: str = "contacto@fundacionabc.org") -> dict:
+    return {
+        "nombre_aliado_propuesto": "Fundación ABC",
+        "tipo_identificacion_aliado_propuesto": TipoIdentificacion.NIT.value,
+        "identificacion_aliado_propuesto": numero,
+        "tipo_aliado_propuesto": TipoAliado.ENTIDAD_GUBERNAMENTAL.value,
+        "correo_aliado_propuesto": correo,
+    }
+
+
+def _nit_unico() -> str:
+    return str(900000000 + (uuid4().int % 99999999))
+
+
+def test_hu04_ca01_solicitud_conserva_contraparte_sin_crear_aliado(
     db, crear_usuario, crear_solicitud
 ) -> None:
     usuario = crear_usuario()
-    solicitud = crear_solicitud(usuario)
+    identificacion = _nit_unico()
+    solicitud = crear_solicitud(usuario, **_contraparte(identificacion))
     convenio = _crear_convenio(db, solicitud, usuario)
-
-    resultado = resolver_aliado_para_convenio(
-        db,
-        convenio,
-        DatosContraparteSolicitud(
-            identificacion="NUEVA-1",
-            nombre="Entidad propuesta",
-            tipo=TipoAliado.UNIVERSIDAD,
-            correo="nuevo@example.com",
-        ),
-    )
-
-    assert resultado is None
-    assert convenio.aliado_id is None
-    assert solicitud.aliado_id is None
-    assert db.scalar(select(Aliado).where(Aliado.identificacion == "NUEVA-1")) is None
+    assert solicitud.solicitante_id == usuario.id
+    assert solicitud.nombre_aliado_propuesto == "Fundación ABC"
+    assert solicitud.tipo_identificacion_aliado_propuesto == TipoIdentificacion.NIT
+    assert solicitud.identificacion_aliado_propuesto == identificacion
+    assert solicitud.tipo_aliado_propuesto == TipoAliado.ENTIDAD_GUBERNAMENTAL
+    assert solicitud.correo_aliado_propuesto == "contacto@fundacionabc.org"
+    assert resolver_aliado_existente_para_solicitud(db, solicitud) is None
+    assert resolver_aliado_para_convenio(db, convenio) is None
+    assert convenio.estado == EstadoConvenio.EN_TRAMITE
+    assert solicitud.aliado_id is None and convenio.aliado_id is None
+    assert db.scalar(select(Aliado).where(Aliado.identificacion == identificacion)) is None
 
 
-def test_hu04_ca02_ca03_ca04_vigente_crea_y_reutiliza_por_identificacion(
-    db, crear_usuario, crear_solicitud
+def test_hu04_ca02_reconoce_aliado_por_pareja_sin_crear(
+    db, crear_usuario, crear_solicitud, crear_aliado
 ) -> None:
-    usuario = crear_usuario()
-    datos = DatosContraparteSolicitud(
-        identificacion="NIT-COMPARTIDO",
-        nombre="Empresa compartida",
-        tipo=TipoAliado.EMPRESA,
-        sector_economico="Tecnología",
-        correo="uno@example.com",
+    aliado = crear_aliado(identificacion="900123456")
+    solicitud = crear_solicitud(crear_usuario(), **_contraparte("900123456"))
+    encontrado = resolver_aliado_existente_para_solicitud(db, solicitud)
+    assert encontrado is not None and encontrado.id == aliado.id
+    assert solicitud.aliado_id == aliado.id
+    assert len(db.scalars(select(Aliado).where(Aliado.identificacion == "900123456")).all()) == 1
+
+
+def test_hu04_documento_igual_de_tipo_distinto_no_colisiona_ni_se_confunde(
+    db, crear_usuario, crear_solicitud, crear_aliado
+) -> None:
+    nit = crear_aliado(identificacion="900123456")
+    pasaporte = crear_aliado(
+        identificacion="900123456", tipo_identificacion=TipoIdentificacion.PASAPORTE.value
     )
-    solicitud_1 = crear_solicitud(usuario)
-    convenio_1 = _crear_convenio(db, solicitud_1, usuario, estado=EstadoConvenio.VIGENTE)
-    aliado_1 = resolver_aliado_para_convenio(db, convenio_1, datos)
-    db.commit()
-    solicitud_2 = crear_solicitud(usuario)
-    convenio_2 = _crear_convenio(db, solicitud_2, usuario, estado=EstadoConvenio.VIGENTE)
-    aliado_2 = resolver_aliado_para_convenio(db, convenio_2, datos)
-    db.commit()
-
-    assert aliado_1 is not None and aliado_2 is not None
-    assert aliado_1.id == aliado_2.id
-    assert convenio_1.aliado_id == aliado_1.id == solicitud_1.aliado_id
-    assert convenio_2.aliado_id == aliado_1.id == solicitud_2.aliado_id
-    assert len(db.scalars(select(Aliado).where(Aliado.identificacion == "NIT-COMPARTIDO")).all()) == 1
+    solicitud = crear_solicitud(crear_usuario(), **{
+        **_contraparte("900123456"),
+        "tipo_identificacion_aliado_propuesto": TipoIdentificacion.PASAPORTE.value,
+    })
+    encontrado = resolver_aliado_existente_para_solicitud(db, solicitud)
+    assert encontrado is not None and encontrado.id == pasaporte.id != nit.id
 
 
-def test_hu04_ca05_correo_distinto_no_duplica_aliado_y_conserva_contactos(
+def test_hu04_vigente_reutiliza_aliado_ya_asociado_a_solicitud(
     db, crear_usuario, crear_solicitud, crear_aliado
 ) -> None:
     usuario = crear_usuario()
-    aliado = crear_aliado(identificacion="NIT-CORREO", correo="anterior@example.com")
-    solicitud = crear_solicitud(usuario)
-    convenio = _crear_convenio(db, solicitud, usuario, estado=EstadoConvenio.VIGENTE)
-
-    resultado = resolver_aliado_para_convenio(
-        db,
-        convenio,
-        DatosContraparteSolicitud(
-            identificacion="NIT-CORREO",
-            nombre="Universidad aliada",
-            tipo=TipoAliado.UNIVERSIDAD,
-            correo="nuevo@example.com",
-        ),
+    aliado = crear_aliado(identificacion="900123456")
+    solicitud = crear_solicitud(
+        usuario, aliado_id=aliado.id,
+        correo_aliado_propuesto="nuevo@example.com",
     )
-    db.commit()
+    convenio = _crear_convenio(db, solicitud, usuario, estado=EstadoConvenio.VIGENTE)
+    resultado = resolver_aliado_para_convenio(db, convenio)
+    assert resultado is not None and resultado.id == aliado.id
+    assert convenio.aliado_id == aliado.id
+    assert resultado.correo == "nuevo@example.com"
 
+
+def test_hu04_ca03_ca04_vigente_crea_y_reutiliza_desde_solicitud(
+    db, crear_usuario, crear_solicitud
+) -> None:
+    usuario = crear_usuario()
+    solicitud_1 = crear_solicitud(usuario, **_contraparte("900777222"))
+    convenio_1 = _crear_convenio(db, solicitud_1, usuario, estado=EstadoConvenio.VIGENTE)
+    aliado_1 = resolver_aliado_para_convenio(db, convenio_1)
+    db.commit()
+    solicitud_2 = crear_solicitud(usuario, **_contraparte("900777222"))
+    convenio_2 = _crear_convenio(db, solicitud_2, usuario, estado=EstadoConvenio.VIGENTE)
+    aliado_2 = resolver_aliado_para_convenio(db, convenio_2)
+    db.commit()
+    assert aliado_1 is not None and aliado_2 is not None
+    assert aliado_1.id == aliado_2.id
+    assert aliado_1.correo == "contacto@fundacionabc.org"
+    assert convenio_1.aliado_id == aliado_1.id == solicitud_1.aliado_id
+    assert convenio_2.aliado_id == aliado_1.id == solicitud_2.aliado_id
+    assert {convenio.id for convenio in aliado_1.convenios} == {convenio_1.id, convenio_2.id}
+
+
+def test_hu04_ca05_correo_distinto_conserva_contactos(
+    db, crear_usuario, crear_solicitud, crear_aliado
+) -> None:
+    usuario = crear_usuario()
+    aliado = crear_aliado(identificacion="900123456", correo="anterior@example.com")
+    solicitud = crear_solicitud(usuario, **_contraparte("900123456", "nuevo@example.com"))
+    convenio = _crear_convenio(db, solicitud, usuario, estado=EstadoConvenio.VIGENTE)
+    resultado = resolver_aliado_para_convenio(db, convenio)
+    db.commit()
     assert resultado is not None and resultado.id == aliado.id
     assert resultado.correo == "nuevo@example.com"
     correos = set(db.scalars(select(ContactoAliado.correo).where(ContactoAliado.aliado_id == aliado.id)))
     assert correos == {"anterior@example.com", "nuevo@example.com"}
+    resolver_aliado_para_convenio(db, convenio)
+    db.flush()
+    assert len(db.scalars(select(ContactoAliado).where(ContactoAliado.aliado_id == aliado.id)).all()) == 2
 
 
 def test_hu04_aliado_inactivo_no_se_reactiva_al_formalizar(
     db, crear_usuario, crear_solicitud, crear_aliado
 ) -> None:
     usuario = crear_usuario()
-    aliado = crear_aliado(identificacion="INACTIVO-1", activo=False)
-    solicitud = crear_solicitud(usuario)
+    aliado = crear_aliado(identificacion="900123456", activo=False)
+    solicitud = crear_solicitud(usuario, **_contraparte("900123456"))
     convenio = _crear_convenio(db, solicitud, usuario, estado=EstadoConvenio.VIGENTE)
     with pytest.raises(ConflictoAliado, match="reactivarse"):
-        resolver_aliado_para_convenio(
-            db,
-            convenio,
-            DatosContraparteSolicitud(
-                identificacion=aliado.identificacion,
-                nombre=aliado.nombre,
-                tipo=TipoAliado.UNIVERSIDAD,
-            ),
-        )
+        resolver_aliado_para_convenio(db, convenio)
     assert aliado.activo is False
     assert convenio.aliado_id is None
-
 
 # HU04 CA-06 a CA-12: gestión, permisos, estado e integridad.
 @pytest.mark.parametrize(
@@ -209,6 +242,58 @@ def test_hu04_ca06_roles_autorizados_consultan(
 ) -> None:
     _autenticar(client, crear_usuario, entrar_como, rol)
     assert client.get("/api/aliados").status_code == 200
+
+
+def test_hu04_tc06_ca06_tres_roles_consultan_perfil_y_estado(
+    client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    identificacion = _nit_unico()
+    aliado = crear_aliado(identificacion=identificacion, activo=True)
+    for rol in (
+        CodigoRol.ADMINISTRADOR_ORI,
+        CodigoRol.GESTOR_ORI,
+        CodigoRol.REVISOR_ORI,
+    ):
+        _autenticar(client, crear_usuario, entrar_como, rol)
+        respuesta = client.get(f"/api/aliados/{aliado.id}")
+        assert respuesta.status_code == 200
+        assert respuesta.json()["id"] == aliado.id
+        assert respuesta.json()["identificacion"] == identificacion
+        assert respuesta.json()["activo"] is True
+
+
+def test_hu04_tc13_ca12_revisor_no_modifica_telefono(
+    db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    aliado = crear_aliado(identificacion="900123456", telefono="6011234567")
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.REVISOR_ORI)
+    respuesta = client.patch(
+        f"/api/aliados/{aliado.id}", json={"telefono": "6017654321"}
+    )
+    assert respuesta.status_code == 403
+    db.refresh(aliado)
+    assert aliado.telefono == "6011234567"
+
+
+def test_hu04_tc14_ca12_revisor_no_cambia_ningun_estado(
+    db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    activo = crear_aliado(identificacion="900123456", activo=True)
+    inactivo = crear_aliado(identificacion="900777222", activo=False)
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.REVISOR_ORI)
+
+    inactivar = client.patch(
+        f"/api/aliados/{activo.id}/estado", json={"activo": False}
+    )
+    reactivar = client.patch(
+        f"/api/aliados/{inactivo.id}/estado", json={"activo": True}
+    )
+    assert inactivar.status_code == 403
+    assert reactivar.status_code == 403
+    db.refresh(activo)
+    db.refresh(inactivo)
+    assert activo.activo is True
+    assert inactivo.activo is False
 
 
 def test_hu04_ca07_ca12_revisor_no_edita_y_gestor_si(
@@ -254,13 +339,105 @@ def test_hu04_por_vencer_bloquea_y_finalizado_no_bloquea(
 def test_hu04_ca11_identificacion_unica_y_no_editable(
     db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
-    aliado = crear_aliado(identificacion="UNICA-1")
-    db.add(Aliado(nombre="Duplicado", tipo=TipoAliado.COLEGIO.value, identificacion="UNICA-1"))
+    aliado = crear_aliado(identificacion="900123456")
+    db.add(Aliado(nombre="Duplicado", tipo=TipoAliado.COLEGIO.value, tipo_identificacion=TipoIdentificacion.NIT.value, identificacion="900123456"))
     with pytest.raises(IntegrityError):
         db.flush()
     db.rollback()
     _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
-    assert client.patch(f"/api/aliados/{aliado.id}", json={"identificacion": "OTRA"}).status_code == 422
+    assert client.patch(f"/api/aliados/{aliado.id}", json={"identificacion": "900555111"}).status_code == 422
+    assert client.patch(f"/api/aliados/{aliado.id}", json={"tipo_identificacion": "PASAPORTE"}).status_code == 422
+    otro_tipo = crear_aliado(tipo_identificacion=TipoIdentificacion.PASAPORTE.value, identificacion="900123456")
+    assert otro_tipo.id != aliado.id
+
+
+def test_hu04_correccion_admin_permiso_colision_y_convenios(
+    db, client, crear_usuario, entrar_como, crear_aliado, crear_solicitud
+) -> None:
+    admin = _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    aliado = crear_aliado(identificacion="900123456")
+    otro = crear_aliado(identificacion=_nit_unico())
+    convenio = _crear_convenio(db, crear_solicitud(admin), admin, aliado)
+    ruta = f"/api/aliados/{aliado.id}/identificacion"
+    duplicado = client.patch(ruta, json={"tipo_identificacion": "NIT", "identificacion": otro.identificacion})
+    assert duplicado.status_code == 409
+    corregido = client.patch(ruta, json={"tipo_identificacion": "PASAPORTE", "identificacion": " 900777222 "})
+    assert corregido.status_code == 200
+    assert corregido.json()["tipo_identificacion"] == "PASAPORTE"
+    assert corregido.json()["identificacion"] == "900777222"
+    assert convenio.aliado_id == aliado.id
+    for rol in (CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI):
+        _autenticar(client, crear_usuario, entrar_como, rol)
+        assert client.patch(ruta, json={"tipo_identificacion": "NIT", "identificacion": "900777222"}).status_code == 403
+
+
+def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
+    db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
+    otro = crear_aliado(identificacion=_nit_unico())
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+
+    respuesta = client.patch(
+        f"/api/aliados/{aliado.id}/administracion",
+        json={
+            "telefono": "6019999999",
+            "tipo_identificacion": "NIT",
+            "identificacion": otro.identificacion,
+        },
+    )
+
+    assert respuesta.status_code == 409
+    db.refresh(aliado)
+    assert aliado.telefono == "6011111111"
+    assert aliado.tipo_identificacion == TipoIdentificacion.NIT
+    assert aliado.identificacion != otro.identificacion
+
+
+def test_hu04_administracion_edicion_completa_valida(
+    db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
+    nueva_identificacion = _nit_unico()
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+
+    respuesta = client.patch(
+        f"/api/aliados/{aliado.id}/administracion",
+        json={
+            "nombre": "Fundación ABC",
+            "telefono": "6019999999",
+            "tipo_identificacion": "NIT",
+            "identificacion": nueva_identificacion,
+        },
+    )
+
+    assert respuesta.status_code == 200
+    db.refresh(aliado)
+    assert aliado.nombre == "Fundación ABC"
+    assert aliado.telefono == "6019999999"
+    assert aliado.tipo_identificacion == TipoIdentificacion.NIT
+    assert aliado.identificacion == nueva_identificacion
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI])
+def test_hu04_administracion_restringida_a_admin(
+    rol, db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
+    _autenticar(client, crear_usuario, entrar_como, rol)
+
+    respuesta = client.patch(
+        f"/api/aliados/{aliado.id}/administracion",
+        json={
+            "telefono": "6019999999",
+            "tipo_identificacion": "NIT",
+            "identificacion": _nit_unico(),
+        },
+    )
+
+    assert respuesta.status_code == 403
+    db.refresh(aliado)
+    assert aliado.telefono == "6011111111"
 
 
 def test_hu04_rutas_sin_sesion_responden_401(client) -> None:

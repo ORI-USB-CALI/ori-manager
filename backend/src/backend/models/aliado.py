@@ -10,13 +10,14 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
     func,
     true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.enums import TipoAliado
+from backend.models.enums import TipoAliado, TipoIdentificacion
 
 if TYPE_CHECKING:
     from backend.models.contacto_aliado import ContactoAliado
@@ -25,12 +26,15 @@ if TYPE_CHECKING:
     from backend.models.solicitud_convenio import SolicitudConvenio
 
 _TIPOS = ", ".join(f"'{tipo.value}'" for tipo in TipoAliado)
+_TIPOS_IDENTIFICACION = ", ".join(f"'{tipo.value}'" for tipo in TipoIdentificacion)
 
 
 class Aliado(Base):
     __tablename__ = "aliado"
     __table_args__ = (
         CheckConstraint(f"tipo IN ({_TIPOS})", name="ck_aliado_tipo"),
+        CheckConstraint(f"tipo_identificacion IN ({_TIPOS_IDENTIFICACION})", name="ck_aliado_tipo_identificacion"),
+        UniqueConstraint("tipo_identificacion", "identificacion", name="uq_aliado_tipo_identificacion"),
         CheckConstraint(
             "tipo != 'EMPRESA' OR (sector_economico IS NOT NULL AND "
             "btrim(sector_economico) != '')",
@@ -42,7 +46,8 @@ class Aliado(Base):
     nombre: Mapped[str] = mapped_column(String(200), nullable=False)
     tipo: Mapped[str] = mapped_column(String(22), nullable=False)
     sector_economico: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    identificacion: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    tipo_identificacion: Mapped[str] = mapped_column(String(33), nullable=False)
+    identificacion: Mapped[str] = mapped_column(String(40), nullable=False)
     pais_id: Mapped[int | None] = mapped_column(ForeignKey("pais.id"), nullable=True)
     ciudad: Mapped[str | None] = mapped_column(String(120), nullable=True)
     direccion: Mapped[str | None] = mapped_column(String(200), nullable=True)

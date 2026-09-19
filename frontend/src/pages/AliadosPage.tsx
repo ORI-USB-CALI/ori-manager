@@ -28,7 +28,7 @@ export function AliadosPage() {
       </section>
       <form className="card page-toolbar" onSubmit={filtrar}>
         <div className="form-group">
-          <label className="form-label" htmlFor="buscar-aliado">Nombre o identificación</label>
+          <label className="form-label" htmlFor="buscar-aliado">Nombre o NIT/documento</label>
           <input id="buscar-aliado" className="form-control" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
         </div>
         <button className="btn btn-primary" type="submit">Buscar</button>
@@ -43,7 +43,7 @@ export function AliadosPage() {
       {aliados.data && aliados.data.items.length > 0 && (
         <div className="table-container">
           <table className="table">
-            <thead><tr><th>Nombre</th><th>Identificación</th><th>Tipo</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Nombre</th><th>NIT / documento</th><th>Tipo</th><th>Estado</th><th>Acciones</th></tr></thead>
             <tbody>{aliados.data.items.map((aliado) => (
               <tr key={aliado.id}>
                 <td><strong>{aliado.nombre}</strong></td>

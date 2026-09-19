@@ -18,7 +18,12 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.enums import EstadoSolicitud, TipoSolicitante
+from backend.models.enums import (
+    EstadoSolicitud,
+    TipoAliado,
+    TipoIdentificacion,
+    TipoSolicitante,
+)
 
 if TYPE_CHECKING:
     from backend.models.aliado import Aliado
@@ -26,6 +31,8 @@ if TYPE_CHECKING:
 
 _TIPOS = ", ".join(f"'{valor.value}'" for valor in TipoSolicitante)
 _ESTADOS = ", ".join(f"'{valor.value}'" for valor in EstadoSolicitud)
+_TIPOS_ALIADO = ", ".join(f"'{valor.value}'" for valor in TipoAliado)
+_TIPOS_IDENTIFICACION = ", ".join(f"'{valor.value}'" for valor in TipoIdentificacion)
 
 
 class SolicitudConvenio(Base):
@@ -33,6 +40,8 @@ class SolicitudConvenio(Base):
     __table_args__ = (
         CheckConstraint(f"tipo_solicitante IN ({_TIPOS})", name="ck_solicitud_tipo_solicitante"),
         CheckConstraint(f"estado IN ({_ESTADOS})", name="ck_solicitud_estado"),
+        CheckConstraint(f"tipo_identificacion_aliado_propuesto IN ({_TIPOS_IDENTIFICACION})", name="ck_solicitud_tipo_identificacion_aliado_propuesto"),
+        CheckConstraint(f"tipo_aliado_propuesto IN ({_TIPOS_ALIADO})", name="ck_solicitud_tipo_aliado_propuesto"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -42,6 +51,11 @@ class SolicitudConvenio(Base):
     unidad_organizacional_id: Mapped[int | None] = mapped_column(ForeignKey("unidad_organizacional.id"), nullable=True)
     aliado_id: Mapped[int | None] = mapped_column(ForeignKey("aliado.id"), nullable=True)
     nombre_aliado_propuesto: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tipo_identificacion_aliado_propuesto: Mapped[str | None] = mapped_column(String(33), nullable=True)
+    identificacion_aliado_propuesto: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    tipo_aliado_propuesto: Mapped[str | None] = mapped_column(String(22), nullable=True)
+    correo_aliado_propuesto: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    sector_economico_aliado_propuesto: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tipo_convenio_id: Mapped[int | None] = mapped_column(ForeignKey("tipo_convenio.id"), nullable=True)
     objeto: Mapped[str] = mapped_column(Text, nullable=False)
     justificacion: Mapped[str | None] = mapped_column(Text, nullable=True)

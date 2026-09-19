@@ -34,6 +34,7 @@ PERMISOS_EPICA_02 = {
     "convenios.ver",
     "convenios.crear",
     "convenios.editar",
+    "aliados.corregir_identificacion",
 }
 
 
@@ -87,6 +88,7 @@ def test_roles_reciben_solo_los_permisos_definidos_para_epica_02() -> None:
         Permiso.USUARIOS_EDITAR,
         Permiso.USUARIOS_CAMBIAR_ROL,
         Permiso.USUARIOS_CAMBIAR_ESTADO,
+        Permiso.ALIADOS_CORREGIR_IDENTIFICACION,
     }
     assert permisos_para_rol(CodigoRol.REVISOR_ORI) == frozenset(
         {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER}

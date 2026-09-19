@@ -14,6 +14,7 @@ class Permiso(StrEnum):
     ALIADOS_VER = "aliados.ver"
     ALIADOS_EDITAR = "aliados.editar"
     ALIADOS_CAMBIAR_ESTADO = "aliados.cambiar_estado"
+    ALIADOS_CORREGIR_IDENTIFICACION = "aliados.corregir_identificacion"
     CONVENIOS_VER = "convenios.ver"
     CONVENIOS_CREAR = "convenios.crear"
     CONVENIOS_EDITAR = "convenios.editar"
@@ -43,6 +44,7 @@ PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
     {
         CodigoRol.ADMINISTRADOR_ORI: (
             _PERMISOS_GESTION_USUARIOS | _PERMISOS_GESTION_EPICA_02
+            | frozenset({Permiso.ALIADOS_CORREGIR_IDENTIFICACION})
         ),
         CodigoRol.GESTOR_ORI: _PERMISOS_GESTION_EPICA_02,
         CodigoRol.REVISOR_ORI: frozenset(
