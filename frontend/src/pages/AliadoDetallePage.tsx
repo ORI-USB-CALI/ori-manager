@@ -3,6 +3,7 @@ import { type FormEvent, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { type AliadoPerfil, ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
 
@@ -14,6 +15,7 @@ export function AliadoDetallePage() {
   const { aliadoId } = useParams()
   const id = Number(aliadoId)
   const { puede } = useSesion()
+  const notify = useNotifications()
   const cliente = useQueryClient()
   const [editando, setEditando] = useState(false)
   const aliado = useQuery({
@@ -24,7 +26,11 @@ export function AliadoDetallePage() {
   })
   const estado = useMutation({
     mutationFn: (activo: boolean) => apiFetch(`/aliados/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ activo }) }),
-    onSuccess: () => cliente.invalidateQueries({ queryKey: ['aliado', id] }),
+    onSuccess: (_respuesta, activo) => {
+      void cliente.invalidateQueries({ queryKey: ['aliado', id] })
+      notify({ type: 'success', message: activo ? 'Aliado reactivado correctamente.' : 'Aliado inactivado correctamente.' })
+    },
+    onError: (error) => notify({ type: 'error', message: error instanceof ApiError ? error.message : 'No fue posible cambiar el estado del aliado.' }),
   })
   const editar = useMutation({
     mutationFn: (datos: {
@@ -34,7 +40,12 @@ export function AliadoDetallePage() {
       method: 'PATCH',
       body: JSON.stringify(datos.identidad ? { ...datos.ordinarios, ...datos.identidad } : datos.ordinarios),
     }),
-    onSuccess: async () => { await cliente.invalidateQueries({ queryKey: ['aliado', id] }); setEditando(false) },
+    onSuccess: async () => {
+      await cliente.invalidateQueries({ queryKey: ['aliado', id] })
+      setEditando(false)
+      notify({ type: 'success', message: 'Aliado actualizado correctamente.' })
+    },
+    onError: (error) => notify({ type: 'error', message: error instanceof ApiError ? error.message : 'No fue posible guardar el aliado.' }),
   })
 
   function guardar(evento: FormEvent<HTMLFormElement>) {
@@ -62,12 +73,10 @@ export function AliadoDetallePage() {
   }
   if (!aliado.data) return null
   const datos = aliado.data
-  const error = editar.error ?? estado.error
 
   return (
     <>
       <div className="page-toolbar"><div><Link to="/aliados">← Aliados</Link><h1>{datos.nombre}</h1></div><span className={`badge ${datos.activo ? 'badge-activo' : 'badge-inactivo'}`}>{datos.activo ? 'ACTIVO' : 'INACTIVO'}</span></div>
-      {error && <p className="alert-error">{error instanceof Error ? error.message : 'No fue posible guardar.'}</p>}
       <section className="card">
         <h2>Información del aliado</h2>
         {editando ? (

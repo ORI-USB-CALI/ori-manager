@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { ApiError, apiFetch } from '../app/api'
+import { useNotifications } from '../app/notifications/useNotifications'
 import {
   CLAVE_SESION,
   type CodigoRol,
@@ -12,7 +13,7 @@ import { type Usuario, etiquetaTipo, opcionesRol } from './usuarios'
 
 interface Props {
   usuario?: Usuario
-  onGuardado: (mensaje: string) => Promise<unknown>
+  onGuardado: () => Promise<unknown>
   onCerrar: () => void
 }
 
@@ -39,17 +40,19 @@ function valorFormulario(form: FormData, campo: string): string {
 export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
   const queryClient = useQueryClient()
+  const notify = useNotifications()
   const { sesion, puede } = useSesion()
   const esPropio = usuario?.id === sesion?.id
   const [rol, setRol] = useState<CodigoRol | ''>(usuario?.rol.codigo ?? '')
   const [erroresCreacion, setErroresCreacion] = useState<ErroresCreacion>({})
 
   async function completar(mensaje: string, afectaSesion = false) {
-    await onGuardado(mensaje)
+    await onGuardado()
+    dialogo.current?.close()
+    notify({ type: 'success', message: mensaje })
     if (afectaSesion) {
       await queryClient.invalidateQueries({ queryKey: CLAVE_SESION })
     }
-    dialogo.current?.close()
   }
 
   const guardar = useMutation({
@@ -64,6 +67,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
             body: JSON.stringify(datos),
           }),
     onSuccess: () => completar(usuario ? 'Datos actualizados.' : 'Usuario creado.', esPropio),
+    onError: (error) => notify({ type: 'error', message: texto(error) }),
   })
 
   const cambiarRol = useMutation({
@@ -73,6 +77,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
         body: JSON.stringify({ rol: codigo }),
       }),
     onSuccess: () => completar('Rol actualizado.'),
+    onError: (error) => notify({ type: 'error', message: texto(error) }),
   })
 
   const cambiarEstado = useMutation({
@@ -82,6 +87,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
         body: JSON.stringify({ activo }),
       }),
     onSuccess: () => completar(usuario?.activo ? 'Usuario desactivado.' : 'Usuario activado.'),
+    onError: (error) => notify({ type: 'error', message: texto(error) }),
   })
 
   useEffect(() => {
@@ -153,7 +159,6 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
     guardar.mutate(cambios)
   }
 
-  const error = guardar.error ?? cambiarRol.error ?? cambiarEstado.error
   const pendiente = guardar.isPending || cambiarRol.isPending || cambiarEstado.isPending
   const puedeEditar = !usuario || puede('usuarios.editar')
 
@@ -174,12 +179,6 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
             ×
           </button>
         </div>
-
-        {error && (
-          <p className="alert-error" role="alert">
-            {texto(error)}
-          </p>
-        )}
 
         <section className="modal-section">
           <h3>{usuario ? 'Datos generales' : 'Información del usuario'}</h3>

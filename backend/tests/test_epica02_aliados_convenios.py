@@ -336,7 +336,7 @@ def test_hu04_por_vencer_bloquea_y_finalizado_no_bloquea(
     assert client.patch(f"/api/aliados/{aliado.id}/estado", json={"activo": False}).status_code == 200
 
 
-def test_hu04_ca11_identificacion_unica_y_no_editable(
+def test_hu04_ca11_identificacion_unica_y_no_editable_por_patch_ordinario(
     db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion="900123456")
@@ -366,17 +366,35 @@ def test_hu04_correccion_admin_permiso_colision_y_convenios(
     assert corregido.json()["tipo_identificacion"] == "PASAPORTE"
     assert corregido.json()["identificacion"] == "900777222"
     assert convenio.aliado_id == aliado.id
-    for rol in (CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI):
-        _autenticar(client, crear_usuario, entrar_como, rol)
-        assert client.patch(ruta, json={"tipo_identificacion": "NIT", "identificacion": "900777222"}).status_code == 403
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.REVISOR_ORI)
+    assert client.patch(ruta, json={"tipo_identificacion": "NIT", "identificacion": "900777222"}).status_code == 403
 
 
-def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
+def test_hu04_gestor_puede_corregir_identificacion(
     db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    aliado = crear_aliado(identificacion=_nit_unico())
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    nueva_identificacion = _nit_unico()
+
+    respuesta = client.patch(
+        f"/api/aliados/{aliado.id}/identificacion",
+        json={"tipo_identificacion": "PASAPORTE", "identificacion": nueva_identificacion},
+    )
+
+    assert respuesta.status_code == 200
+    db.refresh(aliado)
+    assert aliado.tipo_identificacion == TipoIdentificacion.PASAPORTE
+    assert aliado.identificacion == nueva_identificacion
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI])
+def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
+    rol, db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
     otro = crear_aliado(identificacion=_nit_unico())
-    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    _autenticar(client, crear_usuario, entrar_como, rol)
 
     respuesta = client.patch(
         f"/api/aliados/{aliado.id}/administracion",
@@ -394,12 +412,13 @@ def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
     assert aliado.identificacion != otro.identificacion
 
 
+@pytest.mark.parametrize("rol", [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI])
 def test_hu04_administracion_edicion_completa_valida(
-    db, client, crear_usuario, entrar_como, crear_aliado
+    rol, db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
     nueva_identificacion = _nit_unico()
-    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    _autenticar(client, crear_usuario, entrar_como, rol)
 
     respuesta = client.patch(
         f"/api/aliados/{aliado.id}/administracion",
@@ -419,12 +438,16 @@ def test_hu04_administracion_edicion_completa_valida(
     assert aliado.identificacion == nueva_identificacion
 
 
-@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI])
-def test_hu04_administracion_restringida_a_admin(
-    rol, db, client, crear_usuario, entrar_como, crear_aliado
+def test_hu04_revisor_no_puede_modificar_identificacion(
+    db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
-    _autenticar(client, crear_usuario, entrar_como, rol)
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.REVISOR_ORI)
+
+    correccion = client.patch(
+        f"/api/aliados/{aliado.id}/identificacion",
+        json={"tipo_identificacion": "NIT", "identificacion": _nit_unico()},
+    )
 
     respuesta = client.patch(
         f"/api/aliados/{aliado.id}/administracion",
@@ -435,6 +458,7 @@ def test_hu04_administracion_restringida_a_admin(
         },
     )
 
+    assert correccion.status_code == 403
     assert respuesta.status_code == 403
     db.refresh(aliado)
     assert aliado.telefono == "6011111111"
