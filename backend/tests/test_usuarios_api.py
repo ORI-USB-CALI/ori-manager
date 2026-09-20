@@ -5,8 +5,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.core.security import verificar_contrasena
 from backend.models.usuario import Usuario
+from backend.schemas.usuario import UsuarioActualizar
 from backend.services.sesiones import RepositorioSesionesMemoria
+from backend.services.usuarios import ServicioUsuarios
 
 
 def _datos_usuario(
@@ -187,6 +190,150 @@ def test_editar_datos_y_contrasena(
         },
     )
     assert login.status_code == 200
+
+
+def test_contrasena_igual_rechaza_todo_el_patch_y_conserva_sesion(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+    db: Session,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario(correo="misma-clave@example.com")
+    token_usuario = entrar_como(usuario)
+    hash_anterior = usuario.hash_contrasena
+    telefono_anterior = usuario.telefono
+    entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"telefono": "3110000000", "contrasena": "ClaveSegura123"},
+    )
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == (
+        "La nueva contraseña debe ser diferente a la actual"
+    )
+    db.refresh(usuario)
+    assert usuario.hash_contrasena == hash_anterior
+    assert usuario.telefono == telefono_anterior
+    assert verificar_contrasena("ClaveSegura123", usuario.hash_contrasena)
+    assert sesiones.obtener_por_token(token_usuario) is not None
+    client.cookies.set("session_id", token_usuario)
+    assert client.get("/api/auth/me").status_code == 200
+    client.cookies.clear()
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+    ).status_code == 200
+
+
+def test_cambio_contrasena_invalida_sesion_y_credencial_anterior(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario(correo="cambio-clave@example.com")
+    token_usuario = entrar_como(usuario)
+    entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"contrasena": "ClaveDistinta123"},
+    )
+
+    assert respuesta.status_code == 200
+    assert sesiones.obtener_por_token(token_usuario) is None
+    client.cookies.set("session_id", token_usuario)
+    assert client.get("/api/auth/me").status_code == 401
+    client.cookies.clear()
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+    ).status_code == 401
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveDistinta123"},
+    ).status_code == 200
+
+
+def test_cambio_contrasena_invalida_todas_las_sesiones(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario()
+    primer_token = entrar_como(usuario)
+    segundo_token = entrar_como(usuario)
+    entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"contrasena": "ClaveDistinta123"},
+    )
+
+    assert respuesta.status_code == 200
+    assert sesiones.obtener_por_token(primer_token) is None
+    assert sesiones.obtener_por_token(segundo_token) is None
+
+
+def test_admin_cambia_su_contrasena_e_invalida_su_sesion(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    token = entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{admin.id}",
+        json={"contrasena": "ClaveDistinta123"},
+    )
+
+    assert respuesta.status_code == 200
+    assert sesiones.obtener_por_token(token) is None
+    assert client.get("/api/auth/me").status_code == 401
+    client.cookies.clear()
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": admin.correo, "contrasena": "ClaveDistinta123"},
+    ).status_code == 200
+
+
+def test_fallo_al_guardar_contrasena_conserva_sesiones(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    usuario = crear_usuario()
+    token = entrar_como(usuario)
+    hash_anterior = usuario.hash_contrasena
+
+    def fallar_commit() -> None:
+        raise RuntimeError("Fallo de persistencia simulado")
+
+    with monkeypatch.context() as parche:
+        parche.setattr(db, "commit", fallar_commit)
+        with pytest.raises(RuntimeError, match="Fallo de persistencia simulado"):
+            ServicioUsuarios(db, sesiones).actualizar(
+                usuario.id,
+                UsuarioActualizar(contrasena="ClaveDistinta123"),
+            )
+
+    db.rollback()
+    db.refresh(usuario)
+    assert usuario.hash_contrasena == hash_anterior
+    assert sesiones.obtener_por_token(token) is not None
+    assert client.get("/api/auth/me").status_code == 200
 
 
 def test_edicion_parcial_conserva_campos_no_enviados(

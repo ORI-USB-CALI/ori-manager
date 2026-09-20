@@ -12,16 +12,19 @@ from backend.services.sesiones import RepositorioSesionesMemoria
 def test_login_valido_crea_cookie_http_only(
     client: TestClient,
     crear_usuario,
+    sesiones: RepositorioSesionesMemoria,
 ) -> None:
     usuario = crear_usuario(
         correo="login@example.com",
         contrasena="ClaveSegura123",
     )
 
+    antes = datetime.now(UTC)
     respuesta = client.post(
         "/api/auth/login",
         json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
     )
+    despues = datetime.now(UTC)
 
     assert respuesta.status_code == 200
     assert respuesta.cookies.get("session_id")
@@ -29,8 +32,12 @@ def test_login_valido_crea_cookie_http_only(
     assert "httponly" in cookie
     assert "samesite=lax" in cookie
     assert "path=/" in cookie
-    assert "max-age=604800" in cookie
+    assert "max-age=21600" in cookie
     assert ("; secure" in cookie) == (settings.app_env != "development")
+    sesion = sesiones.obtener_por_token(respuesta.cookies["session_id"])
+    assert sesion is not None
+    assert antes + timedelta(hours=6) <= sesion.expira_en
+    assert sesion.expira_en <= despues + timedelta(hours=6)
 
 
 def test_login_credenciales_incorrectas_y_usuario_inexistente(
