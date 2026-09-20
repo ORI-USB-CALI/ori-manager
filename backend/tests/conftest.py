@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -14,6 +14,7 @@ from backend.db.session import get_db
 from backend.main import app
 from backend.models.rol import Rol
 from backend.models.usuario import Usuario
+from backend.services.auth import DURACION_SESION
 from backend.services.sesiones import (
     RepositorioSesionesMemoria,
     get_repositorio_sesiones,
@@ -102,7 +103,7 @@ def entrar_como(
         sesiones.crear(
             usuario.id,
             token,
-            datetime.now(UTC) + timedelta(days=7),
+            datetime.now(UTC) + DURACION_SESION,
         )
         client.cookies.set("session_id", token)
         return token

@@ -16,6 +16,7 @@ from backend.schemas.auth import (
     UsuarioActualLeer,
 )
 from backend.services.auth import (
+    DURACION_SESION,
     CredencialesInvalidasError,
     ServicioAutenticacion,
     UsuarioInactivoError,
@@ -26,7 +27,6 @@ from backend.services.sesiones import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-MAX_AGE_SESION = 7 * 24 * 60 * 60
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
 SessionRepository = Annotated[
@@ -65,7 +65,7 @@ def login(
         secure=settings.app_env != "development",
         samesite="lax",
         path="/",
-        max_age=MAX_AGE_SESION,
+        max_age=int(DURACION_SESION.total_seconds()),
     )
     return MensajeAutenticacion(status="ok", message="Sesión iniciada")
 

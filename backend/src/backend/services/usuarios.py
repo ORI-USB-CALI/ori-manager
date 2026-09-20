@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from backend.core.roles import CodigoRol, TipoUsuario
-from backend.core.security import hash_contrasena
+from backend.core.security import hash_contrasena, verificar_contrasena
 from backend.models.rol import Rol
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
@@ -86,13 +86,19 @@ class ServicioUsuarios:
     def actualizar(self, usuario_id: int, datos: UsuarioActualizar) -> Usuario:
         usuario = self.obtener(usuario_id)
         cambios = datos.model_dump(exclude_unset=True)
+        contrasena = cambios.pop("contrasena", None)
+        if contrasena is not None and verificar_contrasena(
+            contrasena, usuario.hash_contrasena
+        ):
+            raise ConflictoUsuarioError(
+                "La nueva contraseña debe ser diferente a la actual"
+            )
 
         correo = cambios.pop("correo", None)
         if correo is not None:
             self._validar_correo_disponible(str(correo), usuario.id)
             usuario.correo = str(correo)
 
-        contrasena = cambios.pop("contrasena", None)
         if contrasena is not None:
             usuario.hash_contrasena = hash_contrasena(contrasena)
 
@@ -102,7 +108,10 @@ class ServicioUsuarios:
 
         for campo, valor in cambios.items():
             setattr(usuario, campo, valor)
-        return self._guardar(usuario)
+        usuario = self._guardar(usuario)
+        if contrasena is not None:
+            self.sesiones.invalidar_usuario(usuario.id)
+        return usuario
 
     def cambiar_rol(
         self,

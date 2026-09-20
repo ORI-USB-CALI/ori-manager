@@ -7,7 +7,7 @@ from backend.core.security import generar_token_sesion, verificar_contrasena
 from backend.models.usuario import Usuario
 from backend.services.sesiones import RepositorioSesiones
 
-DURACION_SESION = timedelta(days=7)
+DURACION_SESION = timedelta(hours=6)
 
 
 class ErrorAutenticacion(Exception):
