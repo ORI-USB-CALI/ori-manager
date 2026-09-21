@@ -11,7 +11,6 @@ type EstadoModal = null | 'nuevo' | Usuario
 export function UsuariosRolesPage() {
   const { sesion, puede } = useSesion()
   const [modal, setModal] = useState<EstadoModal>(null)
-  const [mensaje, setMensaje] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const usuarios = useQuery({
     queryKey: CLAVE_USUARIOS,
@@ -23,9 +22,8 @@ export function UsuariosRolesPage() {
     puede('usuarios.cambiar_rol') ||
     puede('usuarios.cambiar_estado')
 
-  async function usuarioGuardado(nuevoMensaje: string) {
+  async function usuarioGuardado() {
     await queryClient.invalidateQueries({ queryKey: CLAVE_USUARIOS })
-    setMensaje(nuevoMensaje)
   }
 
   return (
@@ -44,21 +42,12 @@ export function UsuariosRolesPage() {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => {
-              setMensaje(null)
-              setModal('nuevo')
-            }}
+            onClick={() => setModal('nuevo')}
           >
             Nuevo usuario
           </button>
         )}
       </div>
-
-      {mensaje && (
-        <p className="alert-success" role="status">
-          {mensaje}
-        </p>
-      )}
 
       {usuarios.isError && (
         <p className="alert-error" role="alert">
@@ -112,10 +101,7 @@ export function UsuariosRolesPage() {
                       <button
                         type="button"
                         className="btn btn-outline btn-small"
-                        onClick={() => {
-                          setMensaje(null)
-                          setModal(usuario)
-                        }}
+                        onClick={() => setModal(usuario)}
                       >
                         Gestionar
                       </button>

@@ -34,6 +34,7 @@ _PERMISOS_GESTION_EPICA_02 = frozenset(
         Permiso.ALIADOS_VER,
         Permiso.ALIADOS_EDITAR,
         Permiso.ALIADOS_CAMBIAR_ESTADO,
+        Permiso.ALIADOS_CORREGIR_IDENTIFICACION,
         Permiso.CONVENIOS_VER,
         Permiso.CONVENIOS_CREAR,
         Permiso.CONVENIOS_EDITAR,
@@ -44,7 +45,6 @@ PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
     {
         CodigoRol.ADMINISTRADOR_ORI: (
             _PERMISOS_GESTION_USUARIOS | _PERMISOS_GESTION_EPICA_02
-            | frozenset({Permiso.ALIADOS_CORREGIR_IDENTIFICACION})
         ),
         CodigoRol.GESTOR_ORI: _PERMISOS_GESTION_EPICA_02,
         CodigoRol.REVISOR_ORI: frozenset(
