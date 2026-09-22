@@ -331,9 +331,53 @@ def test_otro_soporte_no_reemplaza_documentacion_de_representacion(
 def test_storage_local_falla_cerrado_fuera_de_desarrollo(monkeypatch):
     documentos.get_almacen_documentos.cache_clear()
     monkeypatch.setattr(documentos.settings, "app_env", "production")
-    with pytest.raises(RuntimeError, match="proveedor documental durable"):
+    monkeypatch.setattr(documentos.settings, "document_storage_provider", "local")
+    with pytest.raises(RuntimeError, match="solo está permitido en development"):
         documentos.get_almacen_documentos()
     documentos.get_almacen_documentos.cache_clear()
+
+
+def test_radicacion_verifica_existencia_en_storage_resuelto(
+    db, client, crear_usuario, entrar_como, unidad, tipo_convenio
+):
+    class StorageRemotoFalso:
+        def __init__(self):
+            self.claves_consultadas = []
+
+        def guardar(self, clave, contenido):
+            raise AssertionError("radicar no debe guardar")
+
+        def eliminar(self, clave):
+            raise AssertionError("radicar no debe eliminar")
+
+        def existe(self, clave):
+            self.claves_consultadas.append(clave)
+            return True
+
+    _autenticar(
+        client,
+        crear_usuario,
+        entrar_como,
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+        unidad_organizacional_id=unidad.id,
+        cargo="Docente",
+    )
+    db.commit()
+    solicitud_id = client.post(
+        "/api/solicitudes", json=_payload(tipo_convenio.id)
+    ).json()["id"]
+    _subir_documentos(client, solicitud_id)
+    storage_remoto = StorageRemotoFalso()
+    app.dependency_overrides[get_almacen_documentos] = lambda: storage_remoto
+
+    respuesta = client.post(f"/api/solicitudes/{solicitud_id}/radicar")
+
+    assert respuesta.status_code == 200
+    assert len(storage_remoto.claves_consultadas) == 1
+    assert storage_remoto.claves_consultadas[0].startswith(
+        f"solicitudes/{solicitud_id}/"
+    )
 
 
 def test_interno_programa_precarga_y_radica_con_programa_y_padre(

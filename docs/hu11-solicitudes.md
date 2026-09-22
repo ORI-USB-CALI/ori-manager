@@ -54,9 +54,26 @@ otro documento de representación y otros soportes. La regla central exige al
 menos un documento clasificado en `TIPOS_DOCUMENTO_REPRESENTACION`; no exige
 simultáneamente Cámara + RUT + cédula ni aplica una matriz legal inventada.
 
-El adaptador local solo se habilita con `APP_ENV=development`. En otro ambiente,
-si no se sustituye el puerto por un proveedor durable, la configuración falla de
-forma explícita en lugar de escribir en un filesystem efímero.
+En desarrollo se usa `DOCUMENT_STORAGE_PROVIDER=local` (valor por defecto) y
+`DOCUMENT_STORAGE_PATH` define la ubicación. El adaptador local solo se habilita
+con `APP_ENV=development`.
+
+Staging y producción usan `DOCUMENT_STORAGE_PROVIDER=microsoft_graph` con
+Microsoft Graph AppFolder y el permiso delegado `Files.ReadWrite.AppFolder`. La
+configuración requiere estas variables, sin valores por defecto secretos:
+
+- `MICROSOFT_CLIENT_ID`
+- `MICROSOFT_CLIENT_SECRET`
+- `MICROSOFT_REFRESH_TOKEN`
+- `MICROSOFT_STORAGE_ROOT` (`staging` o `production`)
+
+Los objetos quedan bajo `Apps/ORI Manager Storage/{MICROSOFT_STORAGE_ROOT}/`.
+Una configuración incompleta o inválida falla explícitamente y nunca cae al
+filesystem local. La integración usa temporalmente una cuenta Microsoft personal
+dedicada y un refresh token delegado. Una futura integración institucional podrá
+migrarse sin cambiar `ServicioSolicitudes` gracias al puerto
+`AlmacenDocumentos`.
+
 Crear, editar, listar y consultar solicitudes operan únicamente con metadata y no
 resuelven el adaptador físico. Subir, eliminar y radicar sí lo requieren.
 
