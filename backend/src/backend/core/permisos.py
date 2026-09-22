@@ -18,6 +18,10 @@ class Permiso(StrEnum):
     CONVENIOS_VER = "convenios.ver"
     CONVENIOS_CREAR = "convenios.crear"
     CONVENIOS_EDITAR = "convenios.editar"
+    SOLICITUDES_CREAR = "solicitudes.crear"
+    SOLICITUDES_VER_PROPIAS = "solicitudes.ver_propias"
+    SOLICITUDES_EDITAR_PROPIAS = "solicitudes.editar_propias"
+    SOLICITUDES_RADICAR = "solicitudes.radicar"
 
 
 _PERMISOS_GESTION_USUARIOS = frozenset(
@@ -40,18 +44,26 @@ _PERMISOS_GESTION_EPICA_02 = frozenset(
         Permiso.CONVENIOS_EDITAR,
     }
 )
+_PERMISOS_SOLICITUDES_PROPIAS = frozenset(
+    {
+        Permiso.SOLICITUDES_CREAR,
+        Permiso.SOLICITUDES_VER_PROPIAS,
+        Permiso.SOLICITUDES_EDITAR_PROPIAS,
+        Permiso.SOLICITUDES_RADICAR,
+    }
+)
 
 PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
     {
         CodigoRol.ADMINISTRADOR_ORI: (
-            _PERMISOS_GESTION_USUARIOS | _PERMISOS_GESTION_EPICA_02
+            _PERMISOS_GESTION_USUARIOS
+            | _PERMISOS_GESTION_EPICA_02
+            | _PERMISOS_SOLICITUDES_PROPIAS
         ),
         CodigoRol.GESTOR_ORI: _PERMISOS_GESTION_EPICA_02,
-        CodigoRol.REVISOR_ORI: frozenset(
-            {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER}
-        ),
-        CodigoRol.SOLICITANTE_INTERNO: frozenset(),
-        CodigoRol.SOLICITANTE_EXTERNO: frozenset(),
+        CodigoRol.REVISOR_ORI: frozenset({Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER}),
+        CodigoRol.SOLICITANTE_INTERNO: _PERMISOS_SOLICITUDES_PROPIAS,
+        CodigoRol.SOLICITANTE_EXTERNO: _PERMISOS_SOLICITUDES_PROPIAS,
     }
 )
 

@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     database_user: str = "ori_user"
     database_password: SecretStr
     database_sslmode: str = "require"
+    document_storage_provider: str = "local"
+    document_storage_path: str = "var/documentos"
+    microsoft_client_id: str | None = None
+    microsoft_client_secret: SecretStr | None = None
+    microsoft_refresh_token: SecretStr | None = None
+    microsoft_storage_root: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

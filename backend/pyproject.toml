@@ -11,8 +11,10 @@ dependencies = [
     "alembic>=1.19.2",
     "email-validator>=2.3.0",
     "fastapi>=0.141.1",
+    "httpx>=0.28.1",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",
+    "python-multipart>=0.0.20",
     "pwdlib[argon2]>=0.3.1",
     "sqlalchemy>=2.0.52",
     "uvicorn[standard]>=0.52.4",
@@ -24,7 +26,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "ruff>=0.16.6",
 ]
