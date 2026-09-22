@@ -14,6 +14,7 @@ from backend.models import (  # noqa: F401
     Rol,
     SolicitudConvenio,
     TipoConvenio,
+    TokenCredencial,
     UnidadOrganizacional,
     Usuario,
 )

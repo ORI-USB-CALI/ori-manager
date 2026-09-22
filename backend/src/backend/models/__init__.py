@@ -8,6 +8,7 @@ from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.tipo_convenio import TipoConvenio
+from backend.models.token_credencial import TokenCredencial
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 
@@ -22,6 +23,7 @@ __all__ = [
     "SolicitudConvenio",
     "SolicitudUsuario",
     "TipoConvenio",
+    "TokenCredencial",
     "UnidadOrganizacional",
     "Usuario",
 ]

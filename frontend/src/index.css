@@ -654,3 +654,51 @@ a:hover {
     padding: 14px 16px;
   }
 }
+
+.reenvio-verificacion {
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.verificacion-cargando {
+  width: 32px;
+  height: 32px;
+  margin: 20px auto;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--color-naranja);
+  border-radius: 50%;
+  animation: verificacion-giro 0.8s linear infinite;
+}
+
+@keyframes verificacion-giro {
+  to { transform: rotate(360deg); }
+}
+
+.correo-cuenta {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.registro-reenvio-directo {
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.registro-reenvio-directo > .texto-secundario {
+  margin-bottom: 12px;
+}
+
+.acciones-cuenta-existente {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.registro-reenvio-directo .reenvio-verificacion {
+  padding-top: 0;
+  border-top: 0;
+}

@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -9,6 +11,7 @@ from backend.models.rol import Rol
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.auth import RegistroSolicitante
+from backend.services.verificacion_correo import ServicioVerificacionCorreo
 
 DOMINIOS_INSTITUCIONALES = frozenset({"correo.usbcali.edu.co", "usbcali.edu.co"})
 
@@ -25,6 +28,12 @@ class CorreoRegistradoError(ErrorRegistro):
 
 class ReferenciaRegistroInvalidaError(ErrorRegistro):
     pass
+
+
+@dataclass(frozen=True)
+class ResultadoRegistro:
+    usuario: Usuario
+    correo_enviado: bool
 
 
 def clasificar_correo(correo: str) -> TipoUsuario:
@@ -47,7 +56,11 @@ class ServicioRegistro:
             )
         )
 
-    def registrar(self, datos: RegistroSolicitante) -> Usuario:
+    def registrar(
+        self,
+        datos: RegistroSolicitante,
+        verificacion: ServicioVerificacionCorreo,
+    ) -> ResultadoRegistro:
         correo = str(datos.correo).lower()
         existente = self.db.scalar(
             select(Usuario).where(func.lower(Usuario.correo) == correo)
@@ -94,6 +107,8 @@ class ServicioRegistro:
             with self.db.begin_nested():
                 self.db.add(usuario)
                 self.db.flush()
+                _, token_plano = verificacion.crear_token(usuario)
+                self.db.flush()
         except IntegrityError as exc:
             existente = self.db.scalar(
                 select(Usuario).where(func.lower(Usuario.correo) == correo)
@@ -103,7 +118,8 @@ class ServicioRegistro:
             ) from exc
         self.db.commit()
         self.db.refresh(usuario)
-        return usuario
+        correo_enviado = verificacion.intentar_enviar(usuario, token_plano)
+        return ResultadoRegistro(usuario=usuario, correo_enviado=correo_enviado)
 
     def _obtener_unidad_activa(self, unidad_id: int | None) -> UnidadOrganizacional:
         unidad = self.db.get(UnidadOrganizacional, unidad_id)

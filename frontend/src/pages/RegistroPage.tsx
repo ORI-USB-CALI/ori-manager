@@ -3,8 +3,10 @@ import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { ReenviarVerificacion } from './ReenviarVerificacion'
 
 type TipoSolicitante = 'INTERNO' | 'EXTERNO'
+type SiguientePaso = 'VERIFICAR_CORREO' | 'INICIAR_SESION'
 
 interface UnidadRegistro {
   id: number
@@ -23,6 +25,23 @@ const DOMINIOS_INSTITUCIONALES = new Set([
   'usbcali.edu.co',
 ])
 
+function siguientePasoRegistro(error: unknown): SiguientePaso | null {
+  if (!(error instanceof ApiError) || !error.detail || typeof error.detail !== 'object') {
+    return null
+  }
+  if (!('codigo' in error.detail) || error.detail.codigo !== 'CORREO_REGISTRADO') {
+    return null
+  }
+  if (
+    'siguiente_paso' in error.detail &&
+    (error.detail.siguiente_paso === 'VERIFICAR_CORREO' ||
+      error.detail.siguiente_paso === 'INICIAR_SESION')
+  ) {
+    return error.detail.siguiente_paso
+  }
+  return null
+}
+
 function clasificar(correo: string): TipoSolicitante {
   const dominio = correo.trim().toLowerCase().split('@').at(-1) ?? ''
   return DOMINIOS_INSTITUCIONALES.has(dominio) ? 'INTERNO' : 'EXTERNO'
@@ -31,6 +50,8 @@ function clasificar(correo: string): TipoSolicitante {
 export function RegistroPage() {
   const [correo, setCorreo] = useState('')
   const [tipo, setTipo] = useState<TipoSolicitante | null>(null)
+  const [cuentaExistente, setCuentaExistente] = useState<SiguientePaso | null>(null)
+  const [mostrarReenvio, setMostrarReenvio] = useState(false)
   const unidades = useQuery({
     queryKey: ['registro', 'unidades'],
     queryFn: () => apiFetch<UnidadRegistro[]>('/auth/registro/unidades'),
@@ -43,11 +64,14 @@ export function RegistroPage() {
         method: 'POST',
         body: JSON.stringify(datos),
       }),
+    onMutate: () => setCuentaExistente(null),
+    onError: (error) => setCuentaExistente(siguientePasoRegistro(error)),
   })
 
   function continuar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setTipo(clasificar(correo))
+    setCuentaExistente(null)
     registro.reset()
   }
 
@@ -75,6 +99,61 @@ export function RegistroPage() {
       ? registro.error.message
       : 'No fue posible crear la cuenta.'
 
+  if (cuentaExistente === 'VERIFICAR_CORREO') {
+    return (
+      <main className="login-page">
+        <section className="card card-auth">
+          <div className="login-brand">ORI Manager</div>
+          <h1>Verificación pendiente</h1>
+          <p className="alert-success" role="status">
+            Tu cuenta ya fue creada y está pendiente de verificación.
+          </p>
+          <p className="correo-cuenta">{correo.trim()}</p>
+          <ReenviarVerificacion correoInicial={correo} />
+          <div className="acciones-cuenta-existente">
+            <button className="btn btn-outline btn-block" type="button" onClick={() => {
+              setCuentaExistente(null)
+              setTipo(null)
+              registro.reset()
+            }}>
+              Usar otro correo
+            </button>
+            <Link className="btn btn-primary btn-block" to="/login">
+              Volver a iniciar sesión
+            </Link>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (cuentaExistente === 'INICIAR_SESION') {
+    return (
+      <main className="login-page">
+        <section className="card card-auth">
+          <div className="login-brand">ORI Manager</div>
+          <h1>Cuenta existente</h1>
+          <p className="alert-success" role="status">
+            Ya existe una cuenta verificada con este correo.
+          </p>
+          <p className="correo-cuenta">{correo.trim()}</p>
+          <div className="acciones-cuenta-existente">
+            <Link className="btn btn-primary btn-block" to="/login">
+              Iniciar sesión
+            </Link>
+            <button className="btn btn-outline btn-block" type="button" onClick={() => {
+              setCuentaExistente(null)
+              setTipo(null)
+              registro.reset()
+            }}>
+              Usar otro correo
+            </button>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   if (registro.data) {
     return (
       <main className="login-page">
@@ -85,8 +164,9 @@ export function RegistroPage() {
             {registro.data.mensaje}
           </p>
           <p className="texto-secundario">
-            El envío del correo de verificación estará disponible próximamente.
+            Revisa tu correo para verificar tu cuenta. El enlace vence en 24 horas.
           </p>
+          <ReenviarVerificacion correoInicial={correo} />
           <Link className="btn btn-primary btn-block" to="/login">
             Volver a iniciar sesión
           </Link>
@@ -105,24 +185,39 @@ export function RegistroPage() {
         </p>
 
         {tipo === null ? (
-          <form onSubmit={continuar}>
-            <div className="form-group">
-              <label className="form-label" htmlFor="registro-correo">Correo</label>
-              <input
-                id="registro-correo"
-                className="form-control"
-                type="email"
-                value={correo}
-                onChange={(evento) => setCorreo(evento.target.value)}
-                required
-                autoComplete="email"
-                autoFocus
-              />
+          <>
+            <form onSubmit={continuar}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="registro-correo">Correo</label>
+                <input
+                  id="registro-correo"
+                  className="form-control"
+                  type="email"
+                  value={correo}
+                  onChange={(evento) => setCorreo(evento.target.value)}
+                  required
+                  autoComplete="email"
+                  autoFocus
+                />
+              </div>
+              <button className="btn btn-primary btn-block" type="submit">
+                Continuar
+              </button>
+            </form>
+            <div className="registro-reenvio-directo">
+              <p className="texto-secundario">
+                ¿Ya creaste tu cuenta y no recibiste el correo?
+              </p>
+              <button
+                className="btn btn-outline btn-block"
+                type="button"
+                onClick={() => setMostrarReenvio((visible) => !visible)}
+              >
+                Reenviar correo de verificación
+              </button>
+              {mostrarReenvio && <ReenviarVerificacion correoInicial={correo} />}
             </div>
-            <button className="btn btn-primary btn-block" type="submit">
-              Continuar
-            </button>
-          </form>
+          </>
         ) : (
           <form onSubmit={registrar}>
             <p className="alert-success" role="status">

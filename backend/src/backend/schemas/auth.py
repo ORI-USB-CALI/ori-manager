@@ -51,6 +51,22 @@ class UnidadRegistroLeer(BaseModel):
     tipo: TipoUnidad
 
 
+class TokenVerificacionSolicitud(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1)
+
+
+class ReenvioVerificacionSolicitud(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    correo: EmailStr
+
+
+class MensajePublico(BaseModel):
+    message: str
+
+
 class RegistroSolicitanteRespuesta(BaseModel):
     estado: Literal["VERIFICACION_PENDIENTE"]
     mensaje: str

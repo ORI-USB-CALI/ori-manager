@@ -13,8 +13,11 @@ from backend.db.session import get_db
 from backend.schemas.auth import (
     LoginSolicitud,
     MensajeAutenticacion,
+    MensajePublico,
+    ReenvioVerificacionSolicitud,
     RegistroSolicitante,
     RegistroSolicitanteRespuesta,
+    TokenVerificacionSolicitud,
     UnidadRegistroLeer,
     UsuarioActualLeer,
 )
@@ -25,6 +28,7 @@ from backend.services.auth import (
     ServicioAutenticacion,
     UsuarioInactivoError,
 )
+from backend.services.correo import EnviadorCorreo, get_enviador_correo
 from backend.services.registro import (
     CorreoRegistradoError,
     ReferenciaRegistroInvalidaError,
@@ -35,6 +39,11 @@ from backend.services.sesiones import (
     RepositorioSesiones,
     get_repositorio_sesiones,
 )
+from backend.services.verificacion_correo import (
+    MENSAJE_REENVIO,
+    ServicioVerificacionCorreo,
+    TokenVerificacionInvalidoError,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -43,6 +52,7 @@ SessionRepository = Annotated[
     RepositorioSesiones,
     Depends(get_repositorio_sesiones),
 ]
+Correo = Annotated[EnviadorCorreo, Depends(get_enviador_correo)]
 
 
 @router.get("/registro/unidades", response_model=list[UnidadRegistroLeer])
@@ -58,9 +68,12 @@ def listar_unidades_registro(db: DatabaseSession):
 def registrar_solicitante(
     datos: RegistroSolicitante,
     db: DatabaseSession,
+    correo: Correo,
 ) -> RegistroSolicitanteRespuesta:
+    verificacion = ServicioVerificacionCorreo(db, correo, settings.public_frontend_url)
     try:
-        usuario = ServicioRegistro(db).registrar(datos)
+        resultado = ServicioRegistro(db).registrar(datos, verificacion)
+        usuario = resultado.usuario
     except CorreoRegistradoError as exc:
         siguiente_paso = (
             "INICIAR_SESION" if exc.correo_verificado else "VERIFICAR_CORREO"
@@ -80,9 +93,43 @@ def registrar_solicitante(
         ) from exc
     return RegistroSolicitanteRespuesta(
         estado="VERIFICACION_PENDIENTE",
-        mensaje="Cuenta creada. Debe verificar su correo antes de iniciar sesión.",
+        mensaje=(
+            "Cuenta creada. Revisa tu correo para verificar tu cuenta."
+            if resultado.correo_enviado
+            else "Cuenta creada, pero no fue posible enviar el correo. Puede reenviar la verificación."
+        ),
         tipo_usuario=clasificar_correo(usuario.correo),
     )
+
+
+@router.post("/verificar-correo", response_model=MensajePublico)
+def verificar_correo(
+    datos: TokenVerificacionSolicitud,
+    db: DatabaseSession,
+    correo: Correo,
+) -> MensajePublico:
+    try:
+        ServicioVerificacionCorreo(db, correo, settings.public_frontend_url).verificar(
+            datos.token
+        )
+    except TokenVerificacionInvalidoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"codigo": exc.codigo, "message": str(exc)},
+        ) from exc
+    return MensajePublico(message="Correo verificado correctamente.")
+
+
+@router.post("/reenviar-verificacion", response_model=MensajePublico)
+def reenviar_verificacion(
+    datos: ReenvioVerificacionSolicitud,
+    db: DatabaseSession,
+    correo: Correo,
+) -> MensajePublico:
+    ServicioVerificacionCorreo(db, correo, settings.public_frontend_url).reenviar(
+        str(datos.correo)
+    )
+    return MensajePublico(message=MENSAJE_REENVIO)
 
 
 @router.post("/login", response_model=MensajeAutenticacion)
