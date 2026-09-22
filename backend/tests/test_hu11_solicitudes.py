@@ -545,7 +545,7 @@ def test_endpoints_de_metadata_no_resuelven_storage(
     )
 
 
-def test_ca08_solo_propias_y_asociadas_sin_acceso_directo_ajeno(
+def test_ca08_solo_propias_incluso_si_existe_asociacion(
     db, client, crear_usuario, entrar_como, unidad
 ):
     primero = _autenticar(
@@ -577,7 +577,9 @@ def test_ca08_solo_propias_y_asociadas_sin_acceso_directo_ajeno(
     assert propia in ids and ajena not in ids
     db.add(SolicitudUsuario(solicitud_id=ajena, usuario_id=primero.id))
     db.commit()
-    assert client.get(f"/api/solicitudes/{ajena}").status_code == 200
+    assert client.get(f"/api/solicitudes/{ajena}").status_code == 404
+    ids = {item["id"] for item in client.get("/api/solicitudes/mias").json()["items"]}
+    assert propia in ids and ajena not in ids
     assert (
         client.patch(
             f"/api/solicitudes/{ajena}", json={"objeto": "No permitido"}

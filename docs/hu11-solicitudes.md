@@ -92,7 +92,10 @@ endpoints HU-11 son:
 - `DELETE /api/solicitudes/{id}/documentos/{documento_id}`
 - `POST /api/solicitudes/{id}/radicar`
 
-`solicitud_usuario` expresa asociaciones adicionales de lectura. Los permisos de
-esta HU son `solicitudes.crear`, `solicitudes.ver_propias`,
+En HU-11 la visibilidad se limita estrictamente a solicitudes cuyo
+`solicitante_id` corresponde al usuario autenticado. La tabla
+`solicitud_usuario` se conserva para un posible uso futuro, pero no concede
+acceso de lectura en esta HU. Los permisos son `solicitudes.crear`,
+`solicitudes.ver_propias`,
 `solicitudes.editar_propias` y `solicitudes.radicar`. No se definieron permisos ni
 transiciones de revisión ORI.

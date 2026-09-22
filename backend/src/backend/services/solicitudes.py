@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,7 +13,6 @@ from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.documento_solicitud import DocumentoSolicitud
 from backend.models.enums import EstadoSolicitud, TipoAliado, TipoDocumentoSolicitud
 from backend.models.solicitud_convenio import SolicitudConvenio
-from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
@@ -85,12 +84,8 @@ class ServicioSolicitudes:
         }
 
     def _consulta_visible(self, usuario: Usuario):
-        asociada = exists().where(
-            SolicitudUsuario.solicitud_id == SolicitudConvenio.id,
-            SolicitudUsuario.usuario_id == usuario.id,
-        )
         return select(SolicitudConvenio).where(
-            or_(SolicitudConvenio.solicitante_id == usuario.id, asociada)
+            SolicitudConvenio.solicitante_id == usuario.id
         )
 
     def _cargar(
