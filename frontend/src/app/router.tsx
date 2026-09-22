@@ -9,12 +9,14 @@ import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
+import { RegistroPage } from '../pages/RegistroPage'
 import { UsuariosRolesPage } from '../pages/UsuariosRolesPage'
 import { SolicitudPage } from '../pages/SolicitudPage'
 import { AppLayout } from './AppLayout'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/registro', element: <RegistroPage /> },
   {
     element: <AppLayout />,
     children: [

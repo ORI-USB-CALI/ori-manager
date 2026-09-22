@@ -61,6 +61,10 @@ class Usuario(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    correo_verificado_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

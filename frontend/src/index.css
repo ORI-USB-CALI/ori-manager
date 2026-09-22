@@ -416,6 +416,26 @@ a:hover {
   box-shadow: 0 20px 50px rgb(26 29 32 / 10%);
 }
 
+.card-registro {
+  width: min(620px, 100%);
+}
+
+.registro-aviso,
+.registro-login {
+  margin-top: 16px;
+}
+
+.registro-login {
+  text-align: center;
+}
+
+.registro-acciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
 .card-auth h1 {
   margin-bottom: 6px;
 }

@@ -90,6 +90,7 @@ def crear_usuario(db: Session) -> Callable[..., Usuario]:
             rol=rol,
             tipo_usuario=tipo_usuario.value,
             activo=activo,
+            correo_verificado_en=datetime.now(UTC),
         )
         db.add(usuario)
         db.commit()
