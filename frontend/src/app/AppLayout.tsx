@@ -44,6 +44,7 @@ export function AppLayout() {
           {puede('convenios.crear') && (
             <NavLink to="/convenios/nuevo">Nuevo convenio</NavLink>
           )}
+          {puede('solicitudes.ver_propias') && <NavLink to="/solicitudes">Mis solicitudes</NavLink>}
           {puede('usuarios.ver') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}
         </nav>
 

@@ -7,8 +7,10 @@ import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
+import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { UsuariosRolesPage } from '../pages/UsuariosRolesPage'
+import { SolicitudPage } from '../pages/SolicitudPage'
 import { AppLayout } from './AppLayout'
 
 export const router = createBrowserRouter([
@@ -24,6 +26,11 @@ export const router = createBrowserRouter([
       ] },
       { element: <RequierePermiso permiso="convenios.crear" />, children: [{ path: '/convenios/nuevo', element: <ConvenioNuevoPage /> }] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [{ path: '/convenios/:convenioId', element: <ConvenioDetallePage /> }] },
+      { element: <RequierePermiso permiso="solicitudes.ver_propias" />, children: [
+        { path: '/solicitudes', element: <MisSolicitudesPage /> },
+        { path: '/solicitudes/:solicitudId', element: <SolicitudPage /> },
+      ] },
+      { element: <RequierePermiso permiso="solicitudes.crear" />, children: [{ path: '/solicitudes/nueva', element: <SolicitudPage /> }] },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

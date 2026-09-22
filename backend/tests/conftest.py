@@ -15,6 +15,7 @@ from backend.main import app
 from backend.models.rol import Rol
 from backend.models.usuario import Usuario
 from backend.services.auth import DURACION_SESION
+from backend.services.documentos import AlmacenDocumentosLocal, get_almacen_documentos
 from backend.services.sesiones import (
     RepositorioSesionesMemoria,
     get_repositorio_sesiones,
@@ -52,7 +53,9 @@ def sesiones() -> RepositorioSesionesMemoria:
 
 
 @pytest.fixture
-def client(db: Session, sesiones: RepositorioSesionesMemoria) -> Iterator[TestClient]:
+def client(
+    db: Session, sesiones: RepositorioSesionesMemoria, tmp_path
+) -> Iterator[TestClient]:
     def override_get_db() -> Iterator[Session]:
         yield db
 
@@ -61,6 +64,9 @@ def client(db: Session, sesiones: RepositorioSesionesMemoria) -> Iterator[TestCl
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_repositorio_sesiones] = override_sesiones
+    app.dependency_overrides[get_almacen_documentos] = lambda: AlmacenDocumentosLocal(
+        tmp_path / "documentos"
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

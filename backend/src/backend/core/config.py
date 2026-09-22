@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_user: str = "ori_user"
     database_password: SecretStr
     database_sslmode: str = "require"
+    document_storage_path: str = "var/documentos"
 
     model_config = SettingsConfigDict(
         env_file=".env",
