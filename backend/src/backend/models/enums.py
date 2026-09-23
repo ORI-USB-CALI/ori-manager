@@ -57,3 +57,14 @@ class EstadoConvenio(StrEnum):
 class AlcanceConvenio(StrEnum):
     PROGRAMA = "PROGRAMA"
     INSTITUCIONAL = "INSTITUCIONAL"
+
+
+class OrigenObservacion(StrEnum):
+    REVISOR_ORI = "REVISOR_ORI"
+    CONTRAPARTE = "CONTRAPARTE"
+    REVISION_FINAL_ORI = "REVISION_FINAL_ORI"
+
+
+class EstadoObservacion(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    ATENDIDA = "ATENDIDA"

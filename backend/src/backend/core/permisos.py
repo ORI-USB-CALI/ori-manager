@@ -18,6 +18,7 @@ class Permiso(StrEnum):
     CONVENIOS_VER = "convenios.ver"
     CONVENIOS_CREAR = "convenios.crear"
     CONVENIOS_EDITAR = "convenios.editar"
+    CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE = "convenios.gestionar_revision_contraparte"
     SOLICITUDES_CREAR = "solicitudes.crear"
     SOLICITUDES_VER_PROPIAS = "solicitudes.ver_propias"
     SOLICITUDES_EDITAR_PROPIAS = "solicitudes.editar_propias"
@@ -42,6 +43,7 @@ _PERMISOS_GESTION_EPICA_02 = frozenset(
         Permiso.CONVENIOS_VER,
         Permiso.CONVENIOS_CREAR,
         Permiso.CONVENIOS_EDITAR,
+        Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE,
     }
 )
 _PERMISOS_SOLICITUDES_PROPIAS = frozenset(

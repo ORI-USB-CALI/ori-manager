@@ -42,6 +42,9 @@ PERMISOS_HU_11 = {
     "solicitudes.editar_propias",
     "solicitudes.radicar",
 }
+PERMISOS_HU_14 = {
+    "convenios.gestionar_revision_contraparte",
+}
 
 
 def test_codigo_rol_coincide_exactamente_con_el_mer() -> None:
@@ -61,7 +64,10 @@ def test_tipo_usuario_solo_contiene_interno_y_externo() -> None:
 
 def test_permisos_coinciden_con_los_alcances_integrados() -> None:
     valores = [permiso.value for permiso in Permiso.__members__.values()]
-    assert set(valores) == PERMISOS_GESTION_USUARIOS | PERMISOS_EPICA_02 | PERMISOS_HU_11
+    assert (
+        set(valores)
+        == PERMISOS_GESTION_USUARIOS | PERMISOS_EPICA_02 | PERMISOS_HU_11 | PERMISOS_HU_14
+    )
     assert len(valores) == len(set(valores))
 
 
@@ -89,7 +95,7 @@ def test_administrador_ori_posee_todos_los_permisos_definidos() -> None:
 
 def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
     assert permisos_para_rol(CodigoRol.GESTOR_ORI) == frozenset(
-        Permiso(valor) for valor in PERMISOS_EPICA_02
+        Permiso(valor) for valor in PERMISOS_EPICA_02 | PERMISOS_HU_14
     )
     assert Permiso.ALIADOS_CORREGIR_IDENTIFICACION in permisos_para_rol(
         CodigoRol.GESTOR_ORI
