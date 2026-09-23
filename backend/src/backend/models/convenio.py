@@ -21,6 +21,7 @@ from backend.models.enums import AlcanceConvenio, EstadoConvenio
 
 if TYPE_CHECKING:
     from backend.models.aliado import Aliado
+    from backend.models.documento import Documento
     from backend.models.etapa import Etapa
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
@@ -79,4 +80,7 @@ class Convenio(Base):
     )
     revisiones_pendientes: Mapped[list[RevisionPendiente]] = relationship(
         back_populates="convenio", foreign_keys="RevisionPendiente.convenio_id"
+    )
+    documentos: Mapped[list[Documento]] = relationship(
+        back_populates="convenio", foreign_keys="Documento.convenio_id"
     )

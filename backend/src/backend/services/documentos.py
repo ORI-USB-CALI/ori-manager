@@ -27,6 +27,7 @@ class AlmacenDocumentos(Protocol):
     def guardar(self, clave: str, contenido: bytes) -> None: ...
     def eliminar(self, clave: str) -> None: ...
     def existe(self, clave: str) -> bool: ...
+    def leer(self, clave: str) -> bytes: ...
 
 
 class ErrorAlmacenDocumentos(RuntimeError):
@@ -62,6 +63,9 @@ class AlmacenDocumentosLocal:
 
     def existe(self, clave: str) -> bool:
         return self._ruta(clave).is_file()
+
+    def leer(self, clave: str) -> bytes:
+        return self._ruta(clave).read_bytes()
 
 
 class AlmacenDocumentosMicrosoftGraph:
@@ -224,6 +228,13 @@ class AlmacenDocumentosMicrosoftGraph:
 
     def existe(self, clave: str) -> bool:
         return self._buscar(self._partes(clave)).status_code != 404
+
+    def leer(self, clave: str) -> bytes:
+        partes = self._partes(clave)
+        respuesta = self._solicitar(
+            "GET", f"{self._ruta_item(self._root_id, partes)}:/content"
+        )
+        return respuesta.content
 
     def eliminar(self, clave: str) -> None:
         respuesta = self._buscar(self._partes(clave))

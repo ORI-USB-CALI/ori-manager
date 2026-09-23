@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
-from backend.models.documento_solicitud import DocumentoSolicitud
+from backend.models.documento import Documento
 from backend.models.enums import EstadoSolicitud, TipoAliado, TipoDocumentoSolicitud
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
@@ -181,7 +181,7 @@ class ServicioSolicitudes:
         nombre: str,
         tipo_mime: str,
         contenido: bytes,
-    ) -> DocumentoSolicitud:
+    ) -> Documento:
         solicitud = self._cargar_editable(solicitud_id, usuario, bloquear=True)
         nombre_seguro = Path(nombre.replace("\\", "/")).name.strip()
         extension = Path(nombre_seguro).suffix.lower()
@@ -194,13 +194,14 @@ class ServicioSolicitudes:
         if len(contenido) > TAMANO_MAXIMO_DOCUMENTO:
             raise DocumentoInvalido("El documento supera el límite de 10 MB")
         clave = f"solicitudes/{solicitud.id}/{token_hex(20)}{extension}"
-        documento = DocumentoSolicitud(
+        documento = Documento(
             solicitud_id=solicitud.id,
-            tipo_documento=tipo_documento.value,
-            nombre_original=nombre_seguro[:255],
+            tipo=tipo_documento.value,
+            nombre_archivo=nombre_seguro[:255],
             tipo_mime=tipo_mime,
             tamano_bytes=len(contenido),
-            clave_objeto=clave,
+            ruta_almacenamiento=clave,
+            cargado_por_id=usuario.id,
         )
         almacen = self._almacen_requerido()
         almacen.guardar(clave, contenido)
@@ -223,7 +224,7 @@ class ServicioSolicitudes:
         )
         if documento is None:
             raise SolicitudNoEncontrada("Documento no encontrado")
-        clave = documento.clave_objeto
+        clave = documento.ruta_almacenamiento
         self.db.delete(documento)
         self.db.commit()
         self._almacen_requerido().eliminar(clave)
@@ -298,14 +299,14 @@ class ServicioSolicitudes:
             if not solicitud.solicitante_entidad:
                 errores["solicitante_entidad"] = "Este campo es obligatorio"
         cargados = {
-            TipoDocumentoSolicitud(item.tipo_documento) for item in solicitud.documentos
+            TipoDocumentoSolicitud(item.tipo) for item in solicitud.documentos
         }
         if not cargados.intersection(TIPOS_DOCUMENTO_REPRESENTACION):
             errores["documentos.representacion_legal"] = (
                 "Adjunte al menos un documento de representación legal aplicable"
             )
         for documento in solicitud.documentos:
-            if not self._almacen_requerido().existe(documento.clave_objeto):
+            if not self._almacen_requerido().existe(documento.ruta_almacenamiento):
                 errores[f"documentos.{documento.id}"] = (
                     "El archivo almacenado no está disponible"
                 )

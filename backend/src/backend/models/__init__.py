@@ -1,7 +1,7 @@
 from backend.models.aliado import Aliado
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
-from backend.models.documento_solicitud import DocumentoSolicitud
+from backend.models.documento import Documento
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.observacion_revision import ObservacionRevision
@@ -19,7 +19,7 @@ __all__ = [
     "Aliado",
     "ContactoAliado",
     "Convenio",
-    "DocumentoSolicitud",
+    "Documento",
     "Etapa",
     "HistorialEtapa",
     "ObservacionRevision",
