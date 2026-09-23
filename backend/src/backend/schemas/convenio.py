@@ -5,11 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.models.enums import AlcanceConvenio, EstadoConvenio
 
 
-class ConvenioBase(BaseModel):
+class ConvenioCamposEditables(BaseModel):
     codigo: str | None = Field(default=None, max_length=40)
-    aliado_id: int | None = None
     tipo_convenio_id: int | None = None
-    etapa_actual_id: int | None = None
     objeto: str | None = None
     alcance: AlcanceConvenio | None = None
     unidad_organizacional_id: int | None = None
@@ -23,13 +21,13 @@ class ConvenioBase(BaseModel):
     numero_renovacion: int | None = Field(default=None, ge=0)
 
 
-class ConvenioCrear(ConvenioBase):
+class ConvenioCrear(ConvenioCamposEditables):
     model_config = ConfigDict(extra="forbid")
     solicitud_id: int
     objeto: str = Field(min_length=1)
 
 
-class ConvenioActualizar(ConvenioBase):
+class ConvenioActualizar(ConvenioCamposEditables):
     model_config = ConfigDict(extra="forbid")
 
 
@@ -48,11 +46,13 @@ class AliadoResumen(BaseModel):
     activo: bool
 
 
-class ConvenioLeer(ConvenioBase):
+class ConvenioLeer(ConvenioCamposEditables):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     solicitud_id: int
+    aliado_id: int | None
+    etapa_actual_id: int | None
     estado: EstadoConvenio
     creado_por_id: int
     creado_por: UsuarioResumen

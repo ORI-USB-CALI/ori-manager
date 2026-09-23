@@ -15,6 +15,7 @@ from backend.services.convenios import (
     ErrorConvenio,
     ReferenciaConvenioInvalida,
     ServicioConvenios,
+    SolicitudNoAprobada,
 )
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
@@ -27,7 +28,7 @@ PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, ConvenioDuplicado):
+    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if isinstance(exc, ReferenciaConvenioInvalida):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
