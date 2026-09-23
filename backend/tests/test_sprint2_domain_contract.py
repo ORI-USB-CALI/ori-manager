@@ -9,14 +9,19 @@ from backend.models.documento import Documento
 from backend.models.enums import (
     EstadoConvenio,
     EstadoObservacionRevision,
+    EstadoRevisionConvenio,
     EstadoSolicitud,
     OrigenObservacionRevision,
+    ResultadoRevisionConvenio,
     TipoAliado,
     TipoIdentificacion,
+    TipoRevisionConvenio,
     TipoSolicitante,
 )
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 
 CODIGOS_ETAPA_CANONICOS = {
@@ -234,3 +239,28 @@ def test_catalogos_canonicos_de_observacion_revision():
         "PENDIENTE",
         "ATENDIDA",
     }
+
+
+def test_contrato_estructural_compartido_de_revision_convenio():
+    assert {valor.value for valor in TipoRevisionConvenio} == {
+        "JURIDICA",
+        "CONTRAPARTE",
+        "FINAL",
+    }
+    assert {valor.value for valor in EstadoRevisionConvenio} == {
+        "PENDIENTE",
+        "RESUELTA",
+    }
+    assert {valor.value for valor in ResultadoRevisionConvenio} == {
+        "APROBADA",
+        "DEVUELTA",
+    }
+
+    fk_documento = next(
+        iter(RevisionConvenio.__table__.c.documento_id.foreign_keys)
+    )
+    fk_revision = next(
+        iter(ObservacionRevision.__table__.c.revision_convenio_id.foreign_keys)
+    )
+    assert fk_documento.target_fullname == "documento.id"
+    assert fk_revision.target_fullname == "revision_convenio.id"

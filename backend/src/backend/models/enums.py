@@ -68,3 +68,19 @@ class OrigenObservacionRevision(StrEnum):
 class EstadoObservacionRevision(StrEnum):
     PENDIENTE = "PENDIENTE"
     ATENDIDA = "ATENDIDA"
+
+
+class TipoRevisionConvenio(StrEnum):
+    JURIDICA = "JURIDICA"
+    CONTRAPARTE = "CONTRAPARTE"
+    FINAL = "FINAL"
+
+
+class EstadoRevisionConvenio(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    RESUELTA = "RESUELTA"
+
+
+class ResultadoRevisionConvenio(StrEnum):
+    APROBADA = "APROBADA"
+    DEVUELTA = "DEVUELTA"

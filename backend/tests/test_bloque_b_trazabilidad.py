@@ -11,13 +11,54 @@ from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoObservacionRevision, OrigenObservacionRevision
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
-from backend.models.observacion_revision import ObservacionRevision
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
+
+ORIGENES_BLOQUE_B = (
+    "REVISOR_ORI",
+    "CONTRAPARTE",
+    "REVISION_FINAL_ORI",
+)
+INSERTAR_OBSERVACION_BLOQUE_B = text(
+    """
+    INSERT INTO observacion_revision (
+        convenio_id,
+        historial_etapa_id,
+        origen,
+        registrada_por_id,
+        descripcion
+    ) VALUES (
+        :convenio_id,
+        :historial_etapa_id,
+        :origen,
+        :registrada_por_id,
+        :descripcion
+    )
+    RETURNING origen, estado, respuesta, atendida_por_id, fecha_atencion
+    """
+)
+INSERTAR_OBSERVACION_CON_ESTADO_BLOQUE_B = text(
+    """
+    INSERT INTO observacion_revision (
+        convenio_id,
+        historial_etapa_id,
+        origen,
+        registrada_por_id,
+        descripcion,
+        estado
+    ) VALUES (
+        :convenio_id,
+        :historial_etapa_id,
+        :origen,
+        :registrada_por_id,
+        :descripcion,
+        :estado
+    )
+    """
+)
 
 
 def _cargar_migracion():
@@ -164,30 +205,28 @@ def test_observacion_revision_acepta_origenes_y_default_pendiente(
     sesion.flush()
 
     observaciones = [
-        ObservacionRevision(
-            convenio_id=convenio.id,
-            historial_etapa_id=historial.id,
-            origen=origen.value,
-            registrada_por_id=actor.id,
-            descripcion=f"Observación {origen.value}",
-        )
-        for origen in OrigenObservacionRevision
+        sesion.execute(
+            INSERTAR_OBSERVACION_BLOQUE_B,
+            {
+                "convenio_id": convenio.id,
+                "historial_etapa_id": historial.id,
+                "origen": origen,
+                "registrada_por_id": actor.id,
+                "descripcion": f"Observación {origen}",
+            },
+        ).mappings().one()
+        for origen in ORIGENES_BLOQUE_B
     ]
-    sesion.add_all(observaciones)
-    sesion.flush()
 
-    assert {item.origen for item in observaciones} == {
+    assert {item["origen"] for item in observaciones} == {
         "REVISOR_ORI",
         "CONTRAPARTE",
         "REVISION_FINAL_ORI",
     }
-    assert all(
-        item.estado == EstadoObservacionRevision.PENDIENTE.value
-        for item in observaciones
-    )
-    assert all(item.respuesta is None for item in observaciones)
-    assert all(item.atendida_por_id is None for item in observaciones)
-    assert all(item.fecha_atencion is None for item in observaciones)
+    assert all(item["estado"] == "PENDIENTE" for item in observaciones)
+    assert all(item["respuesta"] is None for item in observaciones)
+    assert all(item["atendida_por_id"] is None for item in observaciones)
+    assert all(item["fecha_atencion"] is None for item in observaciones)
 
 
 @pytest.mark.parametrize(
@@ -209,18 +248,18 @@ def test_observacion_revision_rechaza_catalogos_invalidos(
     )
     sesion.add(historial)
     sesion.flush()
-    observacion = ObservacionRevision(
-        convenio_id=convenio.id,
-        historial_etapa_id=historial.id,
-        origen=OrigenObservacionRevision.REVISOR_ORI.value,
-        registrada_por_id=actor.id,
-        descripcion="Observación inválida",
-    )
-    setattr(observacion, campo, valor)
+    datos = {
+        "convenio_id": convenio.id,
+        "historial_etapa_id": historial.id,
+        "origen": "REVISOR_ORI",
+        "registrada_por_id": actor.id,
+        "descripcion": "Observación inválida",
+        "estado": "PENDIENTE",
+    }
+    datos[campo] = valor
 
     with pytest.raises(IntegrityError, match=constraint), sesion.begin_nested():
-        sesion.add(observacion)
-        sesion.flush()
+        sesion.execute(INSERTAR_OBSERVACION_CON_ESTADO_BLOQUE_B, datos)
 
 
 def test_migracion_crea_solo_tablas_bloque_b_y_fks_esperadas(

@@ -21,6 +21,7 @@ from backend.db.base import Base
 
 if TYPE_CHECKING:
     from backend.models.convenio import Convenio
+    from backend.models.revision_convenio import RevisionConvenio
     from backend.models.solicitud_convenio import SolicitudConvenio
     from backend.models.usuario import Usuario
 
@@ -93,3 +94,6 @@ class Documento(Base):
     )
     convenio: Mapped[Convenio | None] = relationship(back_populates="documentos")
     cargado_por: Mapped[Usuario | None] = relationship(foreign_keys=[cargado_por_id])
+    revisiones: Mapped[list[RevisionConvenio]] = relationship(
+        back_populates="documento"
+    )
