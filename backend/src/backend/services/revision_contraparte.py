@@ -1,9 +1,14 @@
 from datetime import UTC, datetime
+from pathlib import Path
+from secrets import token_hex
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.core.permisos import Permiso, tiene_permiso
+from backend.core.roles import CodigoRol
 from backend.models.convenio import Convenio
+from backend.models.documento import Documento
 from backend.models.enums import (
     EstadoObservacion,
     EstadoRevisionPendiente,
@@ -15,10 +20,17 @@ from backend.models.historial_etapa import HistorialEtapa
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.revision_pendiente import RevisionPendiente
 from backend.models.usuario import Usuario
+from backend.services.documentos import (
+    EXTENSIONES_PERMITIDAS,
+    TAMANO_MAXIMO_DOCUMENTO,
+    TIPOS_MIME_PERMITIDOS,
+    AlmacenDocumentos,
+)
 
 CODIGO_REVISION_AVAL_JURIDICO = "REVISION_AVAL_JURIDICO"
 CODIGO_REVISION_CONTRAPARTE = "REVISION_CONTRAPARTE"
 CODIGO_REVISION_FINAL = "REVISION_FINAL"
+TIPO_DOCUMENTO_BORRADOR = "BORRADOR"
 
 # Etapas desde las que se puede registrar un envío a contraparte: el primer
 # envío ocurre estando en REVISION_AVAL_JURIDICO (aval jurídico aprobado,
@@ -51,9 +63,23 @@ class ObservacionesRequeridas(ErrorRevisionContraparte):
     pass
 
 
+class DocumentoInvalido(ErrorRevisionContraparte):
+    pass
+
+
+class DocumentoNoEncontrado(ErrorRevisionContraparte):
+    pass
+
+
 class ServicioRevisionContraparte:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, almacen: AlmacenDocumentos | None = None):
         self.db = db
+        self.almacen = almacen
+
+    def _almacen_requerido(self) -> AlmacenDocumentos:
+        if self.almacen is None:
+            raise RuntimeError("Esta operación requiere un almacén documental")
+        return self.almacen
 
     def _obtener_convenio(self, convenio_id: int) -> Convenio:
         convenio = self.db.get(Convenio, convenio_id)
@@ -89,7 +115,44 @@ class ServicioRevisionContraparte:
         self.db.refresh(historial)
         return historial
 
-    def registrar_envio(self, convenio_id: int, usuario: Usuario) -> HistorialEtapa:
+    def _guardar_documento_convenio(
+        self, convenio: Convenio, numero_ciclo: int, usuario: Usuario, *, nombre: str, tipo_mime: str, contenido: bytes
+    ) -> Documento:
+        nombre_seguro = Path(nombre.replace("\\", "/")).name.strip()
+        extension = Path(nombre_seguro).suffix.lower()
+        if not nombre_seguro or extension not in EXTENSIONES_PERMITIDAS:
+            raise DocumentoInvalido("Extensión no permitida; use PDF, JPG, JPEG o PNG")
+        if tipo_mime not in TIPOS_MIME_PERMITIDOS:
+            raise DocumentoInvalido("Tipo de contenido no permitido")
+        if not contenido:
+            raise DocumentoInvalido("El documento está vacío")
+        if len(contenido) > TAMANO_MAXIMO_DOCUMENTO:
+            raise DocumentoInvalido("El documento supera el límite de 10 MB")
+
+        clave = f"convenios/{convenio.id}/{token_hex(20)}{extension}"
+        almacen = self._almacen_requerido()
+        almacen.guardar(clave, contenido)
+        for anterior in self.db.scalars(
+            select(Documento).where(Documento.convenio_id == convenio.id, Documento.es_vigente.is_(True))
+        ):
+            anterior.es_vigente = False
+        documento = Documento(
+            convenio_id=convenio.id,
+            tipo=TIPO_DOCUMENTO_BORRADOR,
+            nombre_archivo=nombre_seguro[:255],
+            tipo_mime=tipo_mime,
+            tamano_bytes=len(contenido),
+            ruta_almacenamiento=clave,
+            version=numero_ciclo,
+            es_vigente=True,
+            cargado_por_id=usuario.id,
+        )
+        self.db.add(documento)
+        return documento
+
+    def registrar_envio(
+        self, convenio_id: int, usuario: Usuario, *, nombre: str, tipo_mime: str, contenido: bytes
+    ) -> HistorialEtapa:
         convenio = self._obtener_convenio(convenio_id)
         etapa_actual = convenio.etapa_actual_id and self.db.get(Etapa, convenio.etapa_actual_id)
         if etapa_actual is None or etapa_actual.codigo not in _ETAPAS_VALIDAS_PARA_ENVIO:
@@ -98,6 +161,9 @@ class ServicioRevisionContraparte:
             )
         etapa_destino = self._etapa_por_codigo(CODIGO_REVISION_CONTRAPARTE)
         historial = self._registrar_transicion(convenio, etapa_destino, usuario)
+        self._guardar_documento_convenio(
+            convenio, historial.numero_ciclo, usuario, nombre=nombre, tipo_mime=tipo_mime, contenido=contenido
+        )
         revision = RevisionPendiente(
             convenio_id=convenio.id,
             historial_etapa_id=historial.id,
@@ -107,6 +173,23 @@ class ServicioRevisionContraparte:
         self.db.add(revision)
         self.db.commit()
         return historial
+
+    def obtener_documento_vigente(self, convenio_id: int, usuario: Usuario) -> Documento:
+        convenio = self._obtener_convenio(convenio_id)
+        es_gestor = tiene_permiso(
+            CodigoRol(usuario.rol.codigo), Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE
+        )
+        es_solicitante = convenio.solicitud.solicitante_id == usuario.id
+        if not (es_gestor or es_solicitante):
+            raise UsuarioNoAutorizado(
+                "No tiene permisos para consultar el documento de este convenio"
+            )
+        documento = self.db.scalar(
+            select(Documento).where(Documento.convenio_id == convenio_id, Documento.es_vigente.is_(True))
+        )
+        if documento is None:
+            raise DocumentoNoEncontrado("El convenio no tiene un documento vigente")
+        return documento
 
     def _verificar_solicitante(self, convenio: Convenio, usuario: Usuario) -> None:
         if convenio.solicitud.solicitante_id != usuario.id:

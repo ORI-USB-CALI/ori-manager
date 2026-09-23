@@ -1,9 +1,17 @@
 from typing import Annotated, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
-from backend.api.deps import requiere
+from backend.api.deps import UsuarioActual, requiere
 from backend.core.permisos import Permiso
 from backend.db.session import get_db
 from backend.models.historial_etapa import HistorialEtapa
@@ -14,8 +22,14 @@ from backend.schemas.revision_contraparte import (
     HistorialEtapaLeer,
     RevisionPendienteLeer,
 )
+from backend.services.documentos import (
+    AlmacenDocumentos,
+    get_almacen_documentos,
+)
 from backend.services.revision_contraparte import (
     ConvenioNoEncontrado,
+    DocumentoInvalido,
+    DocumentoNoEncontrado,
     ErrorRevisionContraparte,
     ObservacionesRequeridas,
     RevisionJuridicaNoAprobada,
@@ -26,30 +40,58 @@ from backend.services.revision_contraparte import (
 
 router = APIRouter(prefix="/convenios/{convenio_id}/revision-contraparte", tags=["Revisión de contraparte"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
+Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
 PuedeGestionar = Annotated[Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE)]
 PuedeRevisarPropia = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR_CONTRAPARTE_PROPIA)]
 
 
 def _lanzar_http(exc: ErrorRevisionContraparte) -> NoReturn:
-    if isinstance(exc, (ConvenioNoEncontrado, RevisionPendienteNoEncontrada)):
+    if isinstance(exc, (ConvenioNoEncontrado, RevisionPendienteNoEncontrada, DocumentoNoEncontrado)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     if isinstance(exc, UsuarioNoAutorizado):
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     if isinstance(exc, RevisionJuridicaNoAprobada):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    if isinstance(exc, ObservacionesRequeridas):
+    if isinstance(exc, (ObservacionesRequeridas, DocumentoInvalido)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
 
 @router.post("/envios", response_model=HistorialEtapaLeer, status_code=status.HTTP_201_CREATED)
-def registrar_envio(
-    convenio_id: int, db: DatabaseSession, usuario: PuedeGestionar
+async def registrar_envio(
+    convenio_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    usuario: PuedeGestionar,
+    archivo: Annotated[UploadFile, File()],
 ) -> HistorialEtapa:
+    contenido = await archivo.read()
     try:
-        return ServicioRevisionContraparte(db).registrar_envio(convenio_id, usuario)
+        return ServicioRevisionContraparte(db, almacen).registrar_envio(
+            convenio_id,
+            usuario,
+            nombre=archivo.filename or "",
+            tipo_mime=archivo.content_type or "",
+            contenido=contenido,
+        )
     except ErrorRevisionContraparte as exc:
         _lanzar_http(exc)
+
+
+@router.get("/documento")
+def descargar_documento_vigente(
+    convenio_id: int, db: DatabaseSession, almacen: Storage, usuario: UsuarioActual
+) -> Response:
+    try:
+        documento = ServicioRevisionContraparte(db, almacen).obtener_documento_vigente(convenio_id, usuario)
+        contenido = almacen.leer(documento.ruta_almacenamiento)
+    except ErrorRevisionContraparte as exc:
+        _lanzar_http(exc)
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={"Content-Disposition": f'attachment; filename="{documento.nombre_archivo}"'},
+    )
 
 
 @router.post("/aprobacion", response_model=RevisionPendienteLeer, status_code=status.HTTP_201_CREATED)
