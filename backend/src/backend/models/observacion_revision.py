@@ -20,6 +20,7 @@ from backend.models.enums import EstadoObservacionRevision, OrigenObservacionRev
 if TYPE_CHECKING:
     from backend.models.convenio import Convenio
     from backend.models.historial_etapa import HistorialEtapa
+    from backend.models.revision_convenio import RevisionConvenio
     from backend.models.usuario import Usuario
 
 _ORIGENES = ", ".join(f"'{valor.value}'" for valor in OrigenObservacionRevision)
@@ -44,6 +45,11 @@ class ObservacionRevision(Base):
     historial_etapa_id: Mapped[int] = mapped_column(
         ForeignKey("historial_etapa.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
+    )
+    revision_convenio_id: Mapped[int | None] = mapped_column(
+        ForeignKey("revision_convenio.id", ondelete="RESTRICT"),
+        nullable=True,
         index=True,
     )
     origen: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -74,6 +80,9 @@ class ObservacionRevision(Base):
 
     convenio: Mapped[Convenio] = relationship(back_populates="observaciones_revision")
     historial_etapa: Mapped[HistorialEtapa] = relationship()
+    revision_convenio: Mapped[RevisionConvenio | None] = relationship(
+        back_populates="observaciones"
+    )
     registrada_por: Mapped[Usuario] = relationship(
         foreign_keys=[registrada_por_id]
     )

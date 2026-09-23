@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from backend.models.etapa import Etapa
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
+    from backend.models.revision_convenio import RevisionConvenio
     from backend.models.solicitud_convenio import SolicitudConvenio
     from backend.models.tipo_convenio import TipoConvenio
     from backend.models.unidad_organizacional import UnidadOrganizacional
@@ -78,5 +79,8 @@ class Convenio(Base):
         back_populates="convenio"
     )
     observaciones_revision: Mapped[list[ObservacionRevision]] = relationship(
+        back_populates="convenio"
+    )
+    revisiones: Mapped[list[RevisionConvenio]] = relationship(
         back_populates="convenio"
     )
