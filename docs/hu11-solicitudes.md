@@ -44,8 +44,10 @@ realmente insertadas por HU-11 y permite retirarlas selectivamente al degradar.
 
 ## Documentos
 
-`documento_solicitud` guarda metadata y una `clave_objeto` opaca; no guarda el
-archivo. `AlmacenDocumentos` es el puerto sustituible. El adaptador de desarrollo
+La entidad genérica `documento` guarda metadata y una `ruta_almacenamiento`
+opaca; no guarda el archivo. Los endpoints de HU-11 conservan los nombres
+`tipo_documento` y `nombre_original` en su contrato HTTP. `AlmacenDocumentos` es
+el puerto sustituible. El adaptador de desarrollo
 `AlmacenDocumentosLocal` genera rutas exclusivamente desde claves internas,
 nunca desde nombres aportados por usuarios. Admite PDF, JPG y PNG hasta 10 MB.
 

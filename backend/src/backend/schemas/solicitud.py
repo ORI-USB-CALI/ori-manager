@@ -70,11 +70,11 @@ class SolicitudActualizar(SolicitudCampos):
 
 
 class DocumentoSolicitudLeer(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
-    tipo_documento: TipoDocumentoSolicitud
-    nombre_original: str
+    tipo_documento: TipoDocumentoSolicitud = Field(validation_alias="tipo")
+    nombre_original: str = Field(validation_alias="nombre_archivo")
     tipo_mime: str
     tamano_bytes: int
     creado_en: datetime

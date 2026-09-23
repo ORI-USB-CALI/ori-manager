@@ -21,7 +21,10 @@ from backend.models.enums import AlcanceConvenio, EstadoConvenio
 
 if TYPE_CHECKING:
     from backend.models.aliado import Aliado
+    from backend.models.documento import Documento
     from backend.models.etapa import Etapa
+    from backend.models.historial_etapa import HistorialEtapa
+    from backend.models.observacion_revision import ObservacionRevision
     from backend.models.solicitud_convenio import SolicitudConvenio
     from backend.models.tipo_convenio import TipoConvenio
     from backend.models.unidad_organizacional import UnidadOrganizacional
@@ -68,3 +71,12 @@ class Convenio(Base):
     unidad_organizacional: Mapped[UnidadOrganizacional | None] = relationship()
     creado_por: Mapped[Usuario] = relationship(foreign_keys=[creado_por_id])
     convenio_origen: Mapped[Convenio | None] = relationship(remote_side=[id])
+    documentos: Mapped[list[Documento]] = relationship(
+        back_populates="convenio", foreign_keys="Documento.convenio_id"
+    )
+    historial_etapas: Mapped[list[HistorialEtapa]] = relationship(
+        back_populates="convenio"
+    )
+    observaciones_revision: Mapped[list[ObservacionRevision]] = relationship(
+        back_populates="convenio"
+    )

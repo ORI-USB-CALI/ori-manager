@@ -11,6 +11,7 @@ from backend.core.unidades_organizacionales import TipoUnidad
 from backend.main import app
 from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
+from backend.models.documento import Documento
 from backend.models.enums import EstadoSolicitud
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
@@ -87,7 +88,7 @@ def _payload(tipo_convenio_id: int) -> dict[str, object]:
     }
 
 
-def _subir_documentos(client, solicitud_id: int) -> None:
+def _subir_documentos(client, solicitud_id: int) -> dict[str, object]:
     tipo = "OTRO_DOCUMENTO_REPRESENTACION"
     respuesta = client.post(
         f"/api/solicitudes/{solicitud_id}/documentos",
@@ -101,7 +102,46 @@ def _subir_documentos(client, solicitud_id: int) -> None:
         },
     )
     assert respuesta.status_code == 201
-    assert respuesta.json()["nombre_original"] == f"{tipo}.pdf"
+    cuerpo = respuesta.json()
+    assert cuerpo["tipo_documento"] == tipo
+    assert cuerpo["nombre_original"] == f"{tipo}.pdf"
+    assert "tipo" not in cuerpo
+    assert "nombre_archivo" not in cuerpo
+    return cuerpo
+
+
+def test_documento_se_carga_y_elimina_con_contrato_hu11(
+    db, client, crear_usuario, entrar_como, unidad
+):
+    usuario = _autenticar(
+        client,
+        crear_usuario,
+        entrar_como,
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+        unidad_organizacional_id=unidad.id,
+        cargo="Docente",
+    )
+    db.commit()
+    solicitud_id = client.post("/api/solicitudes", json={}).json()["id"]
+
+    cuerpo = _subir_documentos(client, solicitud_id)
+
+    documento = db.get(Documento, cuerpo["id"])
+    assert documento is not None
+    assert documento.solicitud_id == solicitud_id
+    assert documento.convenio_id is None
+    assert documento.tipo == cuerpo["tipo_documento"]
+    assert documento.nombre_archivo == cuerpo["nombre_original"]
+    assert documento.es_vigente is True
+    assert documento.version is None
+    assert documento.cargado_por_id == usuario.id
+
+    respuesta = client.delete(
+        f"/api/solicitudes/{solicitud_id}/documentos/{documento.id}"
+    )
+    assert respuesta.status_code == 204
+    assert db.get(Documento, documento.id) is None
 
 
 def test_ca01_interno_y_externo_crean_borrador_tipo_derivado(
@@ -324,6 +364,40 @@ def test_otro_soporte_no_reemplaza_documentacion_de_representacion(
     )
     assert carga.status_code == 201
     respuesta = client.post(f"/api/solicitudes/{solicitud_id}/radicar")
+    assert respuesta.status_code == 422
+    assert "documentos.representacion_legal" in respuesta.json()["detail"]["errors"]
+
+
+def test_tipo_documental_generico_no_rompe_validacion_hu11(
+    db, client, crear_usuario, entrar_como, unidad, tipo_convenio
+):
+    _autenticar(
+        client,
+        crear_usuario,
+        entrar_como,
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+        unidad_organizacional_id=unidad.id,
+        cargo="Docente",
+    )
+    db.commit()
+    solicitud_id = client.post(
+        "/api/solicitudes", json=_payload(tipo_convenio.id)
+    ).json()["id"]
+    db.add(
+        Documento(
+            solicitud_id=solicitud_id,
+            tipo="FORMATO_SOLICITUD",
+            nombre_archivo="formato.pdf",
+            ruta_almacenamiento=f"solicitudes/{solicitud_id}/formato.pdf",
+            tipo_mime="application/pdf",
+            tamano_bytes=10,
+        )
+    )
+    db.commit()
+
+    respuesta = client.post(f"/api/solicitudes/{solicitud_id}/radicar")
+
     assert respuesta.status_code == 422
     assert "documentos.representacion_legal" in respuesta.json()["detail"]["errors"]
 

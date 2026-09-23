@@ -29,7 +29,7 @@ from backend.models.enums import (
 if TYPE_CHECKING:
     from backend.models.aliado import Aliado
     from backend.models.convenio import Convenio
-    from backend.models.documento_solicitud import DocumentoSolicitud
+    from backend.models.documento import Documento
     from backend.models.usuario import Usuario
 
 _TIPOS = ", ".join(f"'{valor.value}'" for valor in TipoSolicitante)
@@ -178,6 +178,4 @@ class SolicitudConvenio(Base):
         back_populates="solicitud", uselist=False
     )
     solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitante_id])
-    documentos: Mapped[list[DocumentoSolicitud]] = relationship(
-        back_populates="solicitud", cascade="all, delete-orphan"
-    )
+    documentos: Mapped[list[Documento]] = relationship(back_populates="solicitud")
