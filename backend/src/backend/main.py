@@ -5,7 +5,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.api.routers import aliados, auth, convenios, solicitudes, usuarios
+from backend.api.routers import (
+    aliados,
+    auth,
+    convenios,
+    revision_contraparte,
+    solicitudes,
+    usuarios,
+)
 from backend.db.session import get_db
 
 app = FastAPI(
@@ -16,6 +23,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(usuarios.router, prefix="/api")
 app.include_router(aliados.router, prefix="/api")
 app.include_router(convenios.router, prefix="/api")
+app.include_router(revision_contraparte.router, prefix="/api")
 app.include_router(solicitudes.router, prefix="/api")
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
