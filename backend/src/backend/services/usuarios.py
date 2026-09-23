@@ -1,4 +1,6 @@
-from sqlalchemy import select
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -31,6 +33,16 @@ class ConflictoUsuarioError(ErrorGestionUsuarios):
     pass
 
 
+ROLES_ADMINISTRABLES = frozenset(
+    {
+        CodigoRol.ADMINISTRADOR_ORI,
+        CodigoRol.GESTOR_ORI,
+        CodigoRol.REVISOR_ORI,
+    }
+)
+CODIGOS_ROLES_ADMINISTRABLES = tuple(rol.value for rol in ROLES_ADMINISTRABLES)
+
+
 class ServicioUsuarios:
     def __init__(self, db: Session, sesiones: RepositorioSesiones) -> None:
         self.db = db
@@ -41,7 +53,7 @@ class ServicioUsuarios:
             self.db.scalars(
                 select(Usuario)
                 .options(joinedload(Usuario.rol))
-                .where(Usuario.tipo_usuario == TipoUsuario.INTERNO.value)
+                .where(Usuario.rol.has(Rol.codigo.in_(CODIGOS_ROLES_ADMINISTRABLES)))
                 .order_by(Usuario.correo)
             )
         )
@@ -52,7 +64,7 @@ class ServicioUsuarios:
             .options(joinedload(Usuario.rol))
             .where(
                 Usuario.id == usuario_id,
-                Usuario.tipo_usuario == TipoUsuario.INTERNO.value,
+                Usuario.rol.has(Rol.codigo.in_(CODIGOS_ROLES_ADMINISTRABLES)),
             )
         )
         if usuario is None:
@@ -66,10 +78,11 @@ class ServicioUsuarios:
             )
         self._validar_correo_disponible(str(datos.correo))
         rol = self._obtener_rol(datos.rol)
+        self._validar_rol_administrable(datos.rol)
         self._validar_compatibilidad(rol, datos.tipo_usuario)
         unidad = self._obtener_unidad(datos.unidad_organizacional_id)
         usuario = Usuario(
-            correo=str(datos.correo),
+            correo=str(datos.correo).lower(),
             hash_contrasena=hash_contrasena(datos.contrasena),
             nombre_completo=datos.nombre_completo,
             documento_identidad=datos.documento_identidad,
@@ -80,6 +93,7 @@ class ServicioUsuarios:
             unidad_organizacional_id=unidad.id if unidad is not None else None,
             entidad_externa=datos.entidad_externa,
             activo=True,
+            correo_verificado_en=datetime.now(UTC),
         )
         return self._guardar(usuario)
 
@@ -97,7 +111,7 @@ class ServicioUsuarios:
         correo = cambios.pop("correo", None)
         if correo is not None:
             self._validar_correo_disponible(str(correo), usuario.id)
-            usuario.correo = str(correo)
+            usuario.correo = str(correo).lower()
 
         if contrasena is not None:
             usuario.hash_contrasena = hash_contrasena(contrasena)
@@ -122,6 +136,7 @@ class ServicioUsuarios:
         usuario = self.obtener(usuario_id)
         if usuario.id == actor.id:
             raise ConflictoUsuarioError("No puede cambiar su propio rol")
+        self._validar_rol_administrable(codigo_rol)
         rol = self._obtener_rol(codigo_rol)
         self._validar_compatibilidad(rol, TipoUsuario(usuario.tipo_usuario))
         usuario.rol = rol
@@ -150,6 +165,13 @@ class ServicioUsuarios:
             raise ReferenciaUsuarioInvalidaError("Rol inexistente o inactivo")
         return rol
 
+    @staticmethod
+    def _validar_rol_administrable(codigo: CodigoRol) -> None:
+        if codigo not in ROLES_ADMINISTRABLES:
+            raise ReferenciaUsuarioInvalidaError(
+                "El módulo administrativo solo permite roles operativos ORI"
+            )
+
     def _obtener_unidad(self, unidad_id: int | None) -> UnidadOrganizacional | None:
         if unidad_id is None:
             return None
@@ -172,7 +194,9 @@ class ServicioUsuarios:
         correo: str,
         usuario_id: int | None = None,
     ) -> None:
-        consulta = select(Usuario.id).where(Usuario.correo == correo)
+        consulta = select(Usuario.id).where(
+            func.lower(Usuario.correo) == correo.lower()
+        )
         if usuario_id is not None:
             consulta = consulta.where(Usuario.id != usuario_id)
         if self.db.scalar(consulta) is not None:

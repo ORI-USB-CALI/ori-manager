@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     microsoft_client_secret: SecretStr | None = None
     microsoft_refresh_token: SecretStr | None = None
     microsoft_storage_root: str | None = None
+    email_provider: str = "local"
+    brevo_api_key: SecretStr | None = None
+    email_from_address: str | None = None
+    email_from_name: str | None = None
+    public_frontend_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

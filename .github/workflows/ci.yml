@@ -32,6 +32,8 @@ jobs:
       DATABASE_USER: ori_user
       DATABASE_PASSWORD: ori_ci_password
       DATABASE_SSLMODE: disable
+      PUBLIC_FRONTEND_URL: http://localhost:5173
+      
 
     services:
       postgres:

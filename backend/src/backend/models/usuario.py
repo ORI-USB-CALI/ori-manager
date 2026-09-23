@@ -18,6 +18,7 @@ from backend.db.base import Base
 
 if TYPE_CHECKING:
     from backend.models.rol import Rol
+    from backend.models.token_credencial import TokenCredencial
     from backend.models.unidad_organizacional import UnidadOrganizacional
 
 _TIPOS_USUARIO_SQL = ", ".join(f"'{tipo.value}'" for tipo in TipoUsuario)
@@ -61,6 +62,10 @@ class Usuario(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    correo_verificado_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -76,6 +81,10 @@ class Usuario(Base):
     rol: Mapped["Rol"] = relationship(back_populates="usuarios")
     unidad_organizacional: Mapped["UnidadOrganizacional | None"] = relationship(
         back_populates="usuarios"
+    )
+    tokens_credencial: Mapped[list["TokenCredencial"]] = relationship(
+        back_populates="usuario",
+        cascade="all, delete-orphan",
     )
 
     def puede_iniciar_sesion(self) -> bool:
