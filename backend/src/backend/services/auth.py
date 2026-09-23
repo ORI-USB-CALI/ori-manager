@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from backend.core.security import generar_token_sesion, verificar_contrasena
@@ -22,6 +22,10 @@ class UsuarioInactivoError(ErrorAutenticacion):
     pass
 
 
+class CorreoNoVerificadoError(ErrorAutenticacion):
+    pass
+
+
 class ServicioAutenticacion:
     def __init__(self, db: Session, sesiones: RepositorioSesiones) -> None:
         self.db = db
@@ -31,7 +35,7 @@ class ServicioAutenticacion:
         usuario = self.db.scalar(
             select(Usuario)
             .options(joinedload(Usuario.rol))
-            .where(Usuario.correo == correo)
+            .where(func.lower(Usuario.correo) == correo.lower())
         )
         if usuario is None or not verificar_contrasena(
             contrasena, usuario.hash_contrasena
@@ -39,6 +43,8 @@ class ServicioAutenticacion:
             raise CredencialesInvalidasError
         if not usuario.activo:
             raise UsuarioInactivoError
+        if usuario.correo_verificado_en is None:
+            raise CorreoNoVerificadoError
 
         token = generar_token_sesion()
         ahora = datetime.now(UTC)

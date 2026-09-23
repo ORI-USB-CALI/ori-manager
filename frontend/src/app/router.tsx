@@ -9,12 +9,20 @@ import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
+import { RegistroPage } from '../pages/RegistroPage'
+import { RecuperarContrasenaPage } from '../pages/RecuperarContrasenaPage'
+import { RestablecerContrasenaPage } from '../pages/RestablecerContrasenaPage'
+import { VerificarCorreoPage } from '../pages/VerificarCorreoPage'
 import { UsuariosRolesPage } from '../pages/UsuariosRolesPage'
 import { SolicitudPage } from '../pages/SolicitudPage'
 import { AppLayout } from './AppLayout'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/registro', element: <RegistroPage /> },
+  { path: '/recuperar-contrasena', element: <RecuperarContrasenaPage /> },
+  { path: '/restablecer-contrasena', element: <RestablecerContrasenaPage /> },
+  { path: '/verificar-correo', element: <VerificarCorreoPage /> },
   {
     element: <AppLayout />,
     children: [

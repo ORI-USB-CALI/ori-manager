@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { CLAVE_SESION, useSesion } from '../auth/sesion'
@@ -91,11 +91,17 @@ export function LoginPage() {
               required
               autoComplete="current-password"
             />
+            <div className="enlace-recuperacion">
+              <Link to="/recuperar-contrasena">Olvidé mi contraseña</Link>
+            </div>
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={login.isPending}>
             {login.isPending ? 'Ingresando…' : 'Ingresar'}
           </button>
         </form>
+        <p className="registro-login">
+          ¿No tiene cuenta? <Link to="/registro">Crear cuenta</Link>
+        </p>
       </section>
     </main>
   )

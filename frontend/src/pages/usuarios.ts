@@ -25,13 +25,8 @@ export interface Usuario {
 export const CLAVE_USUARIOS = ['usuarios'] as const
 
 export const ROLES_POR_TIPO: Record<TipoUsuario, readonly CodigoRol[]> = {
-  INTERNO: [
-    'ADMINISTRADOR_ORI',
-    'GESTOR_ORI',
-    'REVISOR_ORI',
-    'SOLICITANTE_INTERNO',
-  ],
-  EXTERNO: ['SOLICITANTE_EXTERNO'],
+  INTERNO: ['ADMINISTRADOR_ORI', 'GESTOR_ORI', 'REVISOR_ORI'],
+  EXTERNO: [],
 }
 
 export function opcionesRol(tipo: TipoUsuario) {
