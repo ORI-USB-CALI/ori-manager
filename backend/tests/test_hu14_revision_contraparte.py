@@ -340,6 +340,62 @@ def test_ca09_numero_ciclo_es_global_por_convenio(
     assert ultimo_historial.numero_ciclo == 2
 
 
+# Mis revisiones pendientes.
+def test_listar_pendientes_devuelve_solo_las_del_usuario(
+    db, almacen, crear_convenio, crear_solicitud, crear_usuario
+) -> None:
+    solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
+    otro_solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
+    gestor = crear_usuario(CodigoRol.GESTOR_ORI)
+    solicitud = crear_solicitud(solicitante)
+    convenio = crear_convenio(etapa_codigo="REVISION_AVAL_JURIDICO", solicitud=solicitud)
+    servicio = ServicioRevisionContraparte(db, almacen)
+    servicio.registrar_envio(convenio.id, gestor, **ARCHIVO_ENVIO)
+
+    assert len(servicio.listar_pendientes(solicitante)) == 1
+    assert servicio.listar_pendientes(otro_solicitante) == []
+
+
+def test_listar_pendientes_excluye_resueltas(
+    db, almacen, crear_convenio, crear_solicitud, crear_usuario
+) -> None:
+    solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
+    gestor = crear_usuario(CodigoRol.GESTOR_ORI)
+    solicitud = crear_solicitud(solicitante)
+    convenio = crear_convenio(etapa_codigo="REVISION_AVAL_JURIDICO", solicitud=solicitud)
+    servicio = ServicioRevisionContraparte(db, almacen)
+    servicio.registrar_envio(convenio.id, gestor, **ARCHIVO_ENVIO)
+
+    servicio.aprobar(convenio.id, solicitante)
+
+    assert servicio.listar_pendientes(solicitante) == []
+
+
+def test_endpoint_listar_pendientes(client, crear_convenio, crear_solicitud, crear_usuario, entrar_como) -> None:
+    solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
+    gestor = crear_usuario(CodigoRol.GESTOR_ORI)
+    solicitud = crear_solicitud(solicitante)
+    convenio = crear_convenio(etapa_codigo="REVISION_AVAL_JURIDICO", solicitud=solicitud)
+
+    entrar_como(gestor)
+    assert _enviar_http(client, convenio.id).status_code == 201
+
+    entrar_como(solicitante)
+    respuesta = client.get("/api/revision-contraparte/pendientes")
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert len(cuerpo) == 1
+    assert cuerpo[0]["convenio_id"] == convenio.id
+    assert cuerpo[0]["estado"] == "PENDIENTE"
+
+
+def test_endpoint_listar_pendientes_requiere_autenticacion(client) -> None:
+    respuesta = client.get("/api/revision-contraparte/pendientes")
+
+    assert respuesta.status_code == 401
+
+
 # Documento vigente: quién puede consultarlo.
 def test_solicitante_propio_obtiene_documento_vigente(
     db, almacen, crear_convenio, crear_solicitud, crear_usuario

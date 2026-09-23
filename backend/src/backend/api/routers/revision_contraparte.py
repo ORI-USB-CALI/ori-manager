@@ -39,6 +39,7 @@ from backend.services.revision_contraparte import (
 )
 
 router = APIRouter(prefix="/convenios/{convenio_id}/revision-contraparte", tags=["Revisión de contraparte"])
+router_pendientes = APIRouter(prefix="/revision-contraparte", tags=["Revisión de contraparte"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
 PuedeGestionar = Annotated[Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE)]
@@ -114,3 +115,8 @@ def devolver_con_observaciones(
         )
     except ErrorRevisionContraparte as exc:
         _lanzar_http(exc)
+
+
+@router_pendientes.get("/pendientes", response_model=list[RevisionPendienteLeer])
+def listar_pendientes(db: DatabaseSession, usuario: UsuarioActual) -> list[RevisionPendiente]:
+    return ServicioRevisionContraparte(db).listar_pendientes(usuario)

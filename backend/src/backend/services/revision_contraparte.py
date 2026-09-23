@@ -191,6 +191,18 @@ class ServicioRevisionContraparte:
             raise DocumentoNoEncontrado("El convenio no tiene un documento vigente")
         return documento
 
+    def listar_pendientes(self, usuario: Usuario) -> list[RevisionPendiente]:
+        return list(
+            self.db.scalars(
+                select(RevisionPendiente)
+                .where(
+                    RevisionPendiente.responsable_id == usuario.id,
+                    RevisionPendiente.estado == EstadoRevisionPendiente.PENDIENTE.value,
+                )
+                .order_by(RevisionPendiente.creado_en)
+            )
+        )
+
     def _verificar_solicitante(self, convenio: Convenio, usuario: Usuario) -> None:
         if convenio.solicitud.solicitante_id != usuario.id:
             raise UsuarioNoAutorizado(

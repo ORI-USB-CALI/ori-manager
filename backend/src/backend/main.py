@@ -24,6 +24,7 @@ app.include_router(usuarios.router, prefix="/api")
 app.include_router(aliados.router, prefix="/api")
 app.include_router(convenios.router, prefix="/api")
 app.include_router(revision_contraparte.router, prefix="/api")
+app.include_router(revision_contraparte.router_pendientes, prefix="/api")
 app.include_router(solicitudes.router, prefix="/api")
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
