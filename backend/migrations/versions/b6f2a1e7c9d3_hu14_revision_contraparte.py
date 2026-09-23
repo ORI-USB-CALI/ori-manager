@@ -1,7 +1,7 @@
 """HU-14 historial de etapa y observaciones de revision de contraparte.
 
 Revision ID: b6f2a1e7c9d3
-Revises: a711c4d8e912
+Revises: c91e4a7d2b60
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b6f2a1e7c9d3"
-down_revision: str | Sequence[str] | None = "a711c4d8e912"
+down_revision: str | Sequence[str] | None = "c91e4a7d2b60"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
