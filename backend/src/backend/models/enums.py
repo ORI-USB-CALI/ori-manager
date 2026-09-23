@@ -68,3 +68,13 @@ class OrigenObservacion(StrEnum):
 class EstadoObservacion(StrEnum):
     PENDIENTE = "PENDIENTE"
     ATENDIDA = "ATENDIDA"
+
+
+class EstadoRevisionPendiente(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    RESUELTA = "RESUELTA"
+
+
+class ResultadoRevisionPendiente(StrEnum):
+    APROBADA = "APROBADA"
+    DEVUELTA = "DEVUELTA"

@@ -6,6 +6,7 @@ from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.pais import Pais
+from backend.models.revision_pendiente import RevisionPendiente
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
@@ -23,6 +24,7 @@ __all__ = [
     "HistorialEtapa",
     "ObservacionRevision",
     "Pais",
+    "RevisionPendiente",
     "Rol",
     "SolicitudConvenio",
     "SolicitudUsuario",

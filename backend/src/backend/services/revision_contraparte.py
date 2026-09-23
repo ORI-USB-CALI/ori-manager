@@ -2,8 +2,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.models.convenio import Convenio
+from backend.models.enums import EstadoRevisionPendiente
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.revision_pendiente import RevisionPendiente
 from backend.models.usuario import Usuario
 
 CODIGO_REVISION_AVAL_JURIDICO = "REVISION_AVAL_JURIDICO"
@@ -79,7 +81,16 @@ class ServicioRevisionContraparte:
                 "El convenio debe tener aprobada la revisión jurídica antes de enviarse a la contraparte"
             )
         etapa_destino = self._etapa_por_codigo(CODIGO_REVISION_CONTRAPARTE)
-        return self._registrar_transicion(convenio, etapa_destino, usuario)
+        historial = self._registrar_transicion(convenio, etapa_destino, usuario)
+        revision = RevisionPendiente(
+            convenio_id=convenio.id,
+            historial_etapa_id=historial.id,
+            responsable_id=convenio.solicitud.solicitante_id,
+            estado=EstadoRevisionPendiente.PENDIENTE.value,
+        )
+        self.db.add(revision)
+        self.db.commit()
+        return historial
 
     def registrar_aprobacion(self, convenio_id: int, usuario: Usuario) -> HistorialEtapa:
         convenio = self._obtener_convenio(convenio_id)

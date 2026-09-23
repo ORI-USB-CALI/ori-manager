@@ -10,11 +10,13 @@ from backend.models.convenio import Convenio
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
+    EstadoRevisionPendiente,
     EstadoSolicitud,
     TipoSolicitante,
 )
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.revision_pendiente import RevisionPendiente
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
 from backend.services.revision_contraparte import (
@@ -96,6 +98,16 @@ def test_ca01_registra_envio_a_contraparte(db, crear_convenio, crear_usuario) ->
     assert historial.numero_ciclo == 1
     assert historial.fecha_cambio is not None
 
+    revision = db.scalar(
+        select(RevisionPendiente).where(RevisionPendiente.historial_etapa_id == historial.id)
+    )
+    assert revision is not None
+    assert revision.convenio_id == convenio.id
+    assert revision.responsable_id == convenio.solicitud.solicitante_id
+    assert revision.estado == EstadoRevisionPendiente.PENDIENTE.value
+    assert revision.resultado is None
+    assert revision.resuelta_en is None
+
 
 # CA-02: impedir el envío sin aval jurídico.
 def test_ca02_bloquea_envio_sin_aval_juridico(db, crear_convenio, crear_usuario) -> None:
@@ -108,6 +120,7 @@ def test_ca02_bloquea_envio_sin_aval_juridico(db, crear_convenio, crear_usuario)
     db.refresh(convenio)
     assert convenio.etapa_actual_id == _etapa(db, "ELABORACION").id
     assert db.scalar(select(HistorialEtapa).where(HistorialEtapa.convenio_id == convenio.id)) is None
+    assert db.scalar(select(RevisionPendiente).where(RevisionPendiente.convenio_id == convenio.id)) is None
 
 
 def test_ca02_bloquea_envio_convenio_ya_avanzado(db, crear_convenio, crear_usuario) -> None:
@@ -144,6 +157,15 @@ def test_ca07_reenvio_genera_nuevo_ciclo_sin_eliminar_historial(db, crear_conven
     ).all()
     assert [h.numero_ciclo for h in historial] == [1, 2]
     assert db.get(HistorialEtapa, primer_envio.id) is not None
+
+    revisiones = db.scalars(
+        select(RevisionPendiente)
+        .where(RevisionPendiente.convenio_id == convenio.id)
+        .order_by(RevisionPendiente.id)
+    ).all()
+    assert len(revisiones) == 2
+    assert revisiones[0].historial_etapa_id == primer_envio.id
+    assert revisiones[1].historial_etapa_id == segundo_envio.id
 
 
 # CA-03: registrar la aprobación de la contraparte.
