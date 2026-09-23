@@ -14,9 +14,12 @@ from backend.schemas.auth import (
     LoginSolicitud,
     MensajeAutenticacion,
     MensajePublico,
+    RecuperacionContrasenaSolicitud,
     ReenvioVerificacionSolicitud,
     RegistroSolicitante,
     RegistroSolicitanteRespuesta,
+    RestablecimientoContrasenaSolicitud,
+    TokenRecuperacionSolicitud,
     TokenVerificacionSolicitud,
     UnidadRegistroLeer,
     UsuarioActualLeer,
@@ -29,6 +32,11 @@ from backend.services.auth import (
     UsuarioInactivoError,
 )
 from backend.services.correo import EnviadorCorreo, get_enviador_correo
+from backend.services.recuperacion_contrasena import (
+    MENSAJE_RECUPERACION,
+    ServicioRecuperacionContrasena,
+    TokenRecuperacionInvalidoError,
+)
 from backend.services.registro import (
     CorreoRegistradoError,
     ReferenciaRegistroInvalidaError,
@@ -130,6 +138,57 @@ def reenviar_verificacion(
         str(datos.correo)
     )
     return MensajePublico(message=MENSAJE_REENVIO)
+
+
+@router.post("/recuperar-contrasena", response_model=MensajePublico)
+def recuperar_contrasena(
+    datos: RecuperacionContrasenaSolicitud,
+    db: DatabaseSession,
+    correo: Correo,
+    sesiones: SessionRepository,
+) -> MensajePublico:
+    ServicioRecuperacionContrasena(
+        db, correo, sesiones, settings.public_frontend_url
+    ).solicitar(str(datos.correo))
+    return MensajePublico(message=MENSAJE_RECUPERACION)
+
+
+@router.post("/validar-recuperacion-contrasena", response_model=MensajePublico)
+def validar_recuperacion_contrasena(
+    datos: TokenRecuperacionSolicitud,
+    db: DatabaseSession,
+    correo: Correo,
+    sesiones: SessionRepository,
+) -> MensajePublico:
+    try:
+        ServicioRecuperacionContrasena(
+            db, correo, sesiones, settings.public_frontend_url
+        ).validar(datos.token)
+    except TokenRecuperacionInvalidoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"codigo": exc.codigo, "message": str(exc)},
+        ) from exc
+    return MensajePublico(message="Enlace válido.")
+
+
+@router.post("/restablecer-contrasena", response_model=MensajePublico)
+def restablecer_contrasena(
+    datos: RestablecimientoContrasenaSolicitud,
+    db: DatabaseSession,
+    correo: Correo,
+    sesiones: SessionRepository,
+) -> MensajePublico:
+    try:
+        ServicioRecuperacionContrasena(
+            db, correo, sesiones, settings.public_frontend_url
+        ).restablecer(datos.token, datos.nueva_contrasena)
+    except TokenRecuperacionInvalidoError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"codigo": exc.codigo, "message": str(exc)},
+        ) from exc
+    return MensajePublico(message="Contraseña actualizada correctamente.")
 
 
 @router.post("/login", response_model=MensajeAutenticacion)

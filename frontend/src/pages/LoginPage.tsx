@@ -91,6 +91,9 @@ export function LoginPage() {
               required
               autoComplete="current-password"
             />
+            <div className="enlace-recuperacion">
+              <Link to="/recuperar-contrasena">Olvidé mi contraseña</Link>
+            </div>
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={login.isPending}>
             {login.isPending ? 'Ingresando…' : 'Ingresar'}

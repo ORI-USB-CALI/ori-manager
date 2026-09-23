@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 class TipoTokenCredencial(StrEnum):
     VERIFICACION_CORREO = "VERIFICACION_CORREO"
+    RECUPERACION_CONTRASENA = "RECUPERACION_CONTRASENA"
 
 
 class TokenCredencial(Base):

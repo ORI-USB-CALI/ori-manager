@@ -63,6 +63,32 @@ class ReenvioVerificacionSolicitud(BaseModel):
     correo: EmailStr
 
 
+class RecuperacionContrasenaSolicitud(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    correo: EmailStr
+
+
+class TokenRecuperacionSolicitud(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1)
+
+
+class RestablecimientoContrasenaSolicitud(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1)
+    nueva_contrasena: Contrasena
+    confirmacion_contrasena: str
+
+    @model_validator(mode="after")
+    def validar_confirmacion(self) -> "RestablecimientoContrasenaSolicitud":
+        if self.nueva_contrasena != self.confirmacion_contrasena:
+            raise ValueError("Las contraseñas no coinciden")
+        return self
+
+
 class MensajePublico(BaseModel):
     message: str
 
