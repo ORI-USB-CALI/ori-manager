@@ -1,10 +1,18 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoRevisionPendiente
+from backend.models.enums import (
+    EstadoObservacion,
+    EstadoRevisionPendiente,
+    OrigenObservacion,
+    ResultadoRevisionPendiente,
+)
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
 from backend.models.revision_pendiente import RevisionPendiente
 from backend.models.usuario import Usuario
 
@@ -31,7 +39,15 @@ class RevisionJuridicaNoAprobada(ErrorRevisionContraparte):
     pass
 
 
-class ConvenioNoEnRevisionContraparte(ErrorRevisionContraparte):
+class UsuarioNoAutorizado(ErrorRevisionContraparte):
+    pass
+
+
+class RevisionPendienteNoEncontrada(ErrorRevisionContraparte):
+    pass
+
+
+class ObservacionesRequeridas(ErrorRevisionContraparte):
     pass
 
 
@@ -92,12 +108,71 @@ class ServicioRevisionContraparte:
         self.db.commit()
         return historial
 
-    def registrar_aprobacion(self, convenio_id: int, usuario: Usuario) -> HistorialEtapa:
-        convenio = self._obtener_convenio(convenio_id)
-        etapa_actual = convenio.etapa_actual_id and self.db.get(Etapa, convenio.etapa_actual_id)
-        if etapa_actual is None or etapa_actual.codigo != CODIGO_REVISION_CONTRAPARTE:
-            raise ConvenioNoEnRevisionContraparte(
-                "El convenio debe estar en revisión de contraparte para registrar su aprobación"
+    def _verificar_solicitante(self, convenio: Convenio, usuario: Usuario) -> None:
+        if convenio.solicitud.solicitante_id != usuario.id:
+            raise UsuarioNoAutorizado(
+                "Solo el Solicitante asociado a este convenio puede revisar esta versión"
             )
+
+    def _revision_pendiente_actual(self, convenio_id: int, usuario: Usuario) -> RevisionPendiente:
+        revision = self.db.scalar(
+            select(RevisionPendiente)
+            .where(
+                RevisionPendiente.convenio_id == convenio_id,
+                RevisionPendiente.responsable_id == usuario.id,
+                RevisionPendiente.estado == EstadoRevisionPendiente.PENDIENTE.value,
+            )
+            .order_by(RevisionPendiente.id.desc())
+        )
+        if revision is None:
+            raise RevisionPendienteNoEncontrada(
+                "No existe una revisión pendiente para este convenio y usuario"
+            )
+        return revision
+
+    def aprobar(self, convenio_id: int, usuario: Usuario) -> RevisionPendiente:
+        convenio = self._obtener_convenio(convenio_id)
+        self._verificar_solicitante(convenio, usuario)
+        revision = self._revision_pendiente_actual(convenio_id, usuario)
+
         etapa_destino = self._etapa_por_codigo(CODIGO_REVISION_FINAL)
-        return self._registrar_transicion(convenio, etapa_destino, usuario)
+        self._registrar_transicion(convenio, etapa_destino, usuario)
+
+        revision.estado = EstadoRevisionPendiente.RESUELTA.value
+        revision.resultado = ResultadoRevisionPendiente.APROBADA.value
+        revision.resuelta_en = datetime.now(UTC)
+        self.db.commit()
+        self.db.refresh(revision)
+        return revision
+
+    def devolver_con_observaciones(
+        self, convenio_id: int, observaciones: list[str], usuario: Usuario
+    ) -> RevisionPendiente:
+        convenio = self._obtener_convenio(convenio_id)
+        self._verificar_solicitante(convenio, usuario)
+        revision = self._revision_pendiente_actual(convenio_id, usuario)
+
+        textos = [texto.strip() for texto in observaciones if texto and texto.strip()]
+        if not textos:
+            raise ObservacionesRequeridas(
+                "Debe registrar al menos una observación para devolver el convenio"
+            )
+
+        for texto in textos:
+            self.db.add(
+                ObservacionRevision(
+                    convenio_id=convenio.id,
+                    historial_etapa_id=revision.historial_etapa_id,
+                    origen=OrigenObservacion.CONTRAPARTE.value,
+                    registrada_por_id=usuario.id,
+                    descripcion=texto,
+                    estado=EstadoObservacion.PENDIENTE.value,
+                )
+            )
+
+        revision.estado = EstadoRevisionPendiente.RESUELTA.value
+        revision.resultado = ResultadoRevisionPendiente.DEVUELTA.value
+        revision.resuelta_en = datetime.now(UTC)
+        self.db.commit()
+        self.db.refresh(revision)
+        return revision

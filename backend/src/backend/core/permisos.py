@@ -19,6 +19,7 @@ class Permiso(StrEnum):
     CONVENIOS_CREAR = "convenios.crear"
     CONVENIOS_EDITAR = "convenios.editar"
     CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE = "convenios.gestionar_revision_contraparte"
+    CONVENIOS_REVISAR_CONTRAPARTE_PROPIA = "convenios.revisar_contraparte_propia"
     SOLICITUDES_CREAR = "solicitudes.crear"
     SOLICITUDES_VER_PROPIAS = "solicitudes.ver_propias"
     SOLICITUDES_EDITAR_PROPIAS = "solicitudes.editar_propias"
@@ -52,6 +53,7 @@ _PERMISOS_SOLICITUDES_PROPIAS = frozenset(
         Permiso.SOLICITUDES_VER_PROPIAS,
         Permiso.SOLICITUDES_EDITAR_PROPIAS,
         Permiso.SOLICITUDES_RADICAR,
+        Permiso.CONVENIOS_REVISAR_CONTRAPARTE_PROPIA,
     }
 )
 
