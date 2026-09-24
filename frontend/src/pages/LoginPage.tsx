@@ -77,6 +77,7 @@ export function LoginPage() {
               required
               autoComplete="username"
               autoFocus
+              placeholder="Correo asociado a su cuenta"
             />
           </div>
           <div className="form-group">

@@ -28,6 +28,17 @@ const CAMPOS_FORMULARIO = [
   'fecha_vencimiento',
 ] as const
 
+const AYUDAS_ELABORACION: Record<(typeof CAMPOS_FORMULARIO)[number], string> = {
+  tipo_convenio_id: 'Seleccione la modalidad contractual que corresponde al proyecto de convenio.',
+  objeto: 'Describa el propósito principal que se formalizará mediante el convenio.',
+  alcance: 'Indique si el convenio aplica institucionalmente o a un programa específico.',
+  unidad_organizacional_id: 'Seleccione el programa o unidad al que se limita el alcance del convenio.',
+  implicacion_financiera: 'Describa los compromisos o recursos financieros contemplados, cuando correspondan.',
+  duracion_meses: 'Indique la duración prevista del convenio expresada en meses.',
+  fecha_inicio: 'Fecha prevista para iniciar la ejecución. Este dato es opcional en Elaboración.',
+  fecha_vencimiento: 'Fecha prevista de terminación. Si informa ambas fechas, debe ser posterior al inicio.',
+}
+
 function fecha(valor: string | null) {
   return valor ? new Date(valor).toLocaleDateString() : '—'
 }
@@ -130,6 +141,18 @@ export function ConvenioElaboracionPage() {
     return errores[campo] || faltantes[campo]
   }
 
+  function idCampo(campo: (typeof CAMPOS_FORMULARIO)[number]) {
+    return `elaboracion-${campo.replaceAll('_', '-')}`
+  }
+
+  function descripcionCampo(campo: (typeof CAMPOS_FORMULARIO)[number]) {
+    const id = idCampo(campo)
+    const ayudaVisible = campo === 'fecha_inicio' || campo === 'fecha_vencimiento'
+    return [ayudaVisible ? `${id}-ayuda` : null, mensajeCampo(campo) ? `${id}-error` : null]
+      .filter(Boolean)
+      .join(' ') || undefined
+  }
+
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const cambios = camposModificados(event.currentTarget, datos)
@@ -154,15 +177,18 @@ export function ConvenioElaboracionPage() {
         <section className="card">
           <h2>Información del convenio</h2>
           <div className="form-grid">
-            <label className="form-group">
+            <label className="form-group" htmlFor={idCampo('tipo_convenio_id')}>
               <span className="form-label">Tipo de convenio {editable && '*'}</span>
               <select
+                id={idCampo('tipo_convenio_id')}
                 className={`form-control select ${mensajeCampo('tipo_convenio_id') ? 'is-invalid' : ''}`}
                 name="tipo_convenio_id"
                 disabled={!editable || catalogos.isPending}
                 defaultValue={datos.tipo_convenio_id ?? ''}
+                aria-describedby={descripcionCampo('tipo_convenio_id')}
+                aria-invalid={Boolean(mensajeCampo('tipo_convenio_id'))}
               >
-                <option value="">Seleccione</option>
+                <option value="">Seleccione el tipo de convenio</option>
                 {datos.tipo_convenio_id != null
                   && !catalogos.data?.tipos_convenio.some((tipo) => tipo.id === datos.tipo_convenio_id)
                   && datos.tipo_convenio && (
@@ -172,46 +198,56 @@ export function ConvenioElaboracionPage() {
                   <option key={tipo.id} value={tipo.id}>{tipo.nombre}</option>
                 ))}
               </select>
-              {mensajeCampo('tipo_convenio_id') && <span className="form-error">{mensajeCampo('tipo_convenio_id')}</span>}
+              {mensajeCampo('tipo_convenio_id') && <span id={`${idCampo('tipo_convenio_id')}-error`} className="form-error">{mensajeCampo('tipo_convenio_id')}</span>}
             </label>
 
-            <label className="form-group form-span-2">
+            <label className="form-group form-span-2" htmlFor={idCampo('objeto')}>
               <span className="form-label">Objeto {editable && '*'}</span>
               <textarea
+                id={idCampo('objeto')}
                 className={`form-control ${mensajeCampo('objeto') ? 'is-invalid' : ''}`}
                 name="objeto"
+                placeholder={AYUDAS_ELABORACION.objeto}
                 defaultValue={datos.objeto ?? ''}
                 disabled={!editable}
+                aria-describedby={descripcionCampo('objeto')}
+                aria-invalid={Boolean(mensajeCampo('objeto'))}
               />
-              {mensajeCampo('objeto') && <span className="form-error">{mensajeCampo('objeto')}</span>}
+              {mensajeCampo('objeto') && <span id={`${idCampo('objeto')}-error`} className="form-error">{mensajeCampo('objeto')}</span>}
             </label>
 
-            <label className="form-group">
+            <label className="form-group" htmlFor={idCampo('alcance')}>
               <span className="form-label">Alcance {editable && '*'}</span>
               <select
+                id={idCampo('alcance')}
                 className={`form-control select ${mensajeCampo('alcance') ? 'is-invalid' : ''}`}
                 name="alcance"
                 defaultValue={datos.alcance ?? ''}
                 disabled={!editable}
+                aria-describedby={descripcionCampo('alcance')}
+                aria-invalid={Boolean(mensajeCampo('alcance'))}
                 onChange={(event) => setAlcanceSeleccionado(event.target.value)}
               >
-                <option value="">Seleccione</option>
+                <option value="">Seleccione el alcance</option>
                 <option value="INSTITUCIONAL">Institucional</option>
                 <option value="PROGRAMA">Programa</option>
               </select>
-              {mensajeCampo('alcance') && <span className="form-error">{mensajeCampo('alcance')}</span>}
+              {mensajeCampo('alcance') && <span id={`${idCampo('alcance')}-error`} className="form-error">{mensajeCampo('alcance')}</span>}
             </label>
 
             {alcance === 'PROGRAMA' && (
-              <label className="form-group">
+              <label className="form-group" htmlFor={idCampo('unidad_organizacional_id')}>
                 <span className="form-label">Unidad organizacional *</span>
                 <select
+                  id={idCampo('unidad_organizacional_id')}
                   className={`form-control select ${mensajeCampo('unidad_organizacional_id') ? 'is-invalid' : ''}`}
                   name="unidad_organizacional_id"
                   defaultValue={datos.unidad_organizacional_id ?? ''}
                   disabled={!editable || catalogos.isPending}
+                  aria-describedby={descripcionCampo('unidad_organizacional_id')}
+                  aria-invalid={Boolean(mensajeCampo('unidad_organizacional_id'))}
                 >
-                  <option value="">Seleccione</option>
+                  <option value="">Seleccione una unidad organizacional</option>
                   {datos.unidad_organizacional_id != null
                     && !catalogos.data?.unidades_organizacionales.some((unidad) => unidad.id === datos.unidad_organizacional_id)
                     && datos.unidad_organizacional && (
@@ -221,56 +257,72 @@ export function ConvenioElaboracionPage() {
                     <option key={unidad.id} value={unidad.id}>{unidad.nombre}</option>
                   ))}
                 </select>
-                {mensajeCampo('unidad_organizacional_id') && <span className="form-error">{mensajeCampo('unidad_organizacional_id')}</span>}
+                {mensajeCampo('unidad_organizacional_id') && <span id={`${idCampo('unidad_organizacional_id')}-error`} className="form-error">{mensajeCampo('unidad_organizacional_id')}</span>}
               </label>
             )}
 
-            <label className="form-group form-span-2">
+            <label className="form-group form-span-2" htmlFor={idCampo('implicacion_financiera')}>
               <span className="form-label">Implicación financiera {editable && '*'}</span>
               <textarea
+                id={idCampo('implicacion_financiera')}
                 className={`form-control ${mensajeCampo('implicacion_financiera') ? 'is-invalid' : ''}`}
                 name="implicacion_financiera"
+                placeholder={AYUDAS_ELABORACION.implicacion_financiera}
                 defaultValue={datos.implicacion_financiera ?? ''}
                 disabled={!editable}
+                aria-describedby={descripcionCampo('implicacion_financiera')}
+                aria-invalid={Boolean(mensajeCampo('implicacion_financiera'))}
               />
-              {mensajeCampo('implicacion_financiera') && <span className="form-error">{mensajeCampo('implicacion_financiera')}</span>}
+              {mensajeCampo('implicacion_financiera') && <span id={`${idCampo('implicacion_financiera')}-error`} className="form-error">{mensajeCampo('implicacion_financiera')}</span>}
             </label>
 
-            <label className="form-group">
+            <label className="form-group" htmlFor={idCampo('duracion_meses')}>
               <span className="form-label">Duración (meses) {editable && '*'}</span>
               <input
+                id={idCampo('duracion_meses')}
                 className={`form-control ${mensajeCampo('duracion_meses') ? 'is-invalid' : ''}`}
                 name="duracion_meses"
                 type="number"
                 min={0}
+                placeholder="Duración prevista en meses"
                 defaultValue={datos.duracion_meses ?? ''}
                 disabled={!editable}
+                aria-describedby={descripcionCampo('duracion_meses')}
+                aria-invalid={Boolean(mensajeCampo('duracion_meses'))}
               />
-              {mensajeCampo('duracion_meses') && <span className="form-error">{mensajeCampo('duracion_meses')}</span>}
+              {mensajeCampo('duracion_meses') && <span id={`${idCampo('duracion_meses')}-error`} className="form-error">{mensajeCampo('duracion_meses')}</span>}
             </label>
 
-            <label className="form-group">
+            <label className="form-group" htmlFor={idCampo('fecha_inicio')}>
               <span className="form-label">Fecha de inicio</span>
               <input
+                id={idCampo('fecha_inicio')}
                 className={`form-control ${mensajeCampo('fecha_inicio') ? 'is-invalid' : ''}`}
                 name="fecha_inicio"
                 type="date"
                 defaultValue={fechaInput(datos.fecha_inicio)}
                 disabled={!editable}
+                aria-describedby={descripcionCampo('fecha_inicio')}
+                aria-invalid={Boolean(mensajeCampo('fecha_inicio'))}
               />
-              {mensajeCampo('fecha_inicio') && <span className="form-error">{mensajeCampo('fecha_inicio')}</span>}
+              <small id={`${idCampo('fecha_inicio')}-ayuda`} className="form-help">{AYUDAS_ELABORACION.fecha_inicio}</small>
+              {mensajeCampo('fecha_inicio') && <span id={`${idCampo('fecha_inicio')}-error`} className="form-error">{mensajeCampo('fecha_inicio')}</span>}
             </label>
 
-            <label className="form-group">
+            <label className="form-group" htmlFor={idCampo('fecha_vencimiento')}>
               <span className="form-label">Fecha de vencimiento</span>
               <input
+                id={idCampo('fecha_vencimiento')}
                 className={`form-control ${mensajeCampo('fecha_vencimiento') ? 'is-invalid' : ''}`}
                 name="fecha_vencimiento"
                 type="date"
                 defaultValue={fechaInput(datos.fecha_vencimiento)}
                 disabled={!editable}
+                aria-describedby={descripcionCampo('fecha_vencimiento')}
+                aria-invalid={Boolean(mensajeCampo('fecha_vencimiento'))}
               />
-              {mensajeCampo('fecha_vencimiento') && <span className="form-error">{mensajeCampo('fecha_vencimiento')}</span>}
+              <small id={`${idCampo('fecha_vencimiento')}-ayuda`} className="form-help">{AYUDAS_ELABORACION.fecha_vencimiento}</small>
+              {mensajeCampo('fecha_vencimiento') && <span id={`${idCampo('fecha_vencimiento')}-error`} className="form-error">{mensajeCampo('fecha_vencimiento')}</span>}
             </label>
           </div>
 

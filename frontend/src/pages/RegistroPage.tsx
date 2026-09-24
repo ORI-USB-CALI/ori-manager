@@ -181,7 +181,7 @@ export function RegistroPage() {
         <div className="login-brand">ORI Manager</div>
         <h1>Crear cuenta</h1>
         <p className="texto-secundario">
-          El tipo de solicitante se determina automáticamente con su correo.
+          Los dominios @correo.usbcali.edu.co y @usbcali.edu.co se clasifican como internos; los demás, como externos.
         </p>
 
         {tipo === null ? (
@@ -198,6 +198,7 @@ export function RegistroPage() {
                   required
                   autoComplete="email"
                   autoFocus
+                  placeholder="Correo de acceso"
                 />
               </div>
               <button className="btn btn-primary btn-block" type="submit">
@@ -225,24 +226,26 @@ export function RegistroPage() {
             </p>
             {registro.isError && <p className="alert-error" role="alert">{mensajeError}</p>}
             <div className="form-grid">
-              <label className="form-group form-span-2">
+              <label className="form-group form-span-2" htmlFor="registro-nombre">
                 <span className="form-label">Nombre completo</span>
-                <input className="form-control" name="nombre_completo" required autoFocus />
+                <input id="registro-nombre" className="form-control" name="nombre_completo" required autoFocus placeholder="Nombre completo del solicitante" />
               </label>
-              <label className="form-group form-span-2">
+              <label className="form-group form-span-2" htmlFor="registro-cargo">
                 <span className="form-label">Cargo</span>
-                <input className="form-control" name="cargo" required />
+                <input id="registro-cargo" className="form-control" name="cargo" required placeholder="Cargo en la Universidad o entidad" />
               </label>
               {tipo === 'INTERNO' ? (
-                <label className="form-group form-span-2">
+                <label className="form-group form-span-2" htmlFor="registro-unidad">
                   <span className="form-label">Unidad organizacional</span>
                   <select
+                    id="registro-unidad"
                     className="form-control select"
                     name="unidad_organizacional_id"
                     required
                     disabled={unidades.isPending || unidades.isError}
+                    aria-describedby={unidades.isError ? 'registro-unidad-error' : undefined}
                   >
-                    <option value="">Seleccione</option>
+                    <option value="">Seleccione una unidad organizacional</option>
                     {unidades.data?.map((unidad) => (
                       <option key={unidad.id} value={unidad.id}>
                         {unidad.nombre} · {unidad.tipo.replaceAll('_', ' ')}
@@ -250,41 +253,45 @@ export function RegistroPage() {
                     ))}
                   </select>
                   {unidades.isError && (
-                    <small className="form-error">No fue posible cargar las unidades.</small>
+                    <small id="registro-unidad-error" className="form-error">No fue posible cargar las unidades.</small>
                   )}
                 </label>
               ) : (
                 <>
-                  <label className="form-group">
+                  <label className="form-group" htmlFor="registro-documento">
                     <span className="form-label">Documento de identidad</span>
-                    <input className="form-control" name="documento_identidad" required />
+                    <input id="registro-documento" className="form-control" name="documento_identidad" required placeholder="Documento del solicitante externo" />
                   </label>
-                  <label className="form-group">
+                  <label className="form-group" htmlFor="registro-entidad">
                     <span className="form-label">Entidad externa</span>
-                    <input className="form-control" name="entidad_externa" required />
+                    <input id="registro-entidad" className="form-control" name="entidad_externa" required placeholder="Nombre de la organización externa" />
                   </label>
                 </>
               )}
-              <label className="form-group">
+              <label className="form-group" htmlFor="registro-contrasena">
                 <span className="form-label">Contraseña</span>
                 <input
+                  id="registro-contrasena"
                   className="form-control"
                   name="contrasena"
                   type="password"
                   minLength={8}
                   required
                   autoComplete="new-password"
+                  placeholder="Mínimo 8 caracteres"
                 />
               </label>
-              <label className="form-group">
+              <label className="form-group" htmlFor="registro-confirmacion">
                 <span className="form-label">Confirmar contraseña</span>
                 <input
+                  id="registro-confirmacion"
                   className="form-control"
                   name="confirmacion_contrasena"
                   type="password"
                   minLength={8}
                   required
                   autoComplete="new-password"
+                  placeholder="Repita la contraseña"
                 />
               </label>
             </div>

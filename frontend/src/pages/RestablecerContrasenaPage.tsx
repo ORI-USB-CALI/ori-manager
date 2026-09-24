@@ -128,7 +128,7 @@ export function RestablecerContrasenaPage() {
       <section className="card card-auth">
         <div className="login-brand">ORI Manager</div>
         <h1>Nueva contraseña</h1>
-        <p className="texto-secundario">Ingrese una contraseña de al menos 8 caracteres.</p>
+        <p className="texto-secundario">Defina la nueva credencial con la que accederá a su cuenta.</p>
         <form onSubmit={enviar}>
           {(errorFormulario || restablecimiento.isError) && (
             <p className="alert-error" role="alert">
@@ -146,6 +146,7 @@ export function RestablecerContrasenaPage() {
               required
               autoComplete="new-password"
               autoFocus
+              placeholder="Mínimo 8 caracteres"
             />
           </div>
           <div className="form-group">
@@ -158,6 +159,7 @@ export function RestablecerContrasenaPage() {
               minLength={8}
               required
               autoComplete="new-password"
+              placeholder="Repita la nueva contraseña"
             />
           </div>
           <button
