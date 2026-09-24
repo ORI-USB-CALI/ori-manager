@@ -244,3 +244,26 @@ class HistorialConvenioLeer(BaseModel):
 
     revisiones: list[RevisionConvenioLeer]
     cambios_etapa: list[HistorialEtapaLeer]
+
+
+class DocumentoConvenioLeer(BaseModel):
+    """Un documento cargado al convenio, para CA-01 ('documentos asociados')."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: str
+    nombre_archivo: str
+    tipo_mime: str
+    tamano_bytes: int
+    creado_en: datetime
+
+
+class ConvenioParaRevisionLeer(BaseModel):
+    """Convenio preparado para la pantalla principal de revisión jurídica:
+    su información, documentos y la ronda de revisión pendiente que el
+    Revisor ORI debe resolver (CA-01, CA-02 de HU-13)."""
+
+    convenio: ConvenioElaboracionLeer
+    documentos: list[DocumentoConvenioLeer]
+    revision_pendiente: RevisionConvenioLeer

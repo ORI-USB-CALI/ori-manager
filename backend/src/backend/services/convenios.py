@@ -254,6 +254,54 @@ class ServicioConvenios:
             raise ConvenioNoEncontrado("Convenio no encontrado")
         return convenio
 
+    def obtener_para_revision(
+        self, convenio_id: int
+    ) -> tuple[Convenio, RevisionConvenio]:
+        """Convenio con su documentación y la ronda de revisión jurídica
+        pendiente, para la pantalla principal de revisión (CA-01 de HU-13)."""
+        convenio = self.db.scalar(
+            select(Convenio)
+            .options(
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.creado_por),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.unidad_organizacional),
+                selectinload(Convenio.documentos),
+            )
+            .where(Convenio.id == convenio_id)
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_JURIDICA
+        ):
+            raise ConvenioNoEditable(
+                "El convenio no está en etapa de revisión jurídica"
+            )
+
+        revision_pendiente = self.db.scalar(
+            select(RevisionConvenio)
+            .options(
+                selectinload(RevisionConvenio.observaciones),
+                joinedload(RevisionConvenio.responsable),
+                joinedload(RevisionConvenio.resuelta_por),
+            )
+            .where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+            )
+        )
+        if revision_pendiente is None:
+            raise ConfiguracionConvenioInvalida(
+                "El convenio está en revisión jurídica sin una ronda de"
+                " revisión pendiente"
+            )
+        return convenio, revision_pendiente
+
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""
         convenio = self.db.scalar(

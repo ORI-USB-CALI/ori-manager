@@ -17,6 +17,8 @@ from backend.schemas.convenio import (
     ConvenioElaboracionActualizar,
     ConvenioElaboracionLeer,
     ConvenioLeer,
+    ConvenioParaRevisionLeer,
+    DocumentoConvenioLeer,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     RevisionConvenioLeer,
@@ -39,6 +41,7 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
+PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -163,4 +166,27 @@ def obtener_historial_convenio(
     return HistorialConvenioLeer(
         revisiones=[RevisionConvenioLeer.model_validate(r) for r in revisiones],
         cambios_etapa=[HistorialEtapaLeer.model_validate(h) for h in cambios_etapa],
+    )
+
+
+@router.get("/{convenio_id}/revision", response_model=ConvenioParaRevisionLeer)
+def obtener_revision_pendiente(
+    convenio_id: int, db: DatabaseSession, _: PuedeRevisar
+) -> ConvenioParaRevisionLeer:
+    """CA-01/CA-02 de HU-13: pantalla principal de revisión jurídica — el
+    convenio preparado para revisión, sus documentos y la ronda de revisión
+    pendiente que el Revisor ORI debe resolver."""
+    try:
+        convenio, revision_pendiente = ServicioConvenios(db).obtener_para_revision(
+            convenio_id
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return ConvenioParaRevisionLeer(
+        convenio=ConvenioElaboracionLeer.model_validate(convenio),
+        documentos=[
+            DocumentoConvenioLeer.model_validate(documento)
+            for documento in convenio.documentos
+        ],
+        revision_pendiente=RevisionConvenioLeer.model_validate(revision_pendiente),
     )

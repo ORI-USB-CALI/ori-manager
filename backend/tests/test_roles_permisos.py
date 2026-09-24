@@ -42,6 +42,9 @@ PERMISOS_HU_11 = {
     "solicitudes.editar_propias",
     "solicitudes.radicar",
 }
+PERMISOS_REVISION_JURIDICA = {
+    "convenios.revisar",
+}
 
 
 def test_codigo_rol_coincide_exactamente_con_el_mer() -> None:
@@ -61,7 +64,13 @@ def test_tipo_usuario_solo_contiene_interno_y_externo() -> None:
 
 def test_permisos_coinciden_con_los_alcances_integrados() -> None:
     valores = [permiso.value for permiso in Permiso.__members__.values()]
-    assert set(valores) == PERMISOS_GESTION_USUARIOS | PERMISOS_EPICA_02 | PERMISOS_HU_11
+    assert (
+        set(valores)
+        == PERMISOS_GESTION_USUARIOS
+        | PERMISOS_EPICA_02
+        | PERMISOS_HU_11
+        | PERMISOS_REVISION_JURIDICA
+    )
     assert len(valores) == len(set(valores))
 
 
@@ -95,7 +104,7 @@ def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
         CodigoRol.GESTOR_ORI
     )
     assert permisos_para_rol(CodigoRol.REVISOR_ORI) == frozenset(
-        {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER}
+        {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER, Permiso.CONVENIOS_REVISAR}
     )
     permisos_solicitante = frozenset(Permiso(valor) for valor in PERMISOS_HU_11)
     assert permisos_para_rol(CodigoRol.SOLICITANTE_INTERNO) == permisos_solicitante
