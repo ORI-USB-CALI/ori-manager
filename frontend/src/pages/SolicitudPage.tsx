@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
-import { type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
+import { type DocumentoSolicitud, type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
 const CAMPOS_REQUERIDOS = [
@@ -46,6 +46,12 @@ function valoresFormulario(formulario: HTMLFormElement): Record<string, string |
   return datos
 }
 
+function tamanoLegible(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export function SolicitudPage() {
   const params = useParams()
   const id = params.solicitudId ? Number(params.solicitudId) : null
@@ -54,6 +60,8 @@ export function SolicitudPage() {
   const queryClient = useQueryClient()
   const formRef = useRef<HTMLFormElement>(null)
   const archivoRef = useRef<HTMLInputElement>(null)
+  const solicitudIdRef = useRef<number | null>(id)
+  const operacionEnCursoRef = useRef(false)
   const catalogos = useCatalogosSolicitud()
   const consulta = useSolicitud(id)
   const [errores, setErrores] = useState<Record<string, string>>({})
@@ -61,15 +69,47 @@ export function SolicitudPage() {
   const solicitud = consulta.data
   const editable = !solicitud || solicitud.estado === 'BORRADOR'
 
+  useEffect(() => {
+    solicitudIdRef.current = id
+  }, [id])
+
+  async function ejecutarOperacion<T>(operacion: () => Promise<T>): Promise<T> {
+    if (operacionEnCursoRef.current) throw new Error('Hay otra operación en curso.')
+    operacionEnCursoRef.current = true
+    try {
+      return await operacion()
+    } finally {
+      operacionEnCursoRef.current = false
+    }
+  }
+
+  function datosActuales(): Record<string, string | number | null> {
+    if (!formRef.current) throw new Error('No fue posible leer el formulario.')
+    return valoresFormulario(formRef.current)
+  }
+
+  async function asegurarBorradorActual(
+    datos = datosActuales(),
+  ): Promise<Solicitud> {
+    const solicitudId = solicitudIdRef.current
+    const resultado = solicitudId === null
+      ? await apiFetch<Solicitud>('/solicitudes', { method: 'POST', body: JSON.stringify(datos) })
+      : await apiFetch<Solicitud>(`/solicitudes/${solicitudId}`, { method: 'PATCH', body: JSON.stringify(datos) })
+
+    solicitudIdRef.current = resultado.id
+    queryClient.setQueryData(['solicitudes', resultado.id], resultado)
+    if (solicitudId === null) {
+      navigate(`/solicitudes/${resultado.id}`, { replace: true })
+    }
+    return resultado
+  }
+
   const guardar = useMutation({
-    mutationFn: async (datos: Record<string, unknown>) => id === null
-      ? apiFetch<Solicitud>('/solicitudes', { method: 'POST', body: JSON.stringify(datos) })
-      : apiFetch<Solicitud>(`/solicitudes/${id}`, { method: 'PATCH', body: JSON.stringify(datos) }),
-    onSuccess: async (resultado) => {
+    mutationFn: () => ejecutarOperacion(() => asegurarBorradorActual()),
+    onSuccess: async () => {
       setErrores({})
       notify({ type: 'success', message: 'Borrador guardado.' })
       await queryClient.invalidateQueries({ queryKey: ['solicitudes'] })
-      if (id === null) navigate(`/solicitudes/${resultado.id}`, { replace: true })
     },
     onError: (error) => {
       setErrores(erroresServidor(error))
@@ -78,9 +118,8 @@ export function SolicitudPage() {
   })
 
   const radicar = useMutation({
-    mutationFn: async () => {
-      if (id === null || !formRef.current) throw new Error('Guarde el borrador antes de radicar.')
-      const datos = valoresFormulario(formRef.current)
+    mutationFn: () => ejecutarOperacion(async () => {
+      const datos = datosActuales()
       const locales: Record<string, string> = {}
       for (const campo of CAMPOS_REQUERIDOS) if (!datos[campo]) locales[campo] = 'Este campo es obligatorio'
       if (!datos.solicitante_nombre) locales.solicitante_nombre = 'Este campo es obligatorio'
@@ -105,11 +144,12 @@ export function SolicitudPage() {
         setErrores(locales)
         throw new Error('Revise los campos obligatorios antes de radicar.')
       }
-      await apiFetch<Solicitud>(`/solicitudes/${id}`, { method: 'PATCH', body: JSON.stringify(datos) })
-      return apiFetch<Solicitud>(`/solicitudes/${id}/radicar`, { method: 'POST' })
-    },
-    onSuccess: async () => {
+      const borrador = await asegurarBorradorActual(datos)
+      return apiFetch<Solicitud>(`/solicitudes/${borrador.id}/radicar`, { method: 'POST' })
+    }),
+    onSuccess: async (resultado) => {
       setErrores({})
+      queryClient.setQueryData(['solicitudes', resultado.id], resultado)
       notify({ type: 'success', message: 'Solicitud radicada correctamente.' })
       await queryClient.invalidateQueries({ queryKey: ['solicitudes'] })
     },
@@ -121,36 +161,48 @@ export function SolicitudPage() {
   })
 
   const cargar = useMutation({
-    mutationFn: async () => {
-      if (id === null) throw new Error('Guarde el borrador antes de adjuntar documentos.')
+    mutationFn: () => ejecutarOperacion(async () => {
       const archivo = archivoRef.current?.files?.[0]
       if (!archivo) throw new Error('Seleccione un archivo.')
+      const borrador = await asegurarBorradorActual()
       const form = new FormData()
       form.set('tipo_documento', tipoDocumento)
       form.set('archivo', archivo)
-      return apiFetch(`/solicitudes/${id}/documentos`, { method: 'POST', body: form })
-    },
-    onSuccess: async () => {
+      const documento = await apiFetch<DocumentoSolicitud>(`/solicitudes/${borrador.id}/documentos`, { method: 'POST', body: form })
+      return { documento, solicitudId: borrador.id }
+    }),
+    onSuccess: async ({ solicitudId }) => {
       if (archivoRef.current) archivoRef.current.value = ''
-      notify({ type: 'success', message: 'Documento cargado.' })
-      await queryClient.invalidateQueries({ queryKey: ['solicitudes', id] })
+      notify({ type: 'success', message: 'Documento adjuntado correctamente.' })
+      await queryClient.invalidateQueries({ queryKey: ['solicitudes', solicitudId] })
     },
-    onError: (error) => notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible cargar el documento.' }),
+    onError: (error) => {
+      const servidor = erroresServidor(error)
+      if (Object.keys(servidor).length) setErrores(servidor)
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible cargar el documento.' })
+    },
   })
 
   const eliminar = useMutation({
-    mutationFn: (documentoId: number) => apiFetch(`/solicitudes/${id}/documentos/${documentoId}`, { method: 'DELETE' }),
-    onSuccess: async () => {
+    mutationFn: (documentoId: number) => ejecutarOperacion(async () => {
+      const solicitudId = solicitudIdRef.current
+      if (solicitudId === null) throw new Error('Solicitud no encontrada.')
+      await apiFetch(`/solicitudes/${solicitudId}/documentos/${documentoId}`, { method: 'DELETE' })
+      return solicitudId
+    }),
+    onSuccess: async (solicitudId) => {
       notify({ type: 'success', message: 'Documento eliminado.' })
-      await queryClient.invalidateQueries({ queryKey: ['solicitudes', id] })
+      await queryClient.invalidateQueries({ queryKey: ['solicitudes', solicitudId] })
     },
     onError: (error) => notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible eliminar.' }),
   })
 
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    guardar.mutate(valoresFormulario(event.currentTarget))
+    guardar.mutate()
   }
+
+  const operacionEnCurso = guardar.isPending || cargar.isPending || radicar.isPending || eliminar.isPending
 
   if (catalogos.isPending || (id !== null && consulta.isPending)) return <p className="estado-pagina">Cargando formulario…</p>
   if (catalogos.isError || consulta.isError) return <p className="alert-error">{catalogos.error?.message ?? consulta.error?.message}</p>
@@ -176,7 +228,7 @@ export function SolicitudPage() {
 
   return (
     <>
-      <section className="header-banner"><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial y guárdela como borrador.'}</p></section>
+      <section className="header-banner"><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></section>
       <form ref={formRef} className="solicitud-form" onSubmit={enviar}>
         <section className="card"><h2>1. Información del solicitante {perfilVisible?.tipo_usuario === 'INTERNO' ? 'interno' : 'externo'}</h2><p className="section-help">Los datos se precargan desde su perfil y se conservarán como snapshot de esta solicitud.</p><div className="form-grid">
           {campo('solicitante_nombre', 'Responsable y/o solicitante', false, perfilVisible?.nombre ?? null)}
@@ -204,14 +256,15 @@ export function SolicitudPage() {
         <section className="card"><h2>6. Supervisor o encargado de ejecución de la contraparte</h2><div className="form-grid">{campo('supervisor_contraparte_nombre', 'Nombre')}{campo('supervisor_contraparte_cargo', 'Cargo')}{campo('supervisor_contraparte_telefono', 'Teléfono')}{campo('supervisor_contraparte_correo', 'Correo electrónico')}</div></section>
 
         <section className="card"><h2>7. Documentación</h2><p className="section-help">Adjunte los documentos de representación legal aplicables a la institución o entidad contraparte. Formatos permitidos: PDF, JPG y PNG. Tamaño máximo: 10 MB.</p>
-          {solicitud?.documentos.map((doc) => <div className="document-row" key={doc.id}><span>{catalogos.data?.tipos_documento.find((tipo) => tipo.codigo === doc.tipo_documento)?.nombre}: {doc.nombre_original}</span>{editable && <button className="btn btn-outline btn-small" type="button" onClick={() => eliminar.mutate(doc.id)}>Eliminar</button>}</div>)}
+          {(!solicitud || solicitud.documentos.length === 0) && <p className="section-help">Aún no hay documentos adjuntos.</p>}
+          {solicitud?.documentos.map((doc) => <div className="document-row" key={doc.id}><span>{catalogos.data?.tipos_documento.find((tipo) => tipo.codigo === doc.tipo_documento)?.nombre}: {doc.nombre_original} · {tamanoLegible(doc.tamano_bytes)}</span>{editable && <button className="btn btn-outline btn-small" type="button" disabled={operacionEnCurso} onClick={() => eliminar.mutate(doc.id)}>Eliminar</button>}</div>)}
           {Object.entries(errores).filter(([key]) => key.startsWith('documentos.')).map(([key, value]) => <p className="form-error" key={key}>{value}</p>)}
-          {editable && <div className="document-upload"><select className="form-control select" value={tipoDocumento} onChange={(event) => setTipoDocumento(event.target.value as TipoDocumento)}>{catalogos.data?.tipos_documento.map((tipo) => <option key={tipo.codigo} value={tipo.codigo}>{tipo.nombre}{tipo.es_representacion_legal ? ' · representación legal' : ''}</option>)}</select><input ref={archivoRef} className="form-control" type="file" accept=".pdf,.jpg,.jpeg,.png" /><button className="btn btn-outline" type="button" disabled={id === null || cargar.isPending} onClick={() => cargar.mutate()}>Adjuntar</button></div>}
+          {editable && <div className="document-upload"><select className="form-control select" value={tipoDocumento} disabled={operacionEnCurso} onChange={(event) => setTipoDocumento(event.target.value as TipoDocumento)}>{catalogos.data?.tipos_documento.map((tipo) => <option key={tipo.codigo} value={tipo.codigo}>{tipo.nombre}{tipo.es_representacion_legal ? ' · representación legal' : ''}</option>)}</select><input ref={archivoRef} className="form-control" type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={operacionEnCurso} /><button className="btn btn-outline" type="button" disabled={operacionEnCurso} onClick={() => cargar.mutate()}>{cargar.isPending ? 'Adjuntando…' : 'Adjuntar'}</button></div>}
         </section>
 
         <section className="card"><h2>8. Observaciones adicionales</h2><textarea className="form-control" name="observaciones" defaultValue={solicitud?.observaciones ?? ''} disabled={!editable} /></section>
 
-        <div className="page-toolbar"><Link className="btn btn-outline" to="/solicitudes">Volver</Link>{editable && <><button className="btn btn-outline" type="submit" disabled={guardar.isPending}>{guardar.isPending ? 'Guardando…' : 'Guardar borrador'}</button><button className="btn btn-primary" type="button" disabled={id === null || radicar.isPending} onClick={() => radicar.mutate()}>{radicar.isPending ? 'Radicando…' : 'Radicar solicitud'}</button></>}</div>
+        <div className="page-toolbar"><Link className="btn btn-outline" to="/solicitudes">Volver</Link>{editable && <><button className="btn btn-outline" type="submit" disabled={operacionEnCurso}>{guardar.isPending ? 'Guardando…' : 'Guardar borrador'}</button><button className="btn btn-primary" type="button" disabled={operacionEnCurso} onClick={() => radicar.mutate()}>{radicar.isPending ? 'Radicando…' : 'Radicar solicitud'}</button></>}</div>
       </form>
     </>
   )
