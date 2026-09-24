@@ -1,11 +1,17 @@
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
+    EstadoObservacionRevision,
+    EstadoRevisionConvenio,
     EstadoSolicitud,
+    OrigenObservacionRevision,
+    ResultadoRevisionConvenio,
+    TipoRevisionConvenio,
     TipoSolicitante,
 )
 
@@ -181,3 +187,60 @@ class ValidacionElaboracionLeer(BaseModel):
 class CatalogosElaboracionLeer(BaseModel):
     tipos_convenio: list[TipoConvenioElaboracionOpcion]
     unidades_organizacionales: list[UnidadOrganizacionalResumen]
+
+
+class ObservacionRevisionLeer(BaseModel):
+    """Una observación registrada durante un ciclo de revisión (CA-04, CA-06)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    origen: OrigenObservacionRevision
+    descripcion: str
+    respuesta: str | None
+    estado: EstadoObservacionRevision
+    registrada_por: UsuarioResumen
+    responsable: UsuarioResumen | None
+    atendida_por: UsuarioResumen | None
+    fecha_atencion: datetime | None
+    creado_en: datetime
+
+
+class RevisionConvenioLeer(BaseModel):
+    """Un ciclo de revisión (jurídica, de contraparte o final) con su resultado
+    y las observaciones que dejó, para CA-06 y CA-07."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: TipoRevisionConvenio
+    estado: EstadoRevisionConvenio
+    resultado: ResultadoRevisionConvenio | None
+    responsable: UsuarioResumen | None
+    resuelta_por: UsuarioResumen | None
+    snapshot_datos: dict[str, Any] | None
+    creado_en: datetime
+    resuelta_en: datetime | None
+    observaciones: list[ObservacionRevisionLeer]
+
+
+class HistorialEtapaLeer(BaseModel):
+    """Un cambio de etapa del convenio, para la trazabilidad de CA-07."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    etapa_origen: EtapaResumen | None
+    etapa_destino: EtapaResumen
+    usuario: UsuarioResumen
+    responsable: UsuarioResumen | None
+    observacion: str | None
+    fecha_cambio: datetime
+
+
+class HistorialConvenioLeer(BaseModel):
+    """Historial completo de un convenio: sus rondas de revisión y sus cambios
+    de etapa, ordenados cronológicamente (CA-06, CA-07)."""
+
+    revisiones: list[RevisionConvenioLeer]
+    cambios_etapa: list[HistorialEtapaLeer]

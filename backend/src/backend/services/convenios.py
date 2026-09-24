@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
@@ -17,6 +17,7 @@ from backend.models.enums import (
 )
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
@@ -378,3 +379,48 @@ class ServicioConvenios:
             self.db.rollback()
             raise
         return self.obtener(convenio.id)
+
+    def obtener_historial(self, convenio_id: int) -> Convenio:
+        """Convenio con sus rondas de revisión, observaciones y cambios de etapa,
+        para la vista de historial y trazabilidad (CA-06, CA-07 de HU-13).
+
+        No filtra por tipo de revisión a propósito: aunque hoy solo existe la
+        ronda jurídica (HU-13), el historial debe seguir siendo válido cuando
+        HU-14/HU-15 agreguen sus propias rondas sobre el mismo convenio.
+        """
+        convenio = self.db.scalar(
+            select(Convenio)
+            .options(
+                selectinload(Convenio.revisiones)
+                .selectinload(RevisionConvenio.observaciones)
+                .joinedload(ObservacionRevision.registrada_por),
+                selectinload(Convenio.revisiones)
+                .selectinload(RevisionConvenio.observaciones)
+                .joinedload(ObservacionRevision.responsable),
+                selectinload(Convenio.revisiones)
+                .selectinload(RevisionConvenio.observaciones)
+                .joinedload(ObservacionRevision.atendida_por),
+                selectinload(Convenio.revisiones).joinedload(
+                    RevisionConvenio.responsable
+                ),
+                selectinload(Convenio.revisiones).joinedload(
+                    RevisionConvenio.resuelta_por
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.etapa_origen
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.etapa_destino
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.usuario
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.responsable
+                ),
+            )
+            .where(Convenio.id == convenio_id)
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        return convenio

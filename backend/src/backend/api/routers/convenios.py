@@ -17,6 +17,9 @@ from backend.schemas.convenio import (
     ConvenioElaboracionActualizar,
     ConvenioElaboracionLeer,
     ConvenioLeer,
+    HistorialConvenioLeer,
+    HistorialEtapaLeer,
+    RevisionConvenioLeer,
     ValidacionElaboracionLeer,
 )
 from backend.services.convenios import (
@@ -141,3 +144,23 @@ def actualizar_convenio(
         return ServicioConvenios(db).actualizar(convenio_id, datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.get("/{convenio_id}/revisiones", response_model=HistorialConvenioLeer)
+def obtener_historial_convenio(
+    convenio_id: int, db: DatabaseSession, _: PuedeVer
+) -> HistorialConvenioLeer:
+    """CA-06/CA-07 de HU-13: historial de rondas de revisión y cambios de
+    etapa del convenio, ordenados cronológicamente."""
+    try:
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    revisiones = sorted(convenio.revisiones, key=lambda revision: revision.creado_en)
+    cambios_etapa = sorted(
+        convenio.historial_etapas, key=lambda cambio: cambio.fecha_cambio
+    )
+    return HistorialConvenioLeer(
+        revisiones=[RevisionConvenioLeer.model_validate(r) for r in revisiones],
+        cambios_etapa=[HistorialEtapaLeer.model_validate(h) for h in cambios_etapa],
+    )
