@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -62,6 +63,11 @@ class RevisionConvenio(Base):
     resuelta_por_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
     )
+    # Estado exacto de los datos del convenio presentados en esta ronda. Se escribe
+    # una sola vez, al crear la revisión, y no vuelve a modificarse: si hay
+    # correcciones, la siguiente ronda es otra RevisionConvenio con otro snapshot.
+    # Nullable a nivel de columna por compatibilidad con revisiones de otro origen.
+    snapshot_datos: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

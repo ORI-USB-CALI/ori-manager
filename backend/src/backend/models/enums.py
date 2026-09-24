@@ -84,3 +84,9 @@ class EstadoRevisionConvenio(StrEnum):
 class ResultadoRevisionConvenio(StrEnum):
     APROBADA = "APROBADA"
     DEVUELTA = "DEVUELTA"
+
+
+class AccionAuditoria(StrEnum):
+    INSERT = "INSERT"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"

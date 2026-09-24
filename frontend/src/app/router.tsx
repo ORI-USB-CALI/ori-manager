@@ -4,6 +4,7 @@ import { RequierePermiso } from '../auth/RequierePermiso'
 import { AliadoDetallePage } from '../pages/AliadoDetallePage'
 import { AliadosPage } from '../pages/AliadosPage'
 import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
+import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
 import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
@@ -33,7 +34,10 @@ export const router = createBrowserRouter([
         { path: '/aliados/:aliadoId', element: <AliadoDetallePage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.crear" />, children: [{ path: '/convenios/nuevo', element: <ConvenioNuevoPage /> }] },
-      { element: <RequierePermiso permiso="convenios.ver" />, children: [{ path: '/convenios/:convenioId', element: <ConvenioDetallePage /> }] },
+      { element: <RequierePermiso permiso="convenios.ver" />, children: [
+        { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
+        { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
+      ] },
       { element: <RequierePermiso permiso="solicitudes.ver_propias" />, children: [
         { path: '/solicitudes', element: <MisSolicitudesPage /> },
         { path: '/solicitudes/:solicitudId', element: <SolicitudPage /> },

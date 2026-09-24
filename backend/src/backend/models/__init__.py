@@ -1,4 +1,5 @@
 from backend.models.aliado import Aliado
+from backend.models.auditoria import Auditoria
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
@@ -17,6 +18,7 @@ from backend.models.usuario import Usuario
 
 __all__ = [
     "Aliado",
+    "Auditoria",
     "ContactoAliado",
     "Convenio",
     "Documento",

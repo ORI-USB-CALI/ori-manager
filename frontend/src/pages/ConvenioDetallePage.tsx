@@ -24,6 +24,7 @@ export function ConvenioDetallePage() {
   return (
     <>
       <section className="header-banner"><h1>Convenio {datos.codigo ?? `#${datos.id}`}</h1><p><span className="badge">{datos.estado}</span></p></section>
+      <div className="page-toolbar"><Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Ir a Elaboración</Link></div>
       <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Aliado</dt><dd>{datos.aliado ? <Link to={`/aliados/${datos.aliado.id}`}>{datos.aliado.nombre}</Link> : 'Sin aliado asociado'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo} ({datos.creado_por.correo})</dd><dt>Fecha de creación</dt><dd>{fecha(datos.creado_en)}</dd></dl></section>
     </>
   )
