@@ -14,7 +14,7 @@ projects:
             rootDir: backend
             branch: develop
 
-            buildCommand: uv sync --frozen --no-dev && uv run alembic upgrade head
+            buildCommand: uv sync --frozen --no-dev
             startCommand: uv run --no-sync uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 
             healthCheckPath: /health
