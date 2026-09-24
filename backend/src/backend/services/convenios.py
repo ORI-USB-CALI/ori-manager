@@ -11,11 +11,11 @@ from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
     EstadoConvenio,
-    EstadoRevisionConvenio,
     EstadoObservacionRevision,
+    EstadoRevisionConvenio,
+    EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
-    EstadoSolicitud,
     TipoRevisionConvenio,
 )
 from backend.models.etapa import Etapa
@@ -303,9 +303,12 @@ class ServicioConvenios:
             )
         )
         if revision_pendiente is None:
-            raise ConfiguracionConvenioInvalida(
-                "El convenio está en revisión jurídica sin una ronda de"
-                " revisión pendiente"
+            # En la práctica esto solo pasa cuando aprobar()/devolver() ya
+            # resolvieron la ronda pero el convenio todavía no avanzó de
+            # etapa (aprobar() no la mueve): no es un error de configuración,
+            # es que ya no hay nada pendiente que revisar.
+            raise RevisionNoDisponible(
+                "No hay una ronda de revisión jurídica pendiente para este convenio"
             )
         return convenio, revision_pendiente
 

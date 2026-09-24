@@ -279,25 +279,3 @@ class DevolverRevision(BaseModel):
         if any(not valor.strip() for valor in valores):
             raise ValueError("Cada observación debe tener contenido")
         return [valor.strip() for valor in valores]
-
-
-class HistorialEtapaLeer(BaseModel):
-    """Un cambio de etapa del convenio, para la trazabilidad de CA-07."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    etapa_origen: EtapaResumen | None
-    etapa_destino: EtapaResumen
-    usuario: UsuarioResumen
-    responsable: UsuarioResumen | None
-    observacion: str | None
-    fecha_cambio: datetime
-
-
-class HistorialConvenioLeer(BaseModel):
-    """Historial completo de un convenio: sus rondas de revisión y sus cambios
-    de etapa, ordenados cronológicamente (CA-06, CA-07)."""
-
-    revisiones: list[RevisionConvenioLeer]
-    cambios_etapa: list[HistorialEtapaLeer]

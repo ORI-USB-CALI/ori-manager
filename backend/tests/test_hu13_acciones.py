@@ -1,10 +1,12 @@
 """HU-13: aprobar, devolver y autorización."""
 from sqlalchemy import select
-from backend.models.revision_convenio import RevisionConvenio
-from backend.models.observacion_revision import ObservacionRevision
+
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
+from backend.models.revision_convenio import RevisionConvenio
 from backend.services.convenios import ServicioConvenios
-from test_hu13_historial import convenio_listo, crear_convenio, gestor, revisor  # noqa: F401
+
+# gestor, revisor y convenio_listo viven en conftest.py.
 
 
 def _abrir(db, convenio, gestor):
@@ -58,3 +60,60 @@ def test_revisor_no_edita_y_gestor_no_aprueba(client, db, gestor, revisor, conve
     entrar_como(revisor)
     assert client.patch(f"/api/convenios/{convenio_listo.id}", json={"objeto": "X"}).status_code == 403
     assert client.post(ruta).status_code == 200
+
+
+def test_pantalla_de_revision_tras_aprobar_no_revienta(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+):
+    """CA-01/CA-08: aprobar() no mueve la etapa (queda para otra HU), así que
+    la pantalla de revisión puede volver a consultarse sobre un convenio ya
+    resuelto — debe responder con un error manejado, no un 500."""
+    revision = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    assert (
+        client.post(
+            f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/aprobar"
+        ).status_code
+        == 200
+    )
+
+    respuesta = client.get(f"/api/convenios/{convenio_listo.id}/revision")
+    assert respuesta.status_code == 409
+
+
+def test_historial_conserva_resultado_y_version_tras_aprobar_via_api(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+):
+    """CA-07: el resultado, el responsable y la versión revisada quedan
+    trazables vía API (no solo en la sesión de base de datos)."""
+    revision = _abrir(db, convenio_listo, gestor)
+    snapshot_objeto = revision.snapshot_datos["objeto"]
+    entrar_como(revisor)
+    ruta = f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/aprobar"
+    assert client.post(ruta).status_code == 200
+
+    cuerpo = client.get(f"/api/convenios/{convenio_listo.id}/revisiones").json()
+    revisada = next(r for r in cuerpo["revisiones"] if r["id"] == revision.id)
+    assert revisada["resultado"] == "APROBADA"
+    assert revisada["resuelta_por"]["id"] == revisor.id
+    assert revisada["resuelta_en"] is not None
+    assert revisada["snapshot_datos"]["objeto"] == snapshot_objeto
+
+
+def test_historial_conserva_observaciones_y_devolucion_via_api(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+):
+    """CA-04/CA-07/CA-08: la devolución, sus observaciones y que el convenio
+    no avanzó a contraparte quedan trazables vía API."""
+    revision = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    ruta = f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/devolver"
+    assert client.post(ruta, json={"observaciones": ["Corregir objeto"]}).status_code == 200
+
+    cuerpo = client.get(f"/api/convenios/{convenio_listo.id}/revisiones").json()
+    revisada = next(r for r in cuerpo["revisiones"] if r["id"] == revision.id)
+    assert revisada["resultado"] == "DEVUELTA"
+    assert revisada["resuelta_por"]["id"] == revisor.id
+    assert [o["descripcion"] for o in revisada["observaciones"]] == ["Corregir objeto"]
+    assert revisada["observaciones"][0]["estado"] == "PENDIENTE"
+    assert cuerpo["cambios_etapa"][-1]["etapa_destino"]["codigo"] == "ELABORACION"

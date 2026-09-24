@@ -12,12 +12,30 @@ interface Revision {
   tipo: string
   estado: string
   resultado: string | null
+  snapshot_datos: { objeto?: string | null } | null
+  creado_en: string
   observaciones: { id: number; descripcion: string; estado: string }[]
 }
-interface RevisionPendiente { revision_pendiente: Revision }
+interface DocumentoConvenio {
+  id: number
+  tipo: string
+  nombre_archivo: string
+  tipo_mime: string
+  tamano_bytes: number
+}
+interface RevisionPendiente {
+  revision_pendiente: Revision
+  documentos: DocumentoConvenio[]
+}
 
 function fecha(valor: string | null) {
   return valor ? new Date(valor).toLocaleDateString() : '—'
+}
+
+function tamanoLegible(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function ConvenioDetallePage() {
@@ -79,6 +97,14 @@ export function ConvenioDetallePage() {
         {historial.isPending && <p>Cargando revisión…</p>}
         {historial.isError && <p>No hay una revisión jurídica disponible para este convenio.</p>}
         {!historial.isPending && !historial.isError && !revision && <p>No hay una revisión jurídica pendiente.</p>}
+        {revision && <p className="version-revision">Versión objeto de revisión: <strong>{revision.snapshot_datos?.objeto ?? datos.objeto ?? '—'}</strong> (entregada a Jurídica el {fecha(revision.creado_en)})</p>}
+        {revision && <div className="documentos-revision">
+          <h3>Documentos asociados</h3>
+          {historial.data?.documentos.length === 0 && <p>Sin documentos cargados para este convenio.</p>}
+          {historial.data?.documentos.map((doc) => (
+            <div className="document-row" key={doc.id}><span>{doc.tipo}: {doc.nombre_archivo} · {tamanoLegible(doc.tamano_bytes)}</span></div>
+          ))}
+        </div>}
         {puedeActuar && <>
           <button className="btn btn-primary" type="button" disabled={accion.isPending} onClick={() => accion.mutate({ revisionId: revision.id, tipo: 'aprobar' })}>Aprobar convenio</button>
           <form onSubmit={devolver}>

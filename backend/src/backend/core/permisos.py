@@ -65,6 +65,7 @@ PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
         CodigoRol.GESTOR_ORI: _PERMISOS_GESTION_EPICA_02,
         CodigoRol.REVISOR_ORI: (
             frozenset({Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER})
+            | _PERMISOS_REVISION_JURIDICA
         ),
         CodigoRol.SOLICITANTE_INTERNO: _PERMISOS_SOLICITUDES_PROPIAS,
         CodigoRol.SOLICITANTE_EXTERNO: _PERMISOS_SOLICITUDES_PROPIAS,
