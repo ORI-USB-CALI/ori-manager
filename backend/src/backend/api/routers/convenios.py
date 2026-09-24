@@ -17,6 +17,7 @@ from backend.schemas.convenio import (
     ConvenioElaboracionActualizar,
     ConvenioElaboracionLeer,
     ConvenioLeer,
+    DevolverRevision,
     ConvenioParaRevisionLeer,
     DocumentoConvenioLeer,
     HistorialConvenioLeer,
@@ -31,6 +32,7 @@ from backend.services.convenios import (
     ElaboracionIncompleta,
     ErrorConvenio,
     ReferenciaConvenioInvalida,
+    RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
     validar_completitud,
@@ -47,7 +49,7 @@ PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada, ConvenioNoEditable)):
+    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada, ConvenioNoEditable, RevisionNoDisponible)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if isinstance(exc, ElaboracionIncompleta):
         raise HTTPException(
@@ -190,3 +192,33 @@ def obtener_revision_pendiente(
         ],
         revision_pendiente=RevisionConvenioLeer.model_validate(revision_pendiente),
     )
+
+@router.post("/{convenio_id}/revisiones/{revision_id}/aprobar", response_model=RevisionConvenioLeer)
+def aprobar_revision(
+    convenio_id: int, revision_id: int, db: DatabaseSession, usuario: PuedeRevisar
+) -> RevisionConvenioLeer:
+    try:
+        ServicioConvenios(db).aprobar(convenio_id, revision_id, usuario)
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(r for r in convenio.revisiones if r.id == revision_id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post("/{convenio_id}/revisiones/{revision_id}/devolver", response_model=RevisionConvenioLeer)
+def devolver_revision(
+    convenio_id: int, revision_id: int, datos: DevolverRevision,
+    db: DatabaseSession, usuario: PuedeRevisar,
+) -> RevisionConvenioLeer:
+    try:
+        ServicioConvenios(db).devolver(
+            convenio_id, revision_id, datos.observaciones, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(r for r in convenio.revisiones if r.id == revision_id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)

@@ -93,7 +93,7 @@ def test_contenedor_de_la_matriz_es_inmutable() -> None:
 
 
 def test_administrador_ori_posee_todos_los_permisos_definidos() -> None:
-    assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(Permiso)
+    assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(Permiso) - {Permiso.CONVENIOS_REVISAR}
 
 
 def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
@@ -152,3 +152,7 @@ def _nombres_importados(nodo: ast.AST) -> set[str]:
     if isinstance(nodo, ast.ImportFrom) and nodo.module:
         return {nodo.module}
     return set()
+
+
+def test_revisar_convenio_es_exclusivo_del_revisor_ori() -> None:
+    assert {rol for rol in CodigoRol if tiene_permiso(rol, Permiso.CONVENIOS_REVISAR)} == {CodigoRol.REVISOR_ORI}

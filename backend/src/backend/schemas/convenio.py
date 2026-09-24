@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.models.enums import (
     AlcanceConvenio,
@@ -267,3 +267,37 @@ class ConvenioParaRevisionLeer(BaseModel):
     convenio: ConvenioElaboracionLeer
     documentos: list[DocumentoConvenioLeer]
     revision_pendiente: RevisionConvenioLeer
+
+class DevolverRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observaciones: list[str] = Field(min_length=1)
+
+    @field_validator("observaciones")
+    @classmethod
+    def validar_observaciones(cls, valores: list[str]) -> list[str]:
+        if any(not valor.strip() for valor in valores):
+            raise ValueError("Cada observación debe tener contenido")
+        return [valor.strip() for valor in valores]
+
+
+class HistorialEtapaLeer(BaseModel):
+    """Un cambio de etapa del convenio, para la trazabilidad de CA-07."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    etapa_origen: EtapaResumen | None
+    etapa_destino: EtapaResumen
+    usuario: UsuarioResumen
+    responsable: UsuarioResumen | None
+    observacion: str | None
+    fecha_cambio: datetime
+
+
+class HistorialConvenioLeer(BaseModel):
+    """Historial completo de un convenio: sus rondas de revisión y sus cambios
+    de etapa, ordenados cronológicamente (CA-06, CA-07)."""
+
+    revisiones: list[RevisionConvenioLeer]
+    cambios_etapa: list[HistorialEtapaLeer]
