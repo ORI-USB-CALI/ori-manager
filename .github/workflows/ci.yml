@@ -116,3 +116,57 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  staging-migrations:
+    name: Staging DB Migrations
+    needs:
+      - backend
+      - frontend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.12.12"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - name: Install backend runtime dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Migrate Staging database
+        env:
+          APP_ENV: staging
+          DATABASE_HOST: ${{ secrets.STAGING_MIGRATION_DATABASE_HOST }}
+          DATABASE_PORT: "5432"
+          DATABASE_NAME: postgres
+          DATABASE_USER: ${{ secrets.STAGING_MIGRATION_DATABASE_USER }}
+          DATABASE_PASSWORD: ${{ secrets.STAGING_MIGRATION_DATABASE_PASSWORD }}
+          DATABASE_SSLMODE: require
+        shell: bash
+        run: |
+          if [[ -z "${DATABASE_HOST:-}" || -z "${DATABASE_USER:-}" || -z "${DATABASE_PASSWORD:-}" ]]; then
+            echo "::error::Missing required Staging migration database configuration."
+            exit 1
+          fi
+
+          uv run --no-sync alembic heads
+          uv run --no-sync alembic current
+          uv run --no-sync alembic upgrade head
+          uv run --no-sync alembic current
