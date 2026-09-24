@@ -8,14 +8,23 @@ from backend.core.permisos import Permiso
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
 from backend.models.usuario import Usuario
-from backend.schemas.convenio import ConvenioActualizar, ConvenioCrear, ConvenioLeer
+from backend.schemas.convenio import (
+    ConvenioActualizar,
+    ConvenioCrear,
+    ConvenioElaboracionLeer,
+    ConvenioLeer,
+    ValidacionElaboracionLeer,
+)
 from backend.services.convenios import (
     ConvenioDuplicado,
+    ConvenioNoEditable,
     ConvenioNoEncontrado,
+    ElaboracionIncompleta,
     ErrorConvenio,
     ReferenciaConvenioInvalida,
     ServicioConvenios,
     SolicitudNoAprobada,
+    validar_completitud,
 )
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
@@ -28,8 +37,16 @@ PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada)):
+    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada, ConvenioNoEditable)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if isinstance(exc, ElaboracionIncompleta):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "message": str(exc),
+                "faltantes": [campo.model_dump() for campo in exc.faltantes],
+            },
+        ) from exc
     if isinstance(exc, ReferenciaConvenioInvalida):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
@@ -55,14 +72,48 @@ def obtener_convenio(
         _lanzar_http(exc)
 
 
+@router.get("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)
+def obtener_elaboracion(
+    convenio_id: int, db: DatabaseSession, _: PuedeVer
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).obtener_para_elaboracion(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/elaboracion/validacion", response_model=ValidacionElaboracionLeer
+)
+def validar_elaboracion(
+    convenio_id: int, db: DatabaseSession, _: PuedeVer
+) -> ValidacionElaboracionLeer:
+    try:
+        convenio = ServicioConvenios(db).obtener(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    faltantes = validar_completitud(convenio)
+    return ValidacionElaboracionLeer(completo=not faltantes, faltantes=faltantes)
+
+
+@router.post("/{convenio_id}/elaboracion/finalizar", response_model=ConvenioLeer)
+def finalizar_elaboracion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeEditar
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).finalizar_elaboracion(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
 @router.patch("/{convenio_id}", response_model=ConvenioLeer)
 def actualizar_convenio(
     convenio_id: int,
     datos: ConvenioActualizar,
     db: DatabaseSession,
-    _: PuedeEditar,
+    usuario: PuedeEditar,
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).actualizar(convenio_id, datos)
+        return ServicioConvenios(db).actualizar(convenio_id, datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)

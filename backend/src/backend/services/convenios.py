@@ -1,17 +1,123 @@
+from datetime import date, datetime
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from backend.models.aliado import Aliado
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
-from backend.models.enums import AlcanceConvenio, EstadoConvenio, EstadoSolicitud
+from backend.models.enums import (
+    AccionAuditoria,
+    AlcanceConvenio,
+    EstadoConvenio,
+    EstadoRevisionConvenio,
+    EstadoSolicitud,
+    TipoRevisionConvenio,
+)
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
-from backend.schemas.convenio import ConvenioActualizar, ConvenioCrear
+from backend.schemas.convenio import CampoFaltante, ConvenioActualizar, ConvenioCrear
+
+CODIGO_ETAPA_ELABORACION = "ELABORACION"
+CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
+ENTIDAD_CONVENIO = "convenio"
+
+# Campos del proyecto de convenio que se congelan al entregarlo a Jurídica. No se
+# incluyen datos de etapas posteriores (fecha_firma, porcentaje_avance) ni objetos
+# ORM: el snapshot es el estado exacto de lo presentado, nada más.
+CAMPOS_SNAPSHOT = (
+    "codigo",
+    "solicitud_id",
+    "aliado_id",
+    "tipo_convenio_id",
+    "objeto",
+    "alcance",
+    "unidad_organizacional_id",
+    "implicacion_financiera",
+    "fecha_inicio",
+    "fecha_vencimiento",
+    "duracion_meses",
+    "convenio_origen_id",
+    "numero_renovacion",
+)
+
+
+def _snapshot_de(convenio: Convenio) -> dict[str, object]:
+    """Congela los datos del convenio tal como se envían a revisión jurídica."""
+    snapshot: dict[str, object] = {}
+    for campo in CAMPOS_SNAPSHOT:
+        valor = getattr(convenio, campo)
+        # Las fechas van como ISO para que el JSONB las conserve legibles.
+        snapshot[campo] = valor.isoformat() if isinstance(valor, date) else valor
+    return snapshot
+
+# Lo mínimo para entregar el proyecto a Jurídica. Los campos de etapas posteriores
+# (fecha_firma, porcentaje_avance, firmas) no se exigen aquí, y `codigo` puede
+# seguir en NULL al entrar a revisión jurídica.
+CAMPOS_REQUERIDOS_ELABORACION = (
+    "objeto",
+    "tipo_convenio_id",
+    "alcance",
+    "implicacion_financiera",
+    "duracion_meses",
+)
+
+
+def validar_completitud(convenio: Convenio) -> list[CampoFaltante]:
+    """Indica qué falta para poder finalizar la elaboración. Sin efectos secundarios."""
+    faltantes: list[CampoFaltante] = []
+
+    for campo in CAMPOS_REQUERIDOS_ELABORACION:
+        valor = getattr(convenio, campo)
+        if valor is None or (isinstance(valor, str) and not valor.strip()):
+            faltantes.append(
+                CampoFaltante(
+                    campo=campo,
+                    motivo="Es obligatorio para finalizar la elaboración",
+                )
+            )
+
+    if (
+        convenio.alcance == AlcanceConvenio.PROGRAMA
+        and convenio.unidad_organizacional_id is None
+    ):
+        faltantes.append(
+            CampoFaltante(
+                campo="unidad_organizacional_id",
+                motivo="Es obligatorio cuando el alcance es PROGRAMA",
+            )
+        )
+
+    if (
+        convenio.fecha_inicio is not None
+        and convenio.fecha_vencimiento is not None
+        and convenio.fecha_vencimiento <= convenio.fecha_inicio
+    ):
+        faltantes.append(
+            CampoFaltante(
+                campo="fecha_vencimiento",
+                motivo="Debe ser posterior a la fecha de inicio",
+            )
+        )
+
+    return faltantes
+
+
+def _a_texto(valor: object) -> str | None:
+    """Serializa un valor de campo para guardarlo en auditoria (columnas text)."""
+    if valor is None:
+        return None
+    if isinstance(valor, AlcanceConvenio):
+        return valor.value
+    if isinstance(valor, (date, datetime)):
+        return valor.isoformat()
+    return str(valor)
 
 
 class ErrorConvenio(Exception):
@@ -32,6 +138,16 @@ class ReferenciaConvenioInvalida(ErrorConvenio):
 
 class SolicitudNoAprobada(ErrorConvenio):
     pass
+
+
+class ConvenioNoEditable(ErrorConvenio):
+    pass
+
+
+class ElaboracionIncompleta(ErrorConvenio):
+    def __init__(self, faltantes: list[CampoFaltante]) -> None:
+        self.faltantes = faltantes
+        super().__init__("Falta información requerida para finalizar la elaboración")
 
 
 class ConfiguracionConvenioInvalida(RuntimeError):
@@ -83,7 +199,7 @@ class ServicioConvenios:
         ) is not None:
             raise ConvenioDuplicado("La solicitud ya tiene un convenio registrado")
         elaboracion = self.db.scalar(
-            select(Etapa).where(Etapa.codigo == "ELABORACION")
+            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_ELABORACION)
         )
         if elaboracion is None:
             raise ConfiguracionConvenioInvalida(
@@ -128,7 +244,29 @@ class ServicioConvenios:
     def obtener(self, convenio_id: int) -> Convenio:
         convenio = self.db.scalar(
             select(Convenio)
-            .options(joinedload(Convenio.aliado), joinedload(Convenio.creado_por))
+            .options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.creado_por),
+                joinedload(Convenio.etapa_actual),
+            )
+            .where(Convenio.id == convenio_id)
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        return convenio
+
+    def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
+        """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""
+        convenio = self.db.scalar(
+            select(Convenio)
+            .options(
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.creado_por),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.unidad_organizacional),
+            )
             .where(Convenio.id == convenio_id)
         )
         if convenio is None:
@@ -136,9 +274,16 @@ class ServicioConvenios:
         return convenio
 
     def actualizar(
-        self, convenio_id: int, datos: ConvenioActualizar
+        self, convenio_id: int, datos: ConvenioActualizar, usuario: Usuario
     ) -> Convenio:
         convenio = self.obtener(convenio_id)
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        ):
+            raise ConvenioNoEditable(
+                "Solo se puede editar un convenio en etapa de Elaboración"
+            )
         cambios = datos.model_dump(exclude_unset=True)
         combinados = {
             "tipo_convenio_id": convenio.tipo_convenio_id,
@@ -149,14 +294,86 @@ class ServicioConvenios:
         }
         self._validar_referencias(combinados)
         for campo, valor in cambios.items():
-            setattr(
-                convenio,
-                campo,
-                valor.value if isinstance(valor, AlcanceConvenio) else valor,
+            nuevo = valor.value if isinstance(valor, AlcanceConvenio) else valor
+            anterior = getattr(convenio, campo)
+            if anterior == nuevo:
+                continue
+            setattr(convenio, campo, nuevo)
+            self.db.add(
+                Auditoria(
+                    usuario_id=usuario.id,
+                    entidad=ENTIDAD_CONVENIO,
+                    registro_id=convenio.id,
+                    accion=AccionAuditoria.UPDATE.value,
+                    campo=campo,
+                    valor_anterior=_a_texto(anterior),
+                    valor_nuevo=_a_texto(nuevo),
+                )
             )
         try:
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
             raise ConvenioDuplicado("El código ya pertenece a otro convenio") from exc
+        return self.obtener(convenio.id)
+
+    def finalizar_elaboracion(self, convenio_id: int, usuario: Usuario) -> Convenio:
+        """Congela el proyecto y abre la ronda de revisión jurídica.
+
+        La transición de etapa, el historial y la revisión se escriben en un solo
+        commit: o el convenio queda entregado a Jurídica, o no cambia nada.
+        """
+        convenio = self.obtener(convenio_id)
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        ):
+            raise ConvenioNoEditable(
+                "Solo se puede finalizar un convenio en etapa de Elaboración"
+            )
+
+        faltantes = validar_completitud(convenio)
+        if faltantes:
+            raise ElaboracionIncompleta(faltantes)
+
+        juridica = self.db.scalar(
+            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA)
+        )
+        if juridica is None:
+            raise ConfiguracionConvenioInvalida(
+                "No existe la etapa obligatoria REVISION_AVAL_JURIDICO"
+            )
+
+        historial = HistorialEtapa(
+            convenio_id=convenio.id,
+            etapa_origen_id=convenio.etapa_actual_id,
+            etapa_destino_id=juridica.id,
+            usuario_id=usuario.id,
+            responsable_id=usuario.id,
+            observacion=None,
+        )
+        self.db.add(historial)
+        try:
+            # Se necesita el id del historial para enlazar la revisión con la
+            # transición real que la originó.
+            self.db.flush()
+            self.db.add(
+                RevisionConvenio(
+                    convenio_id=convenio.id,
+                    tipo=TipoRevisionConvenio.JURIDICA.value,
+                    historial_etapa_id=historial.id,
+                    estado=EstadoRevisionConvenio.PENDIENTE.value,
+                    resultado=None,
+                    documento_id=None,
+                    responsable_id=None,
+                    snapshot_datos=_snapshot_de(convenio),
+                )
+            )
+            # Se asigna la relación, no solo el FK: si quedara desincronizada, una
+            # sesión reutilizada seguiría viendo la etapa anterior.
+            convenio.etapa_actual = juridica
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
         return self.obtener(convenio.id)

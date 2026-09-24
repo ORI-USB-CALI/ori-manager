@@ -77,12 +77,16 @@ def _crear_convenio(
     aliado: Aliado | None = None,
     estado: EstadoConvenio = EstadoConvenio.EN_TRAMITE,
 ) -> Convenio:
+    # Nace en ELABORACION igual que en ServicioConvenios.crear(): sin etapa el
+    # convenio no sería editable y no reflejaría un registro real.
+    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
     convenio = Convenio(
         solicitud_id=solicitud.id,
         aliado_id=aliado.id if aliado else None,
         estado=estado.value,
         objeto="Cooperación internacional",
         alcance=AlcanceConvenio.INSTITUCIONAL.value,
+        etapa_actual_id=elaboracion.id if elaboracion else None,
         creado_por_id=usuario.id,
     )
     db.add(convenio)
