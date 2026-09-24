@@ -24,6 +24,11 @@ export interface Usuario {
 
 export const CLAVE_USUARIOS = ['usuarios'] as const
 
+const ROLES_SOLICITANTES: readonly CodigoRol[] = [
+  'SOLICITANTE_INTERNO',
+  'SOLICITANTE_EXTERNO',
+]
+
 export const ROLES_POR_TIPO: Record<TipoUsuario, readonly CodigoRol[]> = {
   INTERNO: ['ADMINISTRADOR_ORI', 'GESTOR_ORI', 'REVISOR_ORI'],
   EXTERNO: [],
@@ -38,4 +43,8 @@ export function opcionesRol(tipo: TipoUsuario) {
 
 export function etiquetaTipo(tipo: TipoUsuario): string {
   return tipo === 'INTERNO' ? 'Interno' : 'Externo'
+}
+
+export function esRolSolicitante(codigo: CodigoRol): boolean {
+  return ROLES_SOLICITANTES.includes(codigo)
 }

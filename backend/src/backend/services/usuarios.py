@@ -33,14 +33,29 @@ class ConflictoUsuarioError(ErrorGestionUsuarios):
     pass
 
 
-ROLES_ADMINISTRABLES = frozenset(
+ROLES_VISIBLES_ADMIN = frozenset(
+    {
+        CodigoRol.ADMINISTRADOR_ORI,
+        CodigoRol.GESTOR_ORI,
+        CodigoRol.REVISOR_ORI,
+        CodigoRol.SOLICITANTE_INTERNO,
+        CodigoRol.SOLICITANTE_EXTERNO,
+    }
+)
+ROLES_ASIGNABLES_ADMIN = frozenset(
     {
         CodigoRol.ADMINISTRADOR_ORI,
         CodigoRol.GESTOR_ORI,
         CodigoRol.REVISOR_ORI,
     }
 )
-CODIGOS_ROLES_ADMINISTRABLES = tuple(rol.value for rol in ROLES_ADMINISTRABLES)
+ROLES_SOLICITANTES = frozenset(
+    {
+        CodigoRol.SOLICITANTE_INTERNO,
+        CodigoRol.SOLICITANTE_EXTERNO,
+    }
+)
+CODIGOS_ROLES_VISIBLES_ADMIN = tuple(rol.value for rol in ROLES_VISIBLES_ADMIN)
 
 
 class ServicioUsuarios:
@@ -53,7 +68,7 @@ class ServicioUsuarios:
             self.db.scalars(
                 select(Usuario)
                 .options(joinedload(Usuario.rol))
-                .where(Usuario.rol.has(Rol.codigo.in_(CODIGOS_ROLES_ADMINISTRABLES)))
+                .where(Usuario.rol.has(Rol.codigo.in_(CODIGOS_ROLES_VISIBLES_ADMIN)))
                 .order_by(Usuario.correo)
             )
         )
@@ -64,7 +79,7 @@ class ServicioUsuarios:
             .options(joinedload(Usuario.rol))
             .where(
                 Usuario.id == usuario_id,
-                Usuario.rol.has(Rol.codigo.in_(CODIGOS_ROLES_ADMINISTRABLES)),
+                Usuario.rol.has(Rol.codigo.in_(CODIGOS_ROLES_VISIBLES_ADMIN)),
             )
         )
         if usuario is None:
@@ -78,7 +93,7 @@ class ServicioUsuarios:
             )
         self._validar_correo_disponible(str(datos.correo))
         rol = self._obtener_rol(datos.rol)
-        self._validar_rol_administrable(datos.rol)
+        self._validar_rol_asignable(datos.rol)
         self._validar_compatibilidad(rol, datos.tipo_usuario)
         unidad = self._obtener_unidad(datos.unidad_organizacional_id)
         usuario = Usuario(
@@ -100,6 +115,30 @@ class ServicioUsuarios:
     def actualizar(self, usuario_id: int, datos: UsuarioActualizar) -> Usuario:
         usuario = self.obtener(usuario_id)
         cambios = datos.model_dump(exclude_unset=True)
+        if self._es_solicitante(usuario):
+            if "correo" in cambios:
+                raise ReferenciaUsuarioInvalidaError(
+                    "El correo de los solicitantes no se administra desde este módulo"
+                )
+            if "contrasena" in cambios:
+                raise ReferenciaUsuarioInvalidaError(
+                    "La contraseña de los solicitantes se gestiona mediante recuperación de acceso"
+                )
+            tipo_usuario = TipoUsuario(usuario.tipo_usuario)
+            if tipo_usuario is TipoUsuario.INTERNO:
+                campos_incompatibles = {
+                    "documento_identidad",
+                    "entidad_externa",
+                }.intersection(cambios)
+            else:
+                campos_incompatibles = {"unidad_organizacional_id"}.intersection(
+                    cambios
+                )
+            if campos_incompatibles:
+                campos = ", ".join(sorted(campos_incompatibles))
+                raise ReferenciaUsuarioInvalidaError(
+                    f"Campos incompatibles con el tipo de solicitante: {campos}"
+                )
         contrasena = cambios.pop("contrasena", None)
         if contrasena is not None and verificar_contrasena(
             contrasena, usuario.hash_contrasena
@@ -136,7 +175,11 @@ class ServicioUsuarios:
         usuario = self.obtener(usuario_id)
         if usuario.id == actor.id:
             raise ConflictoUsuarioError("No puede cambiar su propio rol")
-        self._validar_rol_administrable(codigo_rol)
+        if self._es_solicitante(usuario):
+            raise ReferenciaUsuarioInvalidaError(
+                "El rol de los solicitantes no se administra desde este módulo"
+            )
+        self._validar_rol_asignable(codigo_rol)
         rol = self._obtener_rol(codigo_rol)
         self._validar_compatibilidad(rol, TipoUsuario(usuario.tipo_usuario))
         usuario.rol = rol
@@ -166,11 +209,15 @@ class ServicioUsuarios:
         return rol
 
     @staticmethod
-    def _validar_rol_administrable(codigo: CodigoRol) -> None:
-        if codigo not in ROLES_ADMINISTRABLES:
+    def _validar_rol_asignable(codigo: CodigoRol) -> None:
+        if codigo not in ROLES_ASIGNABLES_ADMIN:
             raise ReferenciaUsuarioInvalidaError(
                 "El módulo administrativo solo permite roles operativos ORI"
             )
+
+    @staticmethod
+    def _es_solicitante(usuario: Usuario) -> bool:
+        return CodigoRol(usuario.rol.codigo) in ROLES_SOLICITANTES
 
     def _obtener_unidad(self, unidad_id: int | None) -> UnidadOrganizacional | None:
         if unidad_id is None:
