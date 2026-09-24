@@ -206,10 +206,9 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 required
                 disabled={!puedeEditar}
                 autoFocus
+                placeholder="Nombre completo del usuario"
                 aria-invalid={Boolean(erroresCreacion.nombre_completo)}
-                aria-describedby={
-                  erroresCreacion.nombre_completo ? 'usuario-nombre-error' : undefined
-                }
+                aria-describedby={erroresCreacion.nombre_completo ? 'usuario-nombre-error' : undefined}
                 onChange={() =>
                   setErroresCreacion((actuales) => ({
                     ...actuales,
@@ -236,19 +235,26 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 required
                 disabled={!puedeEditar || esSolicitante}
                 autoComplete="username"
+                placeholder="Correo de acceso a ORI Manager"
                 aria-invalid={Boolean(erroresCreacion.correo)}
-                aria-describedby={erroresCreacion.correo ? 'usuario-correo-error' : undefined}
+                aria-describedby={
+                  [esSolicitante ? 'usuario-correo-ayuda' : null, erroresCreacion.correo ? 'usuario-correo-error' : null]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
                 onChange={() =>
                   setErroresCreacion((actuales) => ({ ...actuales, correo: undefined }))
                 }
               />
+              {esSolicitante && (
+                <small id="usuario-correo-ayuda" className="form-help">
+                  El correo del solicitante se conserva según su autorregistro.
+                </small>
+              )}
               {erroresCreacion.correo && (
                 <small id="usuario-correo-error" className="form-error">
                   {erroresCreacion.correo}
                 </small>
-              )}
-              {esSolicitante && (
-                <small>El correo del solicitante se conserva según su autorregistro.</small>
               )}
             </div>
             {!esSolicitanteInterno && (
@@ -262,6 +268,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                   className="form-control"
                   defaultValue={usuario?.documento_identidad ?? ''}
                   disabled={!puedeEditar}
+                  placeholder="Documento de identificación del solicitante"
                 />
               </div>
             )}
@@ -275,6 +282,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 className="form-control"
                 defaultValue={usuario?.telefono ?? ''}
                 disabled={!puedeEditar}
+                placeholder="Número de contacto del usuario"
               />
             </div>
             <div className="form-group">
@@ -287,6 +295,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 className="form-control"
                 defaultValue={usuario?.cargo ?? ''}
                 disabled={!puedeEditar}
+                placeholder="Cargo o función del usuario"
               />
             </div>
             {!esSolicitanteInterno && (
@@ -300,6 +309,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                   className="form-control"
                   defaultValue={usuario?.entidad_externa ?? ''}
                   disabled={!puedeEditar}
+                  placeholder="Organización externa a la que pertenece"
                 />
               </div>
             )}
@@ -319,9 +329,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                   autoComplete="new-password"
                   placeholder={usuario ? 'Vacío para conservar la actual' : 'Mínimo 8 caracteres'}
                   aria-invalid={Boolean(erroresCreacion.contrasena)}
-                  aria-describedby={
-                    erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined
-                  }
+                  aria-describedby={erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined}
                   onChange={() =>
                     setErroresCreacion((actuales) => ({
                       ...actuales,
@@ -408,7 +416,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
           <section className="modal-section">
             <h3>Estado de acceso</h3>
             <p className="texto-secundario">
-              El usuario está {usuario.activo ? 'activo' : 'inactivo'}.
+              El usuario está {usuario.activo ? 'activo' : 'inactivo'}. Este estado determina si puede acceder al sistema.
             </p>
             <button
               type="button"

@@ -43,6 +43,7 @@ export function ReenviarVerificacion({ correoInicial = '' }: ReenviarVerificacio
           onChange={(evento) => setCorreo(evento.target.value)}
           required
           autoComplete="email"
+          placeholder="Correo con el que creó su cuenta"
         />
       </label>
       {reenvio.isSuccess && (

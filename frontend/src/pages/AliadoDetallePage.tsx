@@ -81,12 +81,12 @@ export function AliadoDetallePage() {
         <h2>Información del aliado</h2>
         {editando ? (
           <form onSubmit={guardar} className="form-grid">
-            <label className="form-group form-span-2"><span className="form-label">Nombre</span><input className="form-control" name="nombre" defaultValue={datos.nombre} required /></label>
-            <label className="form-group"><span className="form-label">Tipo de identificación</span><select className="form-control" name="tipo_identificacion" defaultValue={datos.tipo_identificacion} disabled={!puede('aliados.corregir_identificacion')}>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo} value={tipo}>{tipo.replaceAll('_', ' ')}</option>)}</select></label>
-            <label className="form-group"><span className="form-label">NIT / documento</span><input className="form-control" name="identificacion" maxLength={40} defaultValue={datos.identificacion} readOnly={!puede('aliados.corregir_identificacion')} required /></label>
-            <label className="form-group"><span className="form-label">Ciudad</span><input className="form-control" name="ciudad" defaultValue={datos.ciudad ?? ''} /></label>
-            <label className="form-group"><span className="form-label">Correo</span><input className="form-control" type="email" name="correo" defaultValue={datos.correo ?? ''} /></label>
-            <label className="form-group"><span className="form-label">Teléfono</span><input className="form-control" name="telefono" defaultValue={datos.telefono ?? ''} /></label>
+            <label className="form-group form-span-2" htmlFor="aliado-nombre"><span className="form-label">Nombre</span><input id="aliado-nombre" className="form-control" name="nombre" defaultValue={datos.nombre} required placeholder="Razón social o nombre oficial de la institución" /></label>
+            <label className="form-group" htmlFor="aliado-tipo-identificacion"><span className="form-label">Tipo de identificación</span><select id="aliado-tipo-identificacion" className="form-control" name="tipo_identificacion" defaultValue={datos.tipo_identificacion} disabled={!puede('aliados.corregir_identificacion')}>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo} value={tipo}>{tipo.replaceAll('_', ' ')}</option>)}</select></label>
+            <label className="form-group" htmlFor="aliado-identificacion"><span className="form-label">NIT / documento</span><input id="aliado-identificacion" className="form-control" name="identificacion" maxLength={40} defaultValue={datos.identificacion} readOnly={!puede('aliados.corregir_identificacion')} required placeholder="Número de identificación jurídica" /></label>
+            <label className="form-group" htmlFor="aliado-ciudad"><span className="form-label">Ciudad</span><input id="aliado-ciudad" className="form-control" name="ciudad" defaultValue={datos.ciudad ?? ''} placeholder="Ciudad donde se encuentra la entidad" /></label>
+            <label className="form-group" htmlFor="aliado-correo"><span className="form-label">Correo</span><input id="aliado-correo" className="form-control" type="email" name="correo" defaultValue={datos.correo ?? ''} placeholder="Correo institucional de contacto" /></label>
+            <label className="form-group" htmlFor="aliado-telefono"><span className="form-label">Teléfono</span><input id="aliado-telefono" className="form-control" name="telefono" defaultValue={datos.telefono ?? ''} placeholder="Número institucional de contacto" /></label>
             <div><button className="btn btn-primary" disabled={editar.isPending}>Guardar</button> <button className="btn btn-outline" type="button" onClick={() => setEditando(false)}>Cancelar</button></div>
           </form>
         ) : (

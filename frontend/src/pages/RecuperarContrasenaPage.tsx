@@ -32,7 +32,7 @@ export function RecuperarContrasenaPage() {
         <div className="login-brand">ORI Manager</div>
         <h1>Recuperar contraseña</h1>
         <p className="texto-secundario">
-          Ingrese el correo asociado a su cuenta para recibir instrucciones.
+          Recibirá instrucciones para continuar con la recuperación de acceso.
         </p>
 
         {recuperacion.isSuccess ? (
@@ -54,6 +54,7 @@ export function RecuperarContrasenaPage() {
                 required
                 autoComplete="email"
                 autoFocus
+                placeholder="Correo asociado a su cuenta"
               />
             </div>
             <button
