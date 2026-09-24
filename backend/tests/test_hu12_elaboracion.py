@@ -334,38 +334,50 @@ def test_catalogo_elaboracion_solo_expone_referencias_activas(
     client, db, gestor
 ) -> None:
     sufijo = uuid4().hex[:24]
+    tipo_activo = TipoConvenio(
+        codigo=f"ACTIVO-{sufijo}",
+        nombre="Tipo activo HU12",
+        duracion_meses_defecto=24,
+        activo=True,
+    )
     tipo_inactivo = TipoConvenio(
         codigo=f"INACTIVO-{sufijo}",
-        nombre="Tipo inactivo",
+        nombre="Tipo inactivo HU12",
         duracion_meses_defecto=18,
         activo=False,
     )
+    unidad_activa = UnidadOrganizacional(
+        codigo=f"ACTIVA-{sufijo}",
+        nombre="Unidad activa HU12",
+        tipo="FACULTAD",
+        activa=True,
+    )
     unidad_inactiva = UnidadOrganizacional(
         codigo=f"INACTIVA-{sufijo}",
-        nombre="Unidad inactiva",
+        nombre="Unidad inactiva HU12",
         tipo="FACULTAD",
         activa=False,
     )
-    db.add_all([tipo_inactivo, unidad_inactiva])
+    db.add_all([tipo_activo, tipo_inactivo, unidad_activa, unidad_inactiva])
     db.commit()
 
     respuesta = client.get("/api/convenios/catalogos/elaboracion")
 
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
-    assert cuerpo["tipos_convenio"]
-    assert cuerpo["unidades_organizacionales"]
-    assert tipo_inactivo.id not in {item["id"] for item in cuerpo["tipos_convenio"]}
-    assert unidad_inactiva.id not in {
-        item["id"] for item in cuerpo["unidades_organizacionales"]
-    }
+    tipos_por_id = {item["id"]: item for item in cuerpo["tipos_convenio"]}
+    unidades_ids = {item["id"] for item in cuerpo["unidades_organizacionales"]}
+    assert tipo_activo.id in tipos_por_id
+    assert tipo_inactivo.id not in tipos_por_id
+    assert unidad_activa.id in unidades_ids
+    assert unidad_inactiva.id not in unidades_ids
     assert {
         "id",
         "codigo",
         "nombre",
         "naturaleza",
         "duracion_meses_defecto",
-    } == set(cuerpo["tipos_convenio"][0])
+    } == set(tipos_por_id[tipo_activo.id])
 
 
 # --- BE-3: vista de elaboración (CA-01, CA-02) ---
