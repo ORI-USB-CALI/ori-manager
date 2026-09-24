@@ -9,7 +9,12 @@ import {
   useSesion,
 } from '../auth/sesion'
 import { Select } from '../components/Select'
-import { type Usuario, etiquetaTipo, opcionesRol } from './usuarios'
+import {
+  type Usuario,
+  esRolSolicitante,
+  etiquetaTipo,
+  opcionesRol,
+} from './usuarios'
 
 interface Props {
   usuario?: Usuario
@@ -43,6 +48,8 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
   const notify = useNotifications()
   const { sesion, puede } = useSesion()
   const esPropio = usuario?.id === sesion?.id
+  const esSolicitante = usuario ? esRolSolicitante(usuario.rol.codigo) : false
+  const esSolicitanteInterno = esSolicitante && usuario?.tipo_usuario === 'INTERNO'
   const [rol, setRol] = useState<CodigoRol | ''>(usuario?.rol.codigo ?? '')
   const [erroresCreacion, setErroresCreacion] = useState<ErroresCreacion>({})
 
@@ -142,19 +149,23 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
 
     const cambios: Record<string, unknown> = {}
     const campos: Array<[string, string | null]> = [
-      ['correo', usuario.correo],
       ['nombre_completo', usuario.nombre_completo],
-      ['documento_identidad', usuario.documento_identidad],
       ['telefono', usuario.telefono],
       ['cargo', usuario.cargo],
-      ['entidad_externa', usuario.entidad_externa],
     ]
+    if (!esSolicitanteInterno) {
+      campos.push(
+        ['documento_identidad', usuario.documento_identidad],
+        ['entidad_externa', usuario.entidad_externa],
+      )
+    }
+    if (!esSolicitante) campos.unshift(['correo', usuario.correo])
     for (const [campo, original] of campos) {
       const valor = valorFormulario(form, campo)
       const normalizado = campo === 'correo' || campo === 'nombre_completo' ? valor : valor || null
       if (normalizado !== original) cambios[campo] = normalizado
     }
-    if (contrasena) cambios.contrasena = contrasena
+    if (!esSolicitante && contrasena) cambios.contrasena = contrasena
     if (Object.keys(cambios).length === 0) return
     guardar.mutate(cambios)
   }
@@ -223,7 +234,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 className={`form-control ${erroresCreacion.correo ? 'is-invalid' : ''}`}
                 defaultValue={usuario?.correo}
                 required
-                disabled={!puedeEditar}
+                disabled={!puedeEditar || esSolicitante}
                 autoComplete="username"
                 aria-invalid={Boolean(erroresCreacion.correo)}
                 aria-describedby={erroresCreacion.correo ? 'usuario-correo-error' : undefined}
@@ -236,19 +247,24 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                   {erroresCreacion.correo}
                 </small>
               )}
+              {esSolicitante && (
+                <small>El correo del solicitante se conserva según su autorregistro.</small>
+              )}
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="usuario-documento">
-                Documento
-              </label>
-              <input
-                id="usuario-documento"
-                name="documento_identidad"
-                className="form-control"
-                defaultValue={usuario?.documento_identidad ?? ''}
-                disabled={!puedeEditar}
-              />
-            </div>
+            {!esSolicitanteInterno && (
+              <div className="form-group">
+                <label className="form-label" htmlFor="usuario-documento">
+                  Documento
+                </label>
+                <input
+                  id="usuario-documento"
+                  name="documento_identidad"
+                  className="form-control"
+                  defaultValue={usuario?.documento_identidad ?? ''}
+                  disabled={!puedeEditar}
+                />
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label" htmlFor="usuario-telefono">
                 Teléfono
@@ -273,49 +289,53 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 disabled={!puedeEditar}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="usuario-entidad">
-                Entidad externa
-              </label>
-              <input
-                id="usuario-entidad"
-                name="entidad_externa"
-                className="form-control"
-                defaultValue={usuario?.entidad_externa ?? ''}
-                disabled={!puedeEditar}
-              />
-            </div>
-            <div className="form-group form-span-2">
-              <label className="form-label" htmlFor="usuario-contrasena">
-                {usuario ? 'Nueva contraseña' : 'Contraseña'}
-              </label>
-              <input
-                id="usuario-contrasena"
-                name="contrasena"
-                type="password"
-                className={`form-control ${erroresCreacion.contrasena ? 'is-invalid' : ''}`}
-                minLength={8}
-                required={!usuario}
-                disabled={!puedeEditar}
-                autoComplete="new-password"
-                placeholder={usuario ? 'Vacío para conservar la actual' : 'Mínimo 8 caracteres'}
-                aria-invalid={Boolean(erroresCreacion.contrasena)}
-                aria-describedby={
-                  erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined
-                }
-                onChange={() =>
-                  setErroresCreacion((actuales) => ({
-                    ...actuales,
-                    contrasena: undefined,
-                  }))
-                }
-              />
-              {erroresCreacion.contrasena && (
-                <small id="usuario-contrasena-error" className="form-error">
-                  {erroresCreacion.contrasena}
-                </small>
-              )}
-            </div>
+            {!esSolicitanteInterno && (
+              <div className="form-group">
+                <label className="form-label" htmlFor="usuario-entidad">
+                  Entidad externa
+                </label>
+                <input
+                  id="usuario-entidad"
+                  name="entidad_externa"
+                  className="form-control"
+                  defaultValue={usuario?.entidad_externa ?? ''}
+                  disabled={!puedeEditar}
+                />
+              </div>
+            )}
+            {!esSolicitante && (
+              <div className="form-group form-span-2">
+                <label className="form-label" htmlFor="usuario-contrasena">
+                  {usuario ? 'Nueva contraseña' : 'Contraseña'}
+                </label>
+                <input
+                  id="usuario-contrasena"
+                  name="contrasena"
+                  type="password"
+                  className={`form-control ${erroresCreacion.contrasena ? 'is-invalid' : ''}`}
+                  minLength={8}
+                  required={!usuario}
+                  disabled={!puedeEditar}
+                  autoComplete="new-password"
+                  placeholder={usuario ? 'Vacío para conservar la actual' : 'Mínimo 8 caracteres'}
+                  aria-invalid={Boolean(erroresCreacion.contrasena)}
+                  aria-describedby={
+                    erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined
+                  }
+                  onChange={() =>
+                    setErroresCreacion((actuales) => ({
+                      ...actuales,
+                      contrasena: undefined,
+                    }))
+                  }
+                />
+                {erroresCreacion.contrasena && (
+                  <small id="usuario-contrasena-error" className="form-error">
+                    {erroresCreacion.contrasena}
+                  </small>
+                )}
+              </div>
+            )}
           </div>
 
           {!usuario ? (
@@ -344,9 +364,14 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
               </div>
             </div>
           ) : (
-            <p className="dato-solo-lectura">
-              Tipo de usuario: <strong>{etiquetaTipo(usuario.tipo_usuario)}</strong>
-            </p>
+            <div className="dato-solo-lectura">
+              <p>
+                Tipo de usuario: <strong>{etiquetaTipo(usuario.tipo_usuario)}</strong>
+              </p>
+              <p>
+                Rol actual: <strong>{usuario.rol.nombre}</strong>
+              </p>
+            </div>
           )}
 
           {puedeEditar && (
@@ -356,7 +381,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
           )}
         </section>
 
-        {usuario && puede('usuarios.cambiar_rol') && (
+        {usuario && !esSolicitante && puede('usuarios.cambiar_rol') && (
           <section className="modal-section">
             <h3>Cambiar rol</h3>
             <Select

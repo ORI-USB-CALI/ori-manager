@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import verificar_contrasena
+from backend.core.unidades_organizacionales import TipoUnidad
+from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.usuario import UsuarioActualizar
 from backend.services.sesiones import RepositorioSesionesMemoria
@@ -52,14 +54,59 @@ def test_listar_y_obtener_usuario(
     assert detalle.json()["correo"] == otro.correo
 
 
-def test_listado_y_detalle_excluyen_usuarios_externos(
+@pytest.mark.parametrize(
+    ("rol", "tipo"),
+    [
+        (CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO),
+        (CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+def test_usuarios_sin_permisos_no_acceden_a_endpoints_administrativos(
+    rol: CodigoRol,
+    tipo: TipoUsuario,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    objetivo = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    actor = crear_usuario(rol, tipo)
+    entrar_como(actor)
+
+    respuestas = [
+        client.get("/api/usuarios"),
+        client.get(f"/api/usuarios/{objetivo.id}"),
+        client.post("/api/usuarios", json=_datos_usuario()),
+        client.patch(
+            f"/api/usuarios/{objetivo.id}",
+            json={"nombre_completo": "Cambio no autorizado"},
+        ),
+        client.patch(
+            f"/api/usuarios/{objetivo.id}/rol",
+            json={"rol": CodigoRol.GESTOR_ORI.value},
+        ),
+        client.patch(
+            f"/api/usuarios/{objetivo.id}/estado",
+            json={"activo": False},
+        ),
+    ]
+
+    assert all(respuesta.status_code == 403 for respuesta in respuestas)
+
+
+def test_listado_y_detalle_incluyen_usuarios_ori_y_solicitantes(
     client: TestClient,
     crear_usuario,
     entrar_como,
 ) -> None:
     admin = _autenticar_admin(client, crear_usuario, entrar_como)
-    interno = crear_usuario()
-    externo = crear_usuario(
+    gestor = crear_usuario()
+    solicitante_interno = crear_usuario(
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+    )
+    solicitante_externo = crear_usuario(
         CodigoRol.SOLICITANTE_EXTERNO,
         TipoUsuario.EXTERNO,
     )
@@ -68,30 +115,238 @@ def test_listado_y_detalle_excluyen_usuarios_externos(
 
     assert listado.status_code == 200
     ids = {usuario["id"] for usuario in listado.json()}
-    assert ids >= {admin.id, interno.id}
-    assert externo.id not in ids
-    assert client.get(f"/api/usuarios/{externo.id}").status_code == 404
-    assert (
-        client.patch(
-            f"/api/usuarios/{externo.id}",
-            json={"cargo": "No permitido"},
-        ).status_code
-        == 404
+    assert ids >= {
+        admin.id,
+        gestor.id,
+        solicitante_interno.id,
+        solicitante_externo.id,
+    }
+    for solicitante in (solicitante_interno, solicitante_externo):
+        detalle = client.get(f"/api/usuarios/{solicitante.id}")
+        assert detalle.status_code == 200
+        assert detalle.json()["id"] == solicitante.id
+
+
+@pytest.mark.parametrize(
+    ("rol", "tipo"),
+    [
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+def test_admin_edita_datos_generales_de_solicitantes(
+    rol: CodigoRol,
+    tipo: TipoUsuario,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(rol, tipo)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={
+            "nombre_completo": "Solicitante actualizado",
+            "telefono": "3151234567",
+            "cargo": "Representante",
+        },
     )
-    assert (
-        client.patch(
-            f"/api/usuarios/{externo.id}/rol",
-            json={"rol": CodigoRol.GESTOR_ORI.value},
-        ).status_code
-        == 404
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["nombre_completo"] == "Solicitante actualizado"
+    assert respuesta.json()["telefono"] == "3151234567"
+    assert respuesta.json()["cargo"] == "Representante"
+    db.refresh(solicitante)
+    assert solicitante.nombre_completo == "Solicitante actualizado"
+    assert solicitante.telefono == "3151234567"
+
+
+@pytest.mark.parametrize(
+    ("rol", "tipo"),
+    [
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+def test_admin_desactiva_y_reactiva_solicitantes_e_invalida_sesiones(
+    rol: CodigoRol,
+    tipo: TipoUsuario,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    solicitante = crear_usuario(rol, tipo)
+    token_solicitante = entrar_como(solicitante)
+    entrar_como(admin)
+
+    desactivar = client.patch(
+        f"/api/usuarios/{solicitante.id}/estado",
+        json={"activo": False},
     )
-    assert (
-        client.patch(
-            f"/api/usuarios/{externo.id}/estado",
-            json={"activo": False},
-        ).status_code
-        == 404
+    reactivar = client.patch(
+        f"/api/usuarios/{solicitante.id}/estado",
+        json={"activo": True},
     )
+
+    assert desactivar.status_code == 200
+    assert desactivar.json()["activo"] is False
+    assert sesiones.obtener_por_token(token_solicitante) is None
+    assert reactivar.status_code == 200
+    assert reactivar.json()["activo"] is True
+
+
+@pytest.mark.parametrize(
+    ("rol_actual", "tipo"),
+    [
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+@pytest.mark.parametrize(
+    "rol_destino",
+    [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI],
+)
+def test_admin_no_puede_cambiar_rol_de_solicitantes(
+    rol_actual: CodigoRol,
+    tipo: TipoUsuario,
+    rol_destino: CodigoRol,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(rol_actual, tipo)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}/rol",
+        json={"rol": rol_destino.value},
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == (
+        "El rol de los solicitantes no se administra desde este módulo"
+    )
+    db.refresh(solicitante)
+    assert solicitante.rol.codigo == rol_actual
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor", "mensaje"),
+    [
+        (
+            "correo",
+            "otro-dominio@example.com",
+            "El correo de los solicitantes no se administra desde este módulo",
+        ),
+        (
+            "contrasena",
+            "ClaveDistinta123",
+            "La contraseña de los solicitantes se gestiona mediante recuperación de acceso",
+        ),
+    ],
+)
+def test_edicion_solicitante_bloquea_correo_y_contrasena(
+    campo: str,
+    valor: str,
+    mensaje: str,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+        correo="solicitante@usbcali.edu.co",
+    )
+    correo_anterior = solicitante.correo
+    hash_anterior = solicitante.hash_contrasena
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={campo: valor},
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == mensaje
+    db.refresh(solicitante)
+    assert solicitante.correo == correo_anterior
+    assert solicitante.hash_contrasena == hash_anterior
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("documento_identidad", "DOC-NUEVO"),
+        ("entidad_externa", "Entidad nueva"),
+    ],
+)
+def test_solicitante_interno_rechaza_campos_de_solicitante_externo(
+    campo: str,
+    valor: str,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+    )
+    solicitante.documento_identidad = "DOC-LEGACY"
+    solicitante.entidad_externa = "Entidad legacy"
+    db.commit()
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={campo: valor},
+    )
+
+    assert respuesta.status_code == 422
+    assert campo in respuesta.json()["detail"]
+    db.refresh(solicitante)
+    assert solicitante.documento_identidad == "DOC-LEGACY"
+    assert solicitante.entidad_externa == "Entidad legacy"
+
+
+def test_solicitante_externo_rechaza_unidad_organizacional(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    unidad = UnidadOrganizacional(
+        codigo=f"USR-{uuid4().hex}",
+        nombre="Unidad legacy solicitante externo",
+        tipo=TipoUnidad.FACULTAD.value,
+        activa=True,
+    )
+    db.add(unidad)
+    db.commit()
+    solicitante = crear_usuario(
+        CodigoRol.SOLICITANTE_EXTERNO,
+        TipoUsuario.EXTERNO,
+    )
+    solicitante.unidad_organizacional_id = unidad.id
+    db.commit()
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={"unidad_organizacional_id": None},
+    )
+
+    assert respuesta.status_code == 422
+    assert "unidad_organizacional_id" in respuesta.json()["detail"]
+    db.refresh(solicitante)
+    assert solicitante.unidad_organizacional_id == unidad.id
 
 
 def test_crear_usuario_y_no_exponer_hash(

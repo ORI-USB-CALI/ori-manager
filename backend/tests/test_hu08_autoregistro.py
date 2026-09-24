@@ -296,7 +296,7 @@ def test_sql_migracion_marca_usuarios_existentes_como_verificados(db, crear_usua
     assert usuario.correo_verificado_en is not None
 
 
-def test_crud_administrativo_excluye_solicitantes_legacy(
+def test_crud_administrativo_gestiona_solicitantes_sin_cambiar_su_rol(
     db, client, crear_usuario, entrar_como
 ):
     admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
@@ -311,33 +311,28 @@ def test_crud_administrativo_excluye_solicitantes_legacy(
     assert listado.status_code == 200
     ids = {usuario["id"] for usuario in listado.json()}
     assert admin.id in ids
-    assert all(solicitante.id not in ids for solicitante in solicitantes)
+    assert all(solicitante.id in ids for solicitante in solicitantes)
     for solicitante in solicitantes:
-        assert client.get(f"/api/usuarios/{solicitante.id}").status_code == 404
-        assert (
-            client.patch(
-                f"/api/usuarios/{solicitante.id}",
-                json={"cargo": "No permitido"},
-            ).status_code
-            == 404
+        assert client.get(f"/api/usuarios/{solicitante.id}").status_code == 200
+        edicion = client.patch(
+            f"/api/usuarios/{solicitante.id}",
+            json={"cargo": "Cargo actualizado"},
         )
-        assert (
-            client.patch(
-                f"/api/usuarios/{solicitante.id}/rol",
-                json={"rol": CodigoRol.GESTOR_ORI.value},
-            ).status_code
-            == 404
+        cambio_rol = client.patch(
+            f"/api/usuarios/{solicitante.id}/rol",
+            json={"rol": CodigoRol.GESTOR_ORI.value},
         )
-        assert (
-            client.patch(
-                f"/api/usuarios/{solicitante.id}/estado",
-                json={"activo": False},
-            ).status_code
-            == 404
+        desactivar = client.patch(
+            f"/api/usuarios/{solicitante.id}/estado",
+            json={"activo": False},
         )
+
+        assert edicion.status_code == 200
+        assert cambio_rol.status_code == 422
+        assert desactivar.status_code == 200
         db.refresh(solicitante)
-        assert solicitante.cargo is None
-        assert solicitante.activo is True
+        assert solicitante.cargo == "Cargo actualizado"
+        assert solicitante.activo is False
         assert solicitante.rol.codigo in {
             CodigoRol.SOLICITANTE_INTERNO,
             CodigoRol.SOLICITANTE_EXTERNO,
