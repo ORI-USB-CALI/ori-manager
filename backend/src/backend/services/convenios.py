@@ -22,7 +22,11 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
-from backend.schemas.convenio import CampoFaltante, ConvenioActualizar, ConvenioCrear
+from backend.schemas.convenio import (
+    CampoFaltante,
+    ConvenioCrear,
+    ConvenioElaboracionActualizar,
+)
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
@@ -168,12 +172,6 @@ class ServicioConvenios:
         origen_id = datos.get("convenio_origen_id")
         if origen_id is not None and self.db.get(Convenio, origen_id) is None:
             raise ReferenciaConvenioInvalida("El convenio de origen no existe")
-        alcance = datos.get("alcance")
-        alcance_valor = alcance.value if isinstance(alcance, AlcanceConvenio) else alcance
-        if alcance_valor == AlcanceConvenio.PROGRAMA and unidad_id is None:
-            raise ReferenciaConvenioInvalida(
-                "unidad_organizacional_id es obligatorio para alcance PROGRAMA"
-            )
 
     def crear(self, datos: ConvenioCrear, usuario: Usuario) -> Convenio:
         solicitud = self.db.get(SolicitudConvenio, datos.solicitud_id)
@@ -274,7 +272,10 @@ class ServicioConvenios:
         return convenio
 
     def actualizar(
-        self, convenio_id: int, datos: ConvenioActualizar, usuario: Usuario
+        self,
+        convenio_id: int,
+        datos: ConvenioElaboracionActualizar,
+        usuario: Usuario,
     ) -> Convenio:
         convenio = self.obtener(convenio_id)
         if (
@@ -349,7 +350,7 @@ class ServicioConvenios:
             etapa_origen_id=convenio.etapa_actual_id,
             etapa_destino_id=juridica.id,
             usuario_id=usuario.id,
-            responsable_id=usuario.id,
+            responsable_id=None,
             observacion=None,
         )
         self.db.add(historial)

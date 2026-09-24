@@ -151,6 +151,10 @@ export interface TipoConvenioResumen {
   naturaleza: string | null
 }
 
+export interface TipoConvenioElaboracionOpcion extends TipoConvenioResumen {
+  duracion_meses_defecto: number | null
+}
+
 export interface UnidadOrganizacionalResumen {
   id: number
   codigo: string
@@ -195,14 +199,20 @@ export function useValidacionElaboracion(convenioId: number) {
 
 export interface UnidadOrganizacional {
   id: number
+  codigo: string
   nombre: string
   tipo: 'FACULTAD' | 'PROGRAMA' | 'UNIDAD_ADMINISTRATIVA'
 }
 
-export function useUnidadesOrganizacionales() {
+export interface CatalogosElaboracion {
+  tipos_convenio: TipoConvenioElaboracionOpcion[]
+  unidades_organizacionales: UnidadOrganizacional[]
+}
+
+export function useCatalogosElaboracion() {
   return useQuery({
-    queryKey: ['unidades-organizacionales'],
-    queryFn: () => apiFetch<UnidadOrganizacional[]>('/auth/registro/unidades'),
+    queryKey: ['convenios', 'catalogos', 'elaboracion'],
+    queryFn: () => apiFetch<CatalogosElaboracion>('/convenios/catalogos/elaboracion'),
     retry: false,
   })
 }

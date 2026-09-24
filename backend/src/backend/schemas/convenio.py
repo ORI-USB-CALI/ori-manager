@@ -32,8 +32,19 @@ class ConvenioCrear(ConvenioCamposEditables):
     objeto: str = Field(min_length=1)
 
 
-class ConvenioActualizar(ConvenioCamposEditables):
+class ConvenioElaboracionActualizar(BaseModel):
+    """Campos que HU-12 permite modificar durante Elaboración."""
+
     model_config = ConfigDict(extra="forbid")
+
+    tipo_convenio_id: int | None = None
+    objeto: str | None = None
+    alcance: AlcanceConvenio | None = None
+    unidad_organizacional_id: int | None = None
+    implicacion_financiera: str | None = None
+    fecha_inicio: date | None = None
+    fecha_vencimiento: date | None = None
+    duracion_meses: int | None = Field(default=None, ge=0)
 
 
 class UsuarioResumen(BaseModel):
@@ -80,6 +91,10 @@ class TipoConvenioResumen(BaseModel):
     codigo: str
     nombre: str
     naturaleza: str | None
+
+
+class TipoConvenioElaboracionOpcion(TipoConvenioResumen):
+    duracion_meses_defecto: int | None
 
 
 class UnidadOrganizacionalResumen(BaseModel):
@@ -161,3 +176,8 @@ class CampoFaltante(BaseModel):
 class ValidacionElaboracionLeer(BaseModel):
     completo: bool
     faltantes: list[CampoFaltante]
+
+
+class CatalogosElaboracionLeer(BaseModel):
+    tipos_convenio: list[TipoConvenioElaboracionOpcion]
+    unidades_organizacionales: list[UnidadOrganizacionalResumen]

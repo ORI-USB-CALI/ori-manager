@@ -1,16 +1,20 @@
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.deps import requiere
 from backend.core.permisos import Permiso
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
+from backend.models.tipo_convenio import TipoConvenio
+from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import (
-    ConvenioActualizar,
+    CatalogosElaboracionLeer,
     ConvenioCrear,
+    ConvenioElaboracionActualizar,
     ConvenioElaboracionLeer,
     ConvenioLeer,
     ValidacionElaboracionLeer,
@@ -62,6 +66,26 @@ def crear_convenio(
         _lanzar_http(exc)
 
 
+@router.get("/catalogos/elaboracion", response_model=CatalogosElaboracionLeer)
+def obtener_catalogos_elaboracion(
+    db: DatabaseSession, _: PuedeVer
+) -> CatalogosElaboracionLeer:
+    tipos = db.scalars(
+        select(TipoConvenio)
+        .where(TipoConvenio.activo.is_(True))
+        .order_by(TipoConvenio.nombre)
+    ).all()
+    unidades = db.scalars(
+        select(UnidadOrganizacional)
+        .where(UnidadOrganizacional.activa.is_(True))
+        .order_by(UnidadOrganizacional.nombre)
+    ).all()
+    return CatalogosElaboracionLeer(
+        tipos_convenio=tipos,
+        unidades_organizacionales=unidades,
+    )
+
+
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
 def obtener_convenio(
     convenio_id: int, db: DatabaseSession, _: PuedeVer
@@ -109,7 +133,7 @@ def finalizar_elaboracion(
 @router.patch("/{convenio_id}", response_model=ConvenioLeer)
 def actualizar_convenio(
     convenio_id: int,
-    datos: ConvenioActualizar,
+    datos: ConvenioElaboracionActualizar,
     db: DatabaseSession,
     usuario: PuedeEditar,
 ) -> Convenio:

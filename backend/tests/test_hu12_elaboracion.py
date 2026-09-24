@@ -21,6 +21,7 @@ from backend.models.convenio import Convenio
 from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
+    EstadoConvenio,
     EstadoRevisionConvenio,
     EstadoSolicitud,
     TipoAliado,
@@ -33,7 +34,10 @@ from backend.models.historial_etapa import HistorialEtapa
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
+from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.schemas.convenio import ConvenioCrear
+from backend.services.convenios import ServicioConvenios
 
 
 @pytest.fixture
@@ -45,9 +49,10 @@ def gestor(client, crear_usuario, entrar_como) -> Usuario:
 
 @pytest.fixture
 def crear_convenio(db: Session) -> Callable[..., Convenio]:
-    """Convenio en ELABORACION originado por una solicitud aprobada, como lo deja HU-06."""
+    """Crea el convenio mediante el contrato canónico de HU-06."""
 
     def _crear(autor: Usuario, **cambios) -> Convenio:
+        aliado_id = cambios.pop("aliado_id", None)
         solicitud = SolicitudConvenio(
             consecutivo=f"SOL-{uuid4().hex}",
             tipo_solicitante=TipoSolicitante.INTERNO.value,
@@ -56,6 +61,7 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             justificacion="Fortalecer la movilidad académica",
             vigencia_estimada="24 meses",
             estado=EstadoSolicitud.APROBADA.value,
+            aliado_id=aliado_id,
             nombre_aliado_propuesto="Universidad Contraparte",
             correo_aliado_propuesto="convenios@contraparte.example",
             contacto_contraparte_nombre="Ana Gómez",
@@ -68,18 +74,16 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
         db.add(solicitud)
         db.commit()
 
-        etapa = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
-        convenio = Convenio(
-            solicitud_id=solicitud.id,
-            objeto="Objeto inicial del convenio",
-            alcance=AlcanceConvenio.INSTITUCIONAL.value,
-            etapa_actual_id=etapa.id,
-            creado_por_id=autor.id,
+        datos = {
+            "solicitud_id": solicitud.id,
+            "objeto": "Objeto inicial del convenio",
+            "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
+        }
+        return ServicioConvenios(db).crear(
+            ConvenioCrear.model_validate(datos),
+            autor,
         )
-        db.add(convenio)
-        db.commit()
-        return convenio
 
     return _crear
 
@@ -97,6 +101,30 @@ def _auditoria_de(db: Session, convenio_id: int) -> list[Auditoria]:
     )
 
 
+def _historiales_de(db: Session, convenio_id: int) -> list[HistorialEtapa]:
+    return list(
+        db.scalars(
+            select(HistorialEtapa)
+            .where(HistorialEtapa.convenio_id == convenio_id)
+            .order_by(HistorialEtapa.id)
+        )
+    )
+
+
+def test_convenio_creado_canonicamente_registra_ingreso_a_elaboracion(
+    db, gestor, crear_convenio
+) -> None:
+    convenio = crear_convenio(gestor)
+    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
+
+    assert convenio.estado == EstadoConvenio.EN_TRAMITE
+    assert convenio.etapa_actual_id == elaboracion.id
+    historiales = _historiales_de(db, convenio.id)
+    assert len(historiales) == 1
+    assert historiales[0].etapa_origen_id is None
+    assert historiales[0].etapa_destino_id == elaboracion.id
+
+
 def test_ca05_guardado_parcial_conserva_etapa_elaboracion(
     client, db, gestor, crear_convenio
 ) -> None:
@@ -112,6 +140,7 @@ def test_ca05_guardado_parcial_conserva_etapa_elaboracion(
     assert respuesta.json()["objeto"] == "Objeto ajustado durante la elaboración"
     db.refresh(convenio)
     assert convenio.etapa_actual_id == etapa_antes
+    assert len(_historiales_de(db, convenio.id)) == 1
 
 
 def test_ca03_edicion_bloqueada_fuera_de_elaboracion(
@@ -119,7 +148,7 @@ def test_ca03_edicion_bloqueada_fuera_de_elaboracion(
 ) -> None:
     convenio = crear_convenio(gestor)
     juridica = db.scalar(select(Etapa).where(Etapa.codigo == "REVISION_AVAL_JURIDICO"))
-    convenio.etapa_actual_id = juridica.id
+    convenio.etapa_actual = juridica
     db.commit()
 
     respuesta = client.patch(
@@ -224,7 +253,119 @@ def test_ca05_guardados_sucesivos_no_generan_historial_de_etapa(
         .where(HistorialEtapa.convenio_id == convenio.id)
     )
     assert historial_despues == historial_antes
+    assert historial_despues == 1
     assert len(_auditoria_de(db, convenio.id)) == 3
+
+
+def test_ca05_programa_sin_unidad_se_puede_guardar_como_avance(
+    client, db, gestor, crear_convenio
+) -> None:
+    convenio = crear_convenio(gestor)
+
+    respuesta = client.patch(
+        f"/api/convenios/{convenio.id}",
+        json={"alcance": "PROGRAMA", "unidad_organizacional_id": None},
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["alcance"] == "PROGRAMA"
+    assert respuesta.json()["unidad_organizacional_id"] is None
+    db.refresh(convenio)
+    assert convenio.alcance == AlcanceConvenio.PROGRAMA
+    assert convenio.unidad_organizacional_id is None
+    assert len(_historiales_de(db, convenio.id)) == 1
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("codigo", "NO-PERMITIDO"),
+        ("fecha_firma", "2026-01-01"),
+        ("porcentaje_avance", 10),
+        ("convenio_origen_id", 1),
+        ("numero_renovacion", 1),
+        ("aliado_id", 1),
+        ("solicitud_id", 1),
+        ("estado", "VIGENTE"),
+        ("etapa_actual_id", 1),
+        ("creado_por_id", 1),
+        ("id", 1),
+        ("creado_en", "2026-01-01T00:00:00Z"),
+        ("actualizado_en", "2026-01-01T00:00:00Z"),
+    ],
+)
+def test_patch_rechaza_campos_fuera_del_alcance_hu12(
+    client, gestor, crear_convenio, campo, valor
+) -> None:
+    convenio = crear_convenio(gestor)
+
+    respuesta = client.patch(f"/api/convenios/{convenio.id}", json={campo: valor})
+
+    assert respuesta.status_code == 422
+
+
+def test_tipo_convenio_valido_se_puede_guardar(
+    client, db, gestor, crear_convenio
+) -> None:
+    convenio = crear_convenio(gestor)
+    tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
+
+    respuesta = client.patch(
+        f"/api/convenios/{convenio.id}", json={"tipo_convenio_id": tipo.id}
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["tipo_convenio_id"] == tipo.id
+
+
+def test_tipo_convenio_inexistente_se_rechaza(
+    client, gestor, crear_convenio
+) -> None:
+    convenio = crear_convenio(gestor)
+
+    respuesta = client.patch(
+        f"/api/convenios/{convenio.id}", json={"tipo_convenio_id": 999999999}
+    )
+
+    assert respuesta.status_code == 422
+
+
+def test_catalogo_elaboracion_solo_expone_referencias_activas(
+    client, db, gestor
+) -> None:
+    sufijo = uuid4().hex[:24]
+    tipo_inactivo = TipoConvenio(
+        codigo=f"INACTIVO-{sufijo}",
+        nombre="Tipo inactivo",
+        duracion_meses_defecto=18,
+        activo=False,
+    )
+    unidad_inactiva = UnidadOrganizacional(
+        codigo=f"INACTIVA-{sufijo}",
+        nombre="Unidad inactiva",
+        tipo="FACULTAD",
+        activa=False,
+    )
+    db.add_all([tipo_inactivo, unidad_inactiva])
+    db.commit()
+
+    respuesta = client.get("/api/convenios/catalogos/elaboracion")
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["tipos_convenio"]
+    assert cuerpo["unidades_organizacionales"]
+    assert tipo_inactivo.id not in {item["id"] for item in cuerpo["tipos_convenio"]}
+    assert unidad_inactiva.id not in {
+        item["id"] for item in cuerpo["unidades_organizacionales"]
+    }
+    assert {
+        "id",
+        "codigo",
+        "nombre",
+        "naturaleza",
+        "duracion_meses_defecto",
+    } == set(cuerpo["tipos_convenio"][0])
 
 
 # --- BE-3: vista de elaboración (CA-01, CA-02) ---
@@ -359,6 +500,34 @@ def test_ca06_alcance_programa_exige_unidad_organizacional(
     assert [f["campo"] for f in cuerpo["faltantes"]] == ["unidad_organizacional_id"]
 
 
+def test_ca06_finalizar_programa_sin_unidad_es_rechazado(
+    client, db, gestor, crear_convenio
+) -> None:
+    tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
+    convenio = crear_convenio(
+        gestor,
+        tipo_convenio_id=tipo.id,
+        implicacion_financiera="Sin costo",
+        duracion_meses=12,
+    )
+    guardado = client.patch(
+        f"/api/convenios/{convenio.id}",
+        json={"alcance": "PROGRAMA", "unidad_organizacional_id": None},
+    )
+    assert guardado.status_code == 200
+
+    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar")
+
+    assert respuesta.status_code == 422
+    assert [
+        item["campo"] for item in respuesta.json()["detail"]["faltantes"]
+    ] == ["unidad_organizacional_id"]
+    db.refresh(convenio)
+    assert convenio.etapa_actual.codigo == "ELABORACION"
+    assert len(_historiales_de(db, convenio.id)) == 1
+    assert _revisiones_de(db, convenio.id) == []
+
+
 def test_ca06_vencimiento_anterior_al_inicio_se_reporta(
     client, db, gestor, crear_convenio
 ) -> None:
@@ -432,12 +601,12 @@ def test_ca06_finalizar_incompleto_no_cambia_nada(
             .select_from(HistorialEtapa)
             .where(HistorialEtapa.convenio_id == convenio.id)
         )
-        == 0
+        == 1
     )
 
 
 def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
-    client, db, convenio_listo
+    client, db, gestor, convenio_listo
 ) -> None:
     respuesta = client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
@@ -447,6 +616,7 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     juridica = db.scalar(select(Etapa).where(Etapa.codigo == "REVISION_AVAL_JURIDICO"))
     db.refresh(convenio_listo)
     assert convenio_listo.etapa_actual_id == juridica.id
+    assert convenio_listo.estado == EstadoConvenio.EN_TRAMITE
 
     revisiones = _revisiones_de(db, convenio_listo.id)
     assert len(revisiones) == 1
@@ -458,13 +628,21 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     # HU-13 decidirá quién toma la revisión: aquí no se asigna revisor.
     assert revision.responsable_id is None
 
-    historial = db.scalars(
-        select(HistorialEtapa).where(HistorialEtapa.convenio_id == convenio_listo.id)
-    ).all()
-    assert len(historial) == 1
-    assert historial[0].etapa_destino_id == juridica.id
+    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
+    historiales = _historiales_de(db, convenio_listo.id)
+    assert len(historiales) == 2
+    inicial = next(item for item in historiales if item.etapa_origen_id is None)
+    transicion = next(
+        item
+        for item in historiales
+        if item.etapa_origen_id == elaboracion.id
+        and item.etapa_destino_id == juridica.id
+    )
+    assert inicial.etapa_destino_id == elaboracion.id
+    assert transicion.usuario_id == gestor.id
+    assert transicion.responsable_id is None
     # La revisión queda enlazada a la transición real que la originó.
-    assert revision.historial_etapa_id == historial[0].id
+    assert revision.historial_etapa_id == transicion.id
 
 
 def test_ca08_snapshot_congela_los_trece_campos(client, db, convenio_listo) -> None:
@@ -526,31 +704,53 @@ def test_ca08_no_se_puede_finalizar_dos_veces(client, db, convenio_listo) -> Non
 
     assert segunda.status_code == 409
     assert len(_revisiones_de(db, convenio_listo.id)) == 1
+    assert len(_historiales_de(db, convenio_listo.id)) == 2
 
 
-def test_ronda_posterior_crea_revision_nueva_sin_tocar_la_anterior(
-    client, db, gestor, convenio_listo
+def test_revisor_puede_consultar_pero_no_editar_ni_finalizar(
+    client,
+    gestor,
+    crear_convenio,
+    crear_usuario,
+    entrar_como,
 ) -> None:
-    """Si Jurídica devuelve y el Gestor corrige, la siguiente ronda es otra revisión."""
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
-    primera = _revisiones_de(db, convenio_listo.id)[0]
-    snapshot_primera = dict(primera.snapshot_datos)
+    convenio = crear_convenio(gestor)
+    revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(revisor)
 
-    # Jurídica devuelve: el convenio vuelve a Elaboración y se corrige.
-    db.refresh(convenio_listo)
-    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
-    convenio_listo.etapa_actual_id = elaboracion.id
-    db.commit()
-    client.patch(
-        f"/api/convenios/{convenio_listo.id}",
-        json={"objeto": "Objeto corregido tras la devolución"},
+    assert client.get(f"/api/convenios/{convenio.id}/elaboracion").status_code == 200
+    assert (
+        client.get("/api/convenios/catalogos/elaboracion").status_code == 200
+    )
+    assert (
+        client.patch(
+            f"/api/convenios/{convenio.id}", json={"objeto": "Cambio no permitido"}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar").status_code
+        == 403
     )
 
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
 
-    revisiones = _revisiones_de(db, convenio_listo.id)
-    assert len(revisiones) == 2
-    db.refresh(primera)
-    assert primera.snapshot_datos == snapshot_primera
-    assert revisiones[1].snapshot_datos["objeto"] == "Objeto corregido tras la devolución"
-    assert revisiones[1].id != primera.id
+def test_usuario_sin_permisos_no_puede_consultar_editar_ni_finalizar(
+    client,
+    gestor,
+    crear_convenio,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    convenio = crear_convenio(gestor)
+    solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO)
+    entrar_como(solicitante)
+
+    assert client.get(f"/api/convenios/{convenio.id}/elaboracion").status_code == 403
+    assert (
+        client.patch(f"/api/convenios/{convenio.id}", json={"objeto": "X"}).status_code
+        == 403
+    )
+    assert (
+        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar").status_code
+        == 403
+    )

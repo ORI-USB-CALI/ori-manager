@@ -7,16 +7,18 @@ import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import {
   ETIQUETA_TIPO,
+  type Convenio,
   type ElaboracionConvenio,
   type TipoAliado,
+  useCatalogosElaboracion,
   useElaboracionConvenio,
-  useUnidadesOrganizacionales,
   useValidacionElaboracion,
 } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 
 const CODIGO_ETAPA_ELABORACION = 'ELABORACION'
 const CAMPOS_FORMULARIO = [
+  'tipo_convenio_id',
   'objeto',
   'alcance',
   'unidad_organizacional_id',
@@ -64,7 +66,7 @@ function camposModificados(formulario: HTMLFormElement, original: ElaboracionCon
     if (!form.has(campo)) continue
     const bruto = String(form.get(campo) ?? '').trim()
     let valor: string | number | null = bruto || null
-    if (campo === 'unidad_organizacional_id' || campo === 'duracion_meses') {
+    if (campo === 'tipo_convenio_id' || campo === 'unidad_organizacional_id' || campo === 'duracion_meses') {
       valor = bruto ? Number(bruto) : null
     }
     const actual = original[campo as keyof ElaboracionConvenio]
@@ -82,7 +84,7 @@ export function ConvenioElaboracionPage() {
   const id = Number(convenioId)
   const elaboracion = useElaboracionConvenio(id)
   const validacion = useValidacionElaboracion(id)
-  const unidades = useUnidadesOrganizacionales()
+  const catalogos = useCatalogosElaboracion()
   const { puede } = useSesion()
   const notify = useNotifications()
   const queryClient = useQueryClient()
@@ -93,11 +95,14 @@ export function ConvenioElaboracionPage() {
 
   const guardar = useMutation({
     mutationFn: (cambios: Record<string, unknown>) =>
-      apiFetch<ElaboracionConvenio>(`/convenios/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
+      apiFetch<Convenio>(`/convenios/${id}`, { method: 'PATCH', body: JSON.stringify(cambios) }),
     onSuccess: async () => {
       setErrores({})
       notify({ type: 'success', message: 'Avance guardado. El convenio permanece en Elaboración.' })
-      await queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
+        queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion', 'validacion'] }),
+      ])
     },
     onError: (error) => {
       setErrores(erroresServidor(error))
@@ -150,13 +155,23 @@ export function ConvenioElaboracionPage() {
           <h2>Información del convenio</h2>
           <div className="form-grid">
             <label className="form-group">
-              <span className="form-label">Tipo de convenio</span>
-              <select className={`form-control select ${mensajeCampo('tipo_convenio_id') ? 'is-invalid' : ''}`} disabled defaultValue={datos.tipo_convenio_id ?? ''}>
-                <option value="">{datos.tipo_convenio?.nombre ?? 'Sin definir'}</option>
+              <span className="form-label">Tipo de convenio {editable && '*'}</span>
+              <select
+                className={`form-control select ${mensajeCampo('tipo_convenio_id') ? 'is-invalid' : ''}`}
+                name="tipo_convenio_id"
+                disabled={!editable || catalogos.isPending}
+                defaultValue={datos.tipo_convenio_id ?? ''}
+              >
+                <option value="">Seleccione</option>
+                {datos.tipo_convenio_id != null
+                  && !catalogos.data?.tipos_convenio.some((tipo) => tipo.id === datos.tipo_convenio_id)
+                  && datos.tipo_convenio && (
+                    <option value={datos.tipo_convenio_id}>{datos.tipo_convenio.nombre}</option>
+                  )}
+                {catalogos.data?.tipos_convenio.map((tipo) => (
+                  <option key={tipo.id} value={tipo.id}>{tipo.nombre}</option>
+                ))}
               </select>
-              <small className="caption">
-                Pendiente de un catálogo accesible para Gestor ORI; por ahora este campo se deja deshabilitado.
-              </small>
               {mensajeCampo('tipo_convenio_id') && <span className="form-error">{mensajeCampo('tipo_convenio_id')}</span>}
             </label>
 
@@ -194,10 +209,15 @@ export function ConvenioElaboracionPage() {
                   className={`form-control select ${mensajeCampo('unidad_organizacional_id') ? 'is-invalid' : ''}`}
                   name="unidad_organizacional_id"
                   defaultValue={datos.unidad_organizacional_id ?? ''}
-                  disabled={!editable || unidades.isPending}
+                  disabled={!editable || catalogos.isPending}
                 >
                   <option value="">Seleccione</option>
-                  {unidades.data?.map((unidad) => (
+                  {datos.unidad_organizacional_id != null
+                    && !catalogos.data?.unidades_organizacionales.some((unidad) => unidad.id === datos.unidad_organizacional_id)
+                    && datos.unidad_organizacional && (
+                      <option value={datos.unidad_organizacional_id}>{datos.unidad_organizacional.nombre}</option>
+                    )}
+                  {catalogos.data?.unidades_organizacionales.map((unidad) => (
                     <option key={unidad.id} value={unidad.id}>{unidad.nombre}</option>
                   ))}
                 </select>
@@ -295,29 +315,13 @@ export function ConvenioElaboracionPage() {
         <FinalizarElaboracionModal
           convenioId={id}
           onCerrar={() => setModalFinalizarAbierto(false)}
-          onFinalizado={() =>
-            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] })
-          }
+          onFinalizado={() => Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['convenio', id] }),
+            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
+            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion', 'validacion'] }),
+          ])}
         />
       )}
-
-      <section className="card">
-        <h2>Historial de etapas</h2>
-        <p className="section-help">
-          Vista simplificada mientras no exista un endpoint de historial completo (usuario responsable y
-          transiciones intermedias quedan pendientes de esa mejora en backend).
-        </p>
-        <dl>
-          <dt>Elaboración</dt>
-          <dd>Convenio creado el {fechaHora(datos.creado_en)}</dd>
-          {datos.etapa_actual?.codigo !== CODIGO_ETAPA_ELABORACION && (
-            <>
-              <dt>{datos.etapa_actual?.nombre ?? 'Etapa actual'}</dt>
-              <dd>Desde el {fechaHora(datos.actualizado_en)}</dd>
-            </>
-          )}
-        </dl>
-      </section>
 
       <section className="card">
         <h2>Contraparte</h2>
