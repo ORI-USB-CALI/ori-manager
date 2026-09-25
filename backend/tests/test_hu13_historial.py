@@ -161,7 +161,7 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
     assert len(cuerpo["cambios_etapa"]) == 4
 
 
-def test_convenio_inexistente_devuelve_404(client) -> None:
+def test_convenio_inexistente_devuelve_404(client, gestor) -> None:
     respuesta = client.get("/api/convenios/999999999/revisiones")
 
     assert respuesta.status_code == 404

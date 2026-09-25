@@ -156,15 +156,19 @@ def obtener_historial_convenio(
     convenio_id: int, db: DatabaseSession, _: PuedeVer
 ) -> HistorialConvenioLeer:
     """CA-06/CA-07 de HU-13: historial de rondas de revisión y cambios de
-    etapa del convenio, ordenados cronológicamente."""
+    etapa del convenio, ordenados cronológicamente.
+
+    Se ordena por `id` (autoincremental), no por el timestamp: dentro de una
+    misma transacción, `now()` en Postgres devuelve siempre el mismo valor
+    para todas las filas insertadas, así que `creado_en`/`fecha_cambio`
+    pueden empatar entre sí y no garantizan el orden real de inserción.
+    """
     try:
         convenio = ServicioConvenios(db).obtener_historial(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
-    revisiones = sorted(convenio.revisiones, key=lambda revision: revision.creado_en)
-    cambios_etapa = sorted(
-        convenio.historial_etapas, key=lambda cambio: cambio.fecha_cambio
-    )
+    revisiones = sorted(convenio.revisiones, key=lambda revision: revision.id)
+    cambios_etapa = sorted(convenio.historial_etapas, key=lambda cambio: cambio.id)
     return HistorialConvenioLeer(
         revisiones=[RevisionConvenioLeer.model_validate(r) for r in revisiones],
         cambios_etapa=[HistorialEtapaLeer.model_validate(h) for h in cambios_etapa],
