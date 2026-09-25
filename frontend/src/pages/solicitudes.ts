@@ -68,6 +68,11 @@ export interface Solicitud {
   actualizado_en: string
 }
 
+export interface SolicitudRecibida extends Solicitud {
+  convenio_id: number | null
+  tipo_convenio_nombre: string | null
+}
+
 export interface CatalogosSolicitud {
   solicitante: {
     tipo_usuario: TipoUsuario
@@ -93,6 +98,15 @@ export function useSolicitud(id: number | null) {
   return useQuery({
     queryKey: ['solicitudes', id],
     queryFn: () => apiFetch<Solicitud>(`/solicitudes/${id}`),
+    enabled: id !== null,
+    retry: false,
+  })
+}
+
+export function useSolicitudRecibida(id: number | null) {
+  return useQuery({
+    queryKey: ['solicitudes', 'recibidas', id],
+    queryFn: () => apiFetch<SolicitudRecibida>(`/solicitudes/recibidas/${id}`),
     enabled: id !== null,
     retry: false,
   })

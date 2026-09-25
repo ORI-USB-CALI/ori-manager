@@ -1,6 +1,8 @@
 from typing import Annotated, NoReturn
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,8 +11,10 @@ from backend.core.permisos import Permiso
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
 from backend.models.enums import TipoDocumentoSolicitud
+from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
+from backend.schemas.convenio import ConvenioLeer
 from backend.schemas.solicitud import (
     CatalogosSolicitud,
     DocumentoSolicitudLeer,
@@ -19,12 +23,22 @@ from backend.schemas.solicitud import (
     SolicitudCrear,
     SolicitudLeer,
     SolicitudListado,
+    SolicitudRecibidaLeer,
+    SolicitudRecibidaListado,
     TipoDocumentoOpcion,
+)
+from backend.services.convenios import (
+    ConvenioDuplicado,
+    ErrorConvenio,
+    ReferenciaConvenioInvalida,
+    ServicioConvenios,
+    SolicitudNoAprobada,
 )
 from backend.services.documentos import (
     TAMANO_MAXIMO_DOCUMENTO,
     TIPOS_DOCUMENTO_REPRESENTACION,
     AlmacenDocumentos,
+    ErrorAlmacenDocumentos,
     get_almacen_documentos,
 )
 from backend.services.solicitudes import (
@@ -35,6 +49,7 @@ from backend.services.solicitudes import (
     SolicitudIncompleta,
     SolicitudNoEditable,
     SolicitudNoEncontrada,
+    TransicionSolicitudInvalida,
 )
 
 router = APIRouter(prefix="/solicitudes", tags=["Solicitudes"])
@@ -44,6 +59,14 @@ PuedeCrear = Annotated[Usuario, requiere(Permiso.SOLICITUDES_CREAR)]
 PuedeVerPropias = Annotated[Usuario, requiere(Permiso.SOLICITUDES_VER_PROPIAS)]
 PuedeEditarPropias = Annotated[Usuario, requiere(Permiso.SOLICITUDES_EDITAR_PROPIAS)]
 PuedeRadicar = Annotated[Usuario, requiere(Permiso.SOLICITUDES_RADICAR)]
+PuedeVerRecibidas = Annotated[
+    Usuario, requiere(Permiso.SOLICITUDES_VER_RECIBIDAS)
+]
+PuedeGestionarRecibidas = Annotated[
+    Usuario, requiere(Permiso.SOLICITUDES_GESTIONAR_RECIBIDAS)
+]
+PuedeAprobar = Annotated[Usuario, requiere(Permiso.SOLICITUDES_APROBAR)]
+PuedeCrearConvenios = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 
 NOMBRES_DOCUMENTOS = {
     TipoDocumentoSolicitud.CAMARA_COMERCIO: "Cámara de Comercio",
@@ -59,7 +82,7 @@ NOMBRES_DOCUMENTOS = {
 def _lanzar_http(exc: ErrorSolicitud) -> NoReturn:
     if isinstance(exc, SolicitudNoEncontrada):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, SolicitudNoEditable):
+    if isinstance(exc, (SolicitudNoEditable, TransicionSolicitudInvalida)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if isinstance(exc, (DocumentoInvalido, ReferenciaSolicitudInvalida)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
@@ -68,6 +91,27 @@ def _lanzar_http(exc: ErrorSolicitud) -> NoReturn:
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             {"message": str(exc), "errors": exc.errores},
         ) from exc
+    raise exc
+
+
+def _recibida(solicitud: SolicitudConvenio) -> SolicitudRecibidaLeer:
+    datos = SolicitudLeer.model_validate(solicitud).model_dump()
+    return SolicitudRecibidaLeer.model_validate(
+        {
+            **datos,
+            "convenio_id": solicitud.convenio.id if solicitud.convenio else None,
+            "tipo_convenio_nombre": (
+                solicitud.tipo_convenio.nombre if solicitud.tipo_convenio else None
+            ),
+        }
+    )
+
+
+def _lanzar_http_convenio(exc: ErrorConvenio) -> NoReturn:
+    if isinstance(exc, ReferenciaConvenioInvalida):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada)):
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     raise exc
 
 
@@ -128,6 +172,103 @@ def listar_solicitudes_propias(
 ) -> SolicitudListado:
     items = ServicioSolicitudes(db).listar(usuario)
     return SolicitudListado(items=items, total=len(items))
+
+
+@router.get("/recibidas", response_model=SolicitudRecibidaListado)
+def listar_solicitudes_recibidas(
+    db: DatabaseSession, _: PuedeVerRecibidas
+) -> SolicitudRecibidaListado:
+    items = ServicioSolicitudes(db).listar_recibidas()
+    return SolicitudRecibidaListado(
+        items=[_recibida(item) for item in items], total=len(items)
+    )
+
+
+@router.get("/recibidas/{solicitud_id}", response_model=SolicitudRecibidaLeer)
+def obtener_solicitud_recibida(
+    solicitud_id: int, db: DatabaseSession, _: PuedeVerRecibidas
+) -> SolicitudRecibidaLeer:
+    try:
+        return _recibida(ServicioSolicitudes(db).obtener_recibida(solicitud_id))
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/recibidas/{solicitud_id}/documentos/{documento_id}/contenido"
+)
+def obtener_documento_solicitud_recibida(
+    solicitud_id: int,
+    documento_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    _: PuedeVerRecibidas,
+) -> Response:
+    try:
+        documento, contenido = ServicioSolicitudes(
+            db, almacen
+        ).obtener_contenido_documento_recibido(solicitud_id, documento_id)
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible recuperar el documento almacenado",
+        ) from exc
+    nombre = quote(documento.nombre_archivo, safe="")
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+    )
+
+
+@router.post(
+    "/recibidas/{solicitud_id}/iniciar-estudio",
+    response_model=SolicitudRecibidaLeer,
+)
+def iniciar_estudio_solicitud(
+    solicitud_id: int, db: DatabaseSession, usuario: PuedeGestionarRecibidas
+) -> SolicitudRecibidaLeer:
+    try:
+        return _recibida(
+            ServicioSolicitudes(db).iniciar_estudio(solicitud_id, usuario)
+        )
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/recibidas/{solicitud_id}/aprobar", response_model=SolicitudRecibidaLeer
+)
+def aprobar_solicitud_recibida(
+    solicitud_id: int, db: DatabaseSession, usuario: PuedeAprobar
+) -> SolicitudRecibidaLeer:
+    try:
+        return _recibida(ServicioSolicitudes(db).aprobar(solicitud_id, usuario))
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/recibidas/{solicitud_id}/iniciar-elaboracion",
+    response_model=ConvenioLeer,
+)
+def iniciar_elaboracion_solicitud(
+    solicitud_id: int,
+    db: DatabaseSession,
+    usuario: PuedeVerRecibidas,
+    _: PuedeCrearConvenios,
+):
+    try:
+        ServicioSolicitudes(db).obtener_recibida(solicitud_id)
+        return ServicioConvenios(db).iniciar_desde_solicitud(
+            solicitud_id, usuario
+        )
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+    except ErrorConvenio as exc:
+        _lanzar_http_convenio(exc)
 
 
 @router.get("/{solicitud_id}", response_model=SolicitudLeer)

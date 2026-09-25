@@ -101,6 +101,16 @@ class SolicitudListado(BaseModel):
     total: int
 
 
+class SolicitudRecibidaLeer(SolicitudLeer):
+    convenio_id: int | None
+    tipo_convenio_nombre: str | None
+
+
+class SolicitudRecibidaListado(BaseModel):
+    items: list[SolicitudRecibidaLeer]
+    total: int
+
+
 class TipoConvenioOpcion(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

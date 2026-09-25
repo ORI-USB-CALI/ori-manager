@@ -10,8 +10,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.models.auditoria import Auditoria
 from backend.models.documento import Documento
-from backend.models.enums import EstadoSolicitud, TipoAliado, TipoDocumentoSolicitud
+from backend.models.enums import (
+    AccionAuditoria,
+    EstadoSolicitud,
+    TipoAliado,
+    TipoDocumentoSolicitud,
+)
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
@@ -34,6 +40,10 @@ class SolicitudNoEncontrada(ErrorSolicitud):
 
 
 class SolicitudNoEditable(ErrorSolicitud):
+    pass
+
+
+class TransicionSolicitudInvalida(ErrorSolicitud):
     pass
 
 
@@ -172,6 +182,99 @@ class ServicioSolicitudes:
 
     def obtener(self, solicitud_id: int, usuario: Usuario) -> SolicitudConvenio:
         return self._cargar(solicitud_id, usuario)
+
+    def _consulta_recibidas(self):
+        return (
+            select(SolicitudConvenio)
+            .where(SolicitudConvenio.estado != EstadoSolicitud.BORRADOR)
+            .options(
+                selectinload(SolicitudConvenio.documentos),
+                selectinload(SolicitudConvenio.convenio),
+                selectinload(SolicitudConvenio.tipo_convenio),
+            )
+        )
+
+    def listar_recibidas(self) -> list[SolicitudConvenio]:
+        return list(
+            self.db.scalars(
+                self._consulta_recibidas().order_by(
+                    SolicitudConvenio.fecha_radicacion.desc(),
+                    SolicitudConvenio.id.desc(),
+                )
+            ).unique()
+        )
+
+    def obtener_recibida(
+        self, solicitud_id: int, *, bloquear: bool = False
+    ) -> SolicitudConvenio:
+        consulta = self._consulta_recibidas().where(
+            SolicitudConvenio.id == solicitud_id
+        )
+        if bloquear:
+            consulta = consulta.with_for_update()
+        solicitud = self.db.scalar(consulta)
+        if solicitud is None:
+            raise SolicitudNoEncontrada("Solicitud recibida no encontrada")
+        return solicitud
+
+    def _cambiar_estado(
+        self,
+        solicitud_id: int,
+        usuario: Usuario,
+        estado_anterior: EstadoSolicitud,
+        estado_nuevo: EstadoSolicitud,
+    ) -> SolicitudConvenio:
+        solicitud = self.obtener_recibida(solicitud_id, bloquear=True)
+        if solicitud.estado != estado_anterior:
+            raise TransicionSolicitudInvalida(
+                f"Solo una solicitud {estado_anterior.value} puede pasar a "
+                f"{estado_nuevo.value}"
+            )
+        solicitud.estado = estado_nuevo.value
+        self.db.add(
+            Auditoria(
+                usuario_id=usuario.id,
+                entidad="solicitud",
+                registro_id=solicitud.id,
+                accion=AccionAuditoria.UPDATE.value,
+                campo="estado",
+                valor_anterior=estado_anterior.value,
+                valor_nuevo=estado_nuevo.value,
+            )
+        )
+        self.db.commit()
+        return self.obtener_recibida(solicitud.id)
+
+    def iniciar_estudio(
+        self, solicitud_id: int, usuario: Usuario
+    ) -> SolicitudConvenio:
+        return self._cambiar_estado(
+            solicitud_id,
+            usuario,
+            EstadoSolicitud.RADICADA,
+            EstadoSolicitud.EN_ESTUDIO,
+        )
+
+    def aprobar(self, solicitud_id: int, usuario: Usuario) -> SolicitudConvenio:
+        return self._cambiar_estado(
+            solicitud_id,
+            usuario,
+            EstadoSolicitud.EN_ESTUDIO,
+            EstadoSolicitud.APROBADA,
+        )
+
+    def obtener_contenido_documento_recibido(
+        self, solicitud_id: int, documento_id: int
+    ) -> tuple[Documento, bytes]:
+        solicitud = self.obtener_recibida(solicitud_id)
+        documento = next(
+            (item for item in solicitud.documentos if item.id == documento_id), None
+        )
+        if documento is None:
+            raise SolicitudNoEncontrada("Documento no encontrado")
+        return documento, self._almacen_requerido().leer(
+            documento.ruta_almacenamiento
+        )
 
     def agregar_documento(
         self,

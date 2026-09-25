@@ -261,6 +261,41 @@ class ServicioConvenios:
             raise
         return self.obtener(convenio.id)
 
+    def iniciar_desde_solicitud(
+        self, solicitud_id: int, usuario: Usuario
+    ) -> Convenio:
+        solicitud = self.db.scalar(
+            select(SolicitudConvenio)
+            .where(SolicitudConvenio.id == solicitud_id)
+            .with_for_update()
+        )
+        if solicitud is None:
+            raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
+        existente = self.db.scalar(
+            select(Convenio).where(Convenio.solicitud_id == solicitud_id)
+        )
+        if existente is not None:
+            return self.obtener(existente.id)
+        if solicitud.estado != EstadoSolicitud.APROBADA:
+            raise SolicitudNoAprobada(
+                "Solo una solicitud APROBADA puede iniciar elaboración"
+            )
+        datos = ConvenioCrear(
+            solicitud_id=solicitud.id,
+            tipo_convenio_id=solicitud.tipo_convenio_id,
+            objeto=solicitud.objeto or "",
+            implicacion_financiera=solicitud.implicacion_financiera,
+        )
+        try:
+            return self.crear(datos, usuario)
+        except ConvenioDuplicado:
+            existente = self.db.scalar(
+                select(Convenio).where(Convenio.solicitud_id == solicitud_id)
+            )
+            if existente is None:
+                raise
+            return self.obtener(existente.id)
+
     def obtener(self, convenio_id: int) -> Convenio:
         convenio = self.db.scalar(
             select(Convenio)
