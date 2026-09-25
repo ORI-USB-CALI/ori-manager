@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../app/api'
 import type { TipoUsuario } from '../auth/sesion'
-import type { TipoAliado, TipoIdentificacion } from './epica02'
+import type { EstadoConvenio, TipoAliado, TipoIdentificacion } from './epica02'
 
 export type EstadoSolicitud = 'BORRADOR' | 'RADICADA' | 'EN_ESTUDIO' | 'DEVUELTA' | 'APROBADA' | 'RECHAZADA'
 export type TipoDocumento = 'CAMARA_COMERCIO' | 'RUT' | 'CEDULA_REPRESENTANTE_LEGAL' | 'OTRO_DOCUMENTO_REPRESENTACION' | 'OTRO_SOPORTE'
@@ -70,6 +70,13 @@ export interface Solicitud {
 
 export interface SolicitudRecibida extends Solicitud {
   convenio_id: number | null
+  convenio_estado: EstadoConvenio | null
+  convenio_etapa: {
+    id: number
+    orden: number
+    codigo: string
+    nombre: string
+  } | null
   tipo_convenio_nombre: string | null
 }
 

@@ -685,6 +685,16 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     db.refresh(convenio_listo)
     assert convenio_listo.etapa_actual_id == juridica.id
     assert convenio_listo.estado == EstadoConvenio.EN_TRAMITE
+    bandeja = client.get("/api/solicitudes/recibidas")
+    assert bandeja.status_code == 200
+    solicitud = next(
+        item
+        for item in bandeja.json()["items"]
+        if item["id"] == convenio_listo.solicitud_id
+    )
+    assert solicitud["estado"] == EstadoSolicitud.APROBADA
+    assert solicitud["convenio_estado"] == EstadoConvenio.EN_TRAMITE
+    assert solicitud["convenio_etapa"]["codigo"] == "REVISION_AVAL_JURIDICO"
 
     revisiones = _revisiones_de(db, convenio_listo.id)
     assert len(revisiones) == 1

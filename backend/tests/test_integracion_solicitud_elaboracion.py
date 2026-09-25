@@ -111,6 +111,8 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     assert borrador_oculto not in ids_recibidos
     assert otra in ids_recibidos
     assert recibido["convenio_id"] is None
+    assert recibido["convenio_estado"] is None
+    assert recibido["convenio_etapa"] is None
     assert recibido["tipo_convenio_nombre"] == tipo.nombre
     assert client.post(
         f"/api/solicitudes/recibidas/{borrador_oculto}/iniciar-elaboracion"
@@ -168,6 +170,17 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
     assert convenio.estado == EstadoConvenio.EN_TRAMITE
     assert convenio.etapa_actual_id == elaboracion.id
+    bandeja_actualizada = client.get("/api/solicitudes/recibidas")
+    assert bandeja_actualizada.status_code == 200
+    recibida_actualizada = next(
+        item
+        for item in bandeja_actualizada.json()["items"]
+        if item["id"] == solicitud_id
+    )
+    assert recibida_actualizada["estado"] == EstadoSolicitud.APROBADA
+    assert recibida_actualizada["convenio_id"] == convenio.id
+    assert recibida_actualizada["convenio_estado"] == EstadoConvenio.EN_TRAMITE
+    assert recibida_actualizada["convenio_etapa"]["codigo"] == "ELABORACION"
     assert convenio.tipo_convenio_id == original["tipo_convenio_id"]
     assert convenio.objeto == original["objeto"]
     assert convenio.implicacion_financiera == original["implicacion_financiera"]

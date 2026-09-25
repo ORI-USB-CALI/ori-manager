@@ -9,6 +9,14 @@ import {
   useSesion,
 } from '../auth/sesion'
 import { Select } from '../components/Select'
+import {
+  DataTable,
+  ResultsCount,
+  TableEmptyState,
+  type DataTableColumn,
+} from '../components/DataTable'
+import { StatusBadge } from '../components/tablePresentation'
+import { TableFilters } from '../components/TableFilters'
 import { UsuarioModal } from './UsuarioModal'
 import { CLAVE_USUARIOS, type Usuario, etiquetaTipo } from './usuarios'
 
@@ -77,6 +85,30 @@ export function UsuariosRolesPage() {
     setEstado('')
   }
 
+  const columns: DataTableColumn<Usuario>[] = [
+    {
+      id: 'nombre',
+      header: 'Nombre',
+      render: (usuario) => (
+        <>
+          <strong>{usuario.nombre_completo}</strong>
+          {usuario.id === sesion?.id && <small className="tabla-ayuda">Usted</small>}
+        </>
+      ),
+    },
+    { id: 'correo', header: 'Correo', render: (usuario) => usuario.correo },
+    { id: 'tipo', header: 'Tipo', render: (usuario) => etiquetaTipo(usuario.tipo_usuario) },
+    { id: 'rol', header: 'Rol', render: (usuario) => <StatusBadge value={usuario.rol.codigo} label={usuario.rol.nombre} /> },
+    { id: 'estado', header: 'Estado', render: (usuario) => <StatusBadge value={usuario.activo ? 'ACTIVO' : 'INACTIVO'} label={usuario.activo ? 'Activo' : 'Inactivo'} /> },
+    {
+      id: 'acciones',
+      header: 'Acciones',
+      render: (usuario) => puedeGestionar ? (
+        <button type="button" className="btn btn-outline btn-small" onClick={() => setModal(usuario)}>Gestionar</button>
+      ) : <span className="texto-secundario">—</span>,
+    },
+  ]
+
   return (
     <>
       <section className="header-banner">
@@ -111,16 +143,15 @@ export function UsuariosRolesPage() {
       {usuarios.isPending && <p className="estado-pagina">Cargando usuarios…</p>}
 
       {usuarios.data?.length === 0 && (
-        <section className="card estado-vacio">
-          <h3>No hay usuarios</h3>
-          <p>El listado está vacío.</p>
-        </section>
+        <>
+          <ResultsCount count={0} />
+          <TableEmptyState message="No hay usuarios." />
+        </>
       )}
 
       {usuarios.data && usuarios.data.length > 0 && (
         <>
-          <section className="card usuarios-filtros" aria-label="Filtros de usuarios">
-            <div className="usuarios-filtros-grid">
+          <TableFilters hasActiveFilters={hayFiltros} onClear={limpiarFiltros}>
               <div className="form-group">
                 <label className="form-label" htmlFor="usuarios-busqueda">
                   Buscar
@@ -155,71 +186,21 @@ export function UsuariosRolesPage() {
                 opciones={OPCIONES_ESTADO}
                 onChange={(evento) => setEstado(evento.target.value as FiltroEstado)}
               />
-            </div>
-            {hayFiltros && (
-              <button type="button" className="btn btn-outline btn-small" onClick={limpiarFiltros}>
-                Limpiar filtros
-              </button>
-            )}
-          </section>
+          </TableFilters>
 
+          <ResultsCount count={usuariosFiltrados.length} />
           {usuariosFiltrados.length === 0 ? (
-            <section className="card estado-vacio">
-              <h3>Sin resultados</h3>
-              <p>No hay usuarios que coincidan con los filtros seleccionados.</p>
-            </section>
+            <TableEmptyState
+              message="No se encontraron resultados con los filtros seleccionados."
+              onClear={limpiarFiltros}
+            />
           ) : (
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Correo</th>
-                    <th>Tipo</th>
-                    <th>Rol</th>
-                    <th>Estado</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {usuariosFiltrados.map((usuario) => (
-                    <tr key={usuario.id}>
-                      <td>
-                        <strong>{usuario.nombre_completo}</strong>
-                        {usuario.id === sesion?.id && (
-                          <small className="tabla-ayuda">Usted</small>
-                        )}
-                      </td>
-                      <td>{usuario.correo}</td>
-                      <td>{etiquetaTipo(usuario.tipo_usuario)}</td>
-                      <td>
-                        <span className="badge badge-rol">{usuario.rol.nombre}</span>
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${usuario.activo ? 'badge-activo' : 'badge-inactivo'}`}
-                        >
-                          {usuario.activo ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td>
-                        {puedeGestionar ? (
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-small"
-                            onClick={() => setModal(usuario)}
-                          >
-                            Gestionar
-                          </button>
-                        ) : (
-                          <span className="texto-secundario">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={columns}
+              rows={usuariosFiltrados}
+              rowKey={(usuario) => usuario.id}
+              label="Usuarios"
+            />
           )}
         </>
       )}
