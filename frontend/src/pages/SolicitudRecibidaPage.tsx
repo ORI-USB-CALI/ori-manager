@@ -1,11 +1,11 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import type { Convenio } from './epica02'
-import { type SolicitudRecibida, useSolicitudRecibida } from './solicitudes'
+import { useSolicitudRecibida } from './solicitudes'
 
 function valor(dato: string | null | undefined) {
   return dato || '—'
@@ -15,20 +15,10 @@ export function SolicitudRecibidaPage() {
   const params = useParams()
   const id = params.solicitudId ? Number(params.solicitudId) : null
   const consulta = useSolicitudRecibida(id)
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const notify = useNotifications()
   const { puede } = useSesion()
 
-  const cambiarEstado = useMutation({
-    mutationFn: (accion: 'iniciar-estudio' | 'aprobar') => apiFetch<SolicitudRecibida>(`/solicitudes/recibidas/${id}/${accion}`, { method: 'POST' }),
-    onSuccess: (solicitud) => {
-      queryClient.setQueryData(['solicitudes', 'recibidas', id], solicitud)
-      void queryClient.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] })
-      notify({ type: 'success', message: solicitud.estado === 'EN_ESTUDIO' ? 'Solicitud tomada en estudio' : 'Solicitud aprobada' })
-    },
-    onError: (error: Error) => notify({ type: 'error', message: error.message }),
-  })
   const iniciarElaboracion = useMutation({
     mutationFn: () => apiFetch<Convenio>(`/solicitudes/recibidas/${id}/iniciar-elaboracion`, { method: 'POST' }),
     onSuccess: (convenio) => {
@@ -84,10 +74,8 @@ export function SolicitudRecibidaPage() {
 
       <div className="page-toolbar">
         <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
-        {solicitud.estado === 'RADICADA' && puede('solicitudes.gestionar_recibidas') && <button className="btn btn-primary" type="button" disabled={cambiarEstado.isPending} onClick={() => cambiarEstado.mutate('iniciar-estudio')}>Tomar en estudio</button>}
-        {solicitud.estado === 'EN_ESTUDIO' && puede('solicitudes.aprobar') && <button className="btn btn-primary" type="button" disabled={cambiarEstado.isPending} onClick={() => cambiarEstado.mutate('aprobar')}>Aprobar solicitud</button>}
-        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
-        {solicitud.estado === 'APROBADA' && !solicitud.convenio_id && puede('convenios.crear') && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
+        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
+        {['RADICADA', 'EN_ESTUDIO', 'APROBADA'].includes(solicitud.estado) && !solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
       </div>
     </>
   )

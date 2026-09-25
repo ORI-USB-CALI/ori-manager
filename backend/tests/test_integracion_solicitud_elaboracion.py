@@ -101,6 +101,7 @@ def test_flujo_real_solicitud_hasta_elaboracion(
 
     gestor = crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
     entrar_como(gestor)
+    assert client.get("/api/solicitudes/mias").status_code == 403
     bandeja = client.get("/api/solicitudes/recibidas")
     assert bandeja.status_code == 200
     recibido = next(
@@ -111,6 +112,9 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     assert otra in ids_recibidos
     assert recibido["convenio_id"] is None
     assert recibido["tipo_convenio_nombre"] == tipo.nombre
+    assert client.post(
+        f"/api/solicitudes/recibidas/{borrador_oculto}/iniciar-elaboracion"
+    ).status_code == 409
     assert client.get(f"/api/solicitudes/recibidas/{solicitud_id}").status_code == 200
     contenido = client.get(
         f"/api/solicitudes/recibidas/{solicitud_id}/documentos/{documento_id}/contenido"
@@ -123,44 +127,31 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     ).status_code == 404
     assert "ruta_almacenamiento" not in recibido
 
-    crear_antes_de_aprobar = client.post(
+    crear_antes_de_iniciar = client.post(
         "/api/convenios",
         json={"solicitud_id": solicitud_id, "objeto": "No permitido"},
     )
-    assert crear_antes_de_aprobar.status_code == 409
-    estudio = client.post(
-        f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-estudio"
-    )
-    assert estudio.status_code == 200
-    assert estudio.json()["estado"] == EstadoSolicitud.EN_ESTUDIO
-    assert client.post(
-        f"/api/solicitudes/recibidas/{solicitud_id}/aprobar"
-    ).status_code == 403
+    assert crear_antes_de_iniciar.status_code == 409
 
     revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
     entrar_como(revisor)
     assert client.get("/api/solicitudes/recibidas").status_code == 403
     assert client.post(
-        f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-estudio"
+        f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-elaboracion"
     ).status_code == 403
 
     administrador = crear_usuario(CodigoRol.ADMINISTRADOR_ORI, TipoUsuario.INTERNO)
+    solicitud_heredada = db.get(SolicitudConvenio, otra)
+    solicitud_heredada.estado = EstadoSolicitud.EN_ESTUDIO.value
+    db.commit()
     entrar_como(administrador)
-    assert client.post(
-        f"/api/solicitudes/recibidas/{otra}/aprobar"
-    ).status_code == 409
-    aprobada = client.post(
-        f"/api/solicitudes/recibidas/{solicitud_id}/aprobar"
+    assert client.get("/api/solicitudes/mias").status_code == 403
+    assert client.post("/api/solicitudes", json={}).status_code == 403
+    iniciada_admin = client.post(
+        f"/api/solicitudes/recibidas/{otra}/iniciar-elaboracion"
     )
-    assert aprobada.status_code == 200
-    assert aprobada.json()["estado"] == EstadoSolicitud.APROBADA
-    assert aprobada.json()["convenio_id"] is None
-    assert client.post(
-        f"/api/solicitudes/recibidas/{solicitud_id}/aprobar"
-    ).status_code == 409
-    assert client.post(
-        f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-estudio"
-    ).status_code == 409
+    assert iniciada_admin.status_code == 200
+    assert db.get(SolicitudConvenio, otra).estado == EstadoSolicitud.APROBADA
 
     entrar_como(solicitante)
     assert client.post(
@@ -197,6 +188,16 @@ def test_flujo_real_solicitud_hasta_elaboracion(
         )
     ) == 1
 
+    aprobada_sin_convenio = db.get(SolicitudConvenio, borrador_oculto)
+    aprobada_sin_convenio.estado = EstadoSolicitud.APROBADA.value
+    aprobada_sin_convenio.objeto = "Solicitud aprobada heredada"
+    db.commit()
+    recuperada = client.post(
+        f"/api/solicitudes/recibidas/{borrador_oculto}/iniciar-elaboracion"
+    )
+    assert recuperada.status_code == 200
+    assert recuperada.json()["solicitud_id"] == borrador_oculto
+
     solicitud = db.get(SolicitudConvenio, solicitud_id)
     assert solicitud.estado == EstadoSolicitud.APROBADA
     assert solicitud.objeto == original["objeto"]
@@ -225,6 +226,5 @@ def test_flujo_real_solicitud_hasta_elaboracion(
         (item.valor_anterior, item.valor_nuevo, item.accion)
         for item in auditorias
     ] == [
-        ("RADICADA", "EN_ESTUDIO", AccionAuditoria.UPDATE.value),
-        ("EN_ESTUDIO", "APROBADA", AccionAuditoria.UPDATE.value),
+        ("RADICADA", "APROBADA", AccionAuditoria.UPDATE.value),
     ]

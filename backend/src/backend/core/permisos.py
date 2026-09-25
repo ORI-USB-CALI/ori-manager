@@ -25,7 +25,6 @@ class Permiso(StrEnum):
     SOLICITUDES_RADICAR = "solicitudes.radicar"
     SOLICITUDES_VER_RECIBIDAS = "solicitudes.ver_recibidas"
     SOLICITUDES_GESTIONAR_RECIBIDAS = "solicitudes.gestionar_recibidas"
-    SOLICITUDES_APROBAR = "solicitudes.aprobar"
 
 
 _PERMISOS_GESTION_USUARIOS = frozenset(
@@ -69,9 +68,7 @@ PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
         CodigoRol.ADMINISTRADOR_ORI: (
             _PERMISOS_GESTION_USUARIOS
             | _PERMISOS_GESTION_EPICA_02
-            | _PERMISOS_SOLICITUDES_PROPIAS
             | _PERMISOS_SOLICITUDES_RECIBIDAS
-            | frozenset({Permiso.SOLICITUDES_APROBAR})
         ),
         CodigoRol.GESTOR_ORI: (
             _PERMISOS_GESTION_EPICA_02 | _PERMISOS_SOLICITUDES_RECIBIDAS

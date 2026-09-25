@@ -31,7 +31,6 @@ export type Permiso =
   | 'solicitudes.radicar'
   | 'solicitudes.ver_recibidas'
   | 'solicitudes.gestionar_recibidas'
-  | 'solicitudes.aprobar'
 
 export interface RolSesion {
   codigo: CodigoRol

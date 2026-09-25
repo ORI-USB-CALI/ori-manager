@@ -17,6 +17,37 @@ def test_usuario_sin_permiso_no_puede_acceder_a_la_revision(
     assert client.get(f"/api/convenios/{convenio_listo.id}/revision").status_code == 403
 
 
+def test_bandeja_juridica_refleja_solo_revisiones_pendientes(
+    client, db, gestor, revisor, entrar_como, convenio_listo
+) -> None:
+    entrar_como(revisor)
+    assert client.get("/api/convenios/revisiones-juridicas/pendientes").json() == []
+
+    entrar_como(gestor)
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+    ).status_code == 200
+    revision = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id
+        )
+    )
+
+    entrar_como(revisor)
+    respuesta = client.get("/api/convenios/revisiones-juridicas/pendientes")
+    assert respuesta.status_code == 200
+    assert respuesta.json()[0]["revision_id"] == revision.id
+    assert respuesta.json()[0]["convenio_id"] == convenio_listo.id
+    assert respuesta.json()[0]["solicitud_consecutivo"]
+    assert respuesta.json()[0]["responsable"]["id"] == gestor.id
+    assert client.get(f"/api/convenios/{convenio_listo.id}/revision").status_code == 200
+
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/aprobar"
+    ).status_code == 200
+    assert client.get("/api/convenios/revisiones-juridicas/pendientes").json() == []
+
+
 def test_convenio_inexistente_devuelve_404(client, revisor, entrar_como) -> None:
     entrar_como(revisor)
     assert client.get("/api/convenios/999999999/revision").status_code == 404

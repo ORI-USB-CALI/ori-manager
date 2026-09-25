@@ -27,6 +27,7 @@ from backend.schemas.convenio import (
     HistorialEtapaLeer,
     ObservacionRevisionLeer,
     RevisionConvenioLeer,
+    RevisionJuridicaPendienteLeer,
     ValidacionElaboracionLeer,
 )
 from backend.services.convenios import (
@@ -114,6 +115,29 @@ def obtener_catalogos_elaboracion(
     )
 
 
+@router.get(
+    "/revisiones-juridicas/pendientes",
+    response_model=list[RevisionJuridicaPendienteLeer],
+)
+def listar_revisiones_juridicas_pendientes(
+    db: DatabaseSession, _: PuedeRevisar
+) -> list[RevisionJuridicaPendienteLeer]:
+    revisiones = ServicioConvenios(db).listar_revisiones_juridicas_pendientes()
+    return [
+        RevisionJuridicaPendienteLeer(
+            revision_id=revision.id,
+            convenio_id=revision.convenio.id,
+            codigo_convenio=revision.convenio.codigo,
+            solicitud_consecutivo=revision.convenio.solicitud.consecutivo,
+            objeto=revision.convenio.objeto,
+            tipo_convenio=revision.convenio.tipo_convenio,
+            responsable=revision.convenio.creado_por,
+            fecha_recepcion=revision.creado_en,
+        )
+        for revision in revisiones
+    ]
+
+
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
 def obtener_convenio(
     convenio_id: int, db: DatabaseSession, _: PuedeVer
@@ -150,10 +174,15 @@ def validar_elaboracion(
 
 @router.post("/{convenio_id}/elaboracion/finalizar", response_model=ConvenioLeer)
 def finalizar_elaboracion(
-    convenio_id: int, db: DatabaseSession, usuario: PuedeEditar
+    convenio_id: int,
+    db: DatabaseSession,
+    usuario: PuedeEditar,
+    datos: ConvenioElaboracionActualizar | None = None,
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).finalizar_elaboracion(convenio_id, usuario)
+        return ServicioConvenios(db).finalizar_elaboracion(
+            convenio_id, usuario, datos
+        )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 

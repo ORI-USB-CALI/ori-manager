@@ -224,6 +224,17 @@ class RevisionConvenioLeer(BaseModel):
     observaciones: list[ObservacionRevisionLeer]
 
 
+class RevisionJuridicaPendienteLeer(BaseModel):
+    revision_id: int
+    convenio_id: int
+    codigo_convenio: str | None
+    solicitud_consecutivo: str
+    objeto: str | None
+    tipo_convenio: TipoConvenioResumen | None
+    responsable: UsuarioResumen
+    fecha_recepcion: datetime
+
+
 class HistorialEtapaLeer(BaseModel):
     """Un cambio de etapa del convenio, para la trazabilidad de CA-07."""
 
