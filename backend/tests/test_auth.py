@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
 
 from backend.core.config import settings
@@ -16,13 +17,13 @@ def test_login_valido_crea_cookie_http_only(
 ) -> None:
     usuario = crear_usuario(
         correo="login@example.com",
-        contrasena="ClaveSegura123",
+        contrasena="ClaveSegura123!",
     )
 
     antes = datetime.now(UTC)
     respuesta = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     despues = datetime.now(UTC)
 
@@ -38,6 +39,24 @@ def test_login_valido_crea_cookie_http_only(
     assert sesion is not None
     assert antes + timedelta(hours=6) <= sesion.expira_en
     assert sesion.expira_en <= despues + timedelta(hours=6)
+
+
+def test_login_admite_contrasena_historica_sin_politica_nueva(
+    client: TestClient,
+    crear_usuario,
+    db: Session,
+) -> None:
+    usuario = crear_usuario(correo="historico@example.com")
+    contrasena_historica = "ClaveHistorica123"
+    usuario.hash_contrasena = PasswordHash.recommended().hash(contrasena_historica)
+    db.commit()
+
+    respuesta = client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": contrasena_historica},
+    )
+
+    assert respuesta.status_code == 200
 
 
 def test_login_credenciales_incorrectas_y_usuario_inexistente(
@@ -65,7 +84,7 @@ def test_login_usuario_inactivo_responde_403(client: TestClient, crear_usuario) 
 
     respuesta = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
 
     assert respuesta.status_code == 403
@@ -153,7 +172,7 @@ def test_login_actualiza_ultimo_acceso(
 
     respuesta = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     db.refresh(usuario)
 

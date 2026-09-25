@@ -3,6 +3,11 @@ import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { PasswordInput } from '../components/PasswordInput'
+import {
+  PASSWORD_POLICY_MESSAGE,
+  passwordPolicyError,
+} from '../security/passwordPolicy'
 import { ReenviarVerificacion } from './ReenviarVerificacion'
 
 type TipoSolicitante = 'INTERNO' | 'EXTERNO'
@@ -52,6 +57,7 @@ export function RegistroPage() {
   const [tipo, setTipo] = useState<TipoSolicitante | null>(null)
   const [cuentaExistente, setCuentaExistente] = useState<SiguientePaso | null>(null)
   const [mostrarReenvio, setMostrarReenvio] = useState(false)
+  const [errorFormulario, setErrorFormulario] = useState<string | null>(null)
   const unidades = useQuery({
     queryKey: ['registro', 'unidades'],
     queryFn: () => apiFetch<UnidadRegistro[]>('/auth/registro/unidades'),
@@ -78,10 +84,22 @@ export function RegistroPage() {
   function registrar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     const form = new FormData(evento.currentTarget)
+    const contrasena = String(form.get('contrasena') ?? '')
+    const confirmacion = String(form.get('confirmacion_contrasena') ?? '')
+    const errorPolitica = passwordPolicyError(contrasena)
+    if (errorPolitica) {
+      setErrorFormulario(errorPolitica)
+      return
+    }
+    if (contrasena !== confirmacion) {
+      setErrorFormulario('Las contraseñas no coinciden.')
+      return
+    }
+    setErrorFormulario(null)
     const datos: Record<string, unknown> = {
       correo: correo.trim(),
-      contrasena: String(form.get('contrasena') ?? ''),
-      confirmacion_contrasena: String(form.get('confirmacion_contrasena') ?? ''),
+      contrasena,
+      confirmacion_contrasena: confirmacion,
       nombre_completo: String(form.get('nombre_completo') ?? '').trim(),
       cargo: String(form.get('cargo') ?? '').trim(),
     }
@@ -224,7 +242,11 @@ export function RegistroPage() {
             <p className="alert-success" role="status">
               Solicitante {tipo === 'INTERNO' ? 'interno' : 'externo'} · {correo}
             </p>
-            {registro.isError && <p className="alert-error" role="alert">{mensajeError}</p>}
+            {(errorFormulario || registro.isError) && (
+              <p className="alert-error" role="alert">
+                {errorFormulario ?? mensajeError}
+              </p>
+            )}
             <div className="form-grid">
               <label className="form-group form-span-2" htmlFor="registro-nombre">
                 <span className="form-label">Nombre completo</span>
@@ -268,32 +290,32 @@ export function RegistroPage() {
                   </label>
                 </>
               )}
-              <label className="form-group" htmlFor="registro-contrasena">
-                <span className="form-label">Contraseña</span>
-                <input
+              <div className="form-group">
+                <PasswordInput
                   id="registro-contrasena"
-                  className="form-control"
+                  label="Contraseña"
                   name="contrasena"
-                  type="password"
-                  minLength={8}
                   required
                   autoComplete="new-password"
-                  placeholder="Mínimo 8 caracteres"
+                  placeholder="Cree una contraseña segura"
+                  aria-describedby="registro-politica-contrasena"
+                  onChange={() => setErrorFormulario(null)}
                 />
-              </label>
-              <label className="form-group" htmlFor="registro-confirmacion">
-                <span className="form-label">Confirmar contraseña</span>
-                <input
+                <small id="registro-politica-contrasena" className="form-help">
+                  {PASSWORD_POLICY_MESSAGE}
+                </small>
+              </div>
+              <div className="form-group">
+                <PasswordInput
                   id="registro-confirmacion"
-                  className="form-control"
+                  label="Confirmar contraseña"
                   name="confirmacion_contrasena"
-                  type="password"
-                  minLength={8}
                   required
                   autoComplete="new-password"
                   placeholder="Repita la contraseña"
+                  onChange={() => setErrorFormulario(null)}
                 />
-              </label>
+              </div>
             </div>
             <p className="texto-secundario registro-aviso">
               Después del registro deberá verificar su correo antes de iniciar sesión.

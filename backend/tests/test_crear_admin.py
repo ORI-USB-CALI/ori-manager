@@ -16,7 +16,7 @@ def test_crear_primer_admin(db: Session, monkeypatch, capsys) -> None:
         yield db
 
     monkeypatch.setattr(crear_admin, "SessionLocal", session_local)
-    monkeypatch.setattr(crear_admin.getpass, "getpass", lambda _: "ClaveAdmin123")
+    monkeypatch.setattr(crear_admin.getpass, "getpass", lambda _: "ClaveAdmin123!")
     monkeypatch.setattr(
         sys,
         "argv",

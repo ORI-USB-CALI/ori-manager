@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from backend.core.security import hash_contrasena
+from backend.core.security import hash_contrasena, verificar_contrasena
 from backend.models.token_credencial import TipoTokenCredencial, TokenCredencial
 from backend.models.usuario import Usuario
 from backend.services.correo import EnviadorCorreo, ErrorEnvioCorreo, MensajeCorreo
@@ -26,6 +26,11 @@ class TokenRecuperacionInvalidoError(Exception):
     def __init__(self, codigo: str = "ENLACE_INVALIDO") -> None:
         super().__init__("El enlace de recuperación no es válido")
         self.codigo = codigo
+
+
+class ContrasenaReutilizadaError(Exception):
+    def __init__(self) -> None:
+        super().__init__("La nueva contraseña debe ser diferente a la actual")
 
 
 class ServicioRecuperacionContrasena:
@@ -90,6 +95,8 @@ class ServicioRecuperacionContrasena:
         credencial = self._obtener_credencial_valida(token_plano, bloquear=True)
         ahora = datetime.now(UTC)
         usuario = credencial.usuario
+        if verificar_contrasena(nueva_contrasena, usuario.hash_contrasena):
+            raise ContrasenaReutilizadaError
 
         usuario.hash_contrasena = hash_contrasena(nueva_contrasena)
         credencial.utilizado_en = ahora

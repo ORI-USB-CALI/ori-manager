@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol
-from backend.core.security import generar_token_sesion
+from backend.core.security import generar_token_sesion, verificar_contrasena
 from backend.main import app
 from backend.models.token_credencial import TipoTokenCredencial, TokenCredencial
 from backend.services.auth import DURACION_SESION
@@ -27,7 +27,7 @@ def _token_de_ultimo_correo(correo_local) -> str:
     return coincidencia.group(1)
 
 
-def _restablecer(client, token: str, contrasena: str = "NuevaClave456"):
+def _restablecer(client, token: str, contrasena: str = "NuevaClave456!"):
     return client.post(
         "/api/auth/restablecer-contrasena",
         json={
@@ -315,14 +315,91 @@ def test_reset_valido_cambia_password_consume_token_invalida_sesiones_y_no_auten
 
     anterior = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     nueva = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "NuevaClave456"},
+        json={"correo": usuario.correo, "contrasena": "NuevaClave456!"},
     )
     assert anterior.status_code == 401
     assert nueva.status_code == 200
+
+
+def test_misma_contrasena_no_consume_token_y_permite_reintento_valido(
+    db, client, correo_local, crear_usuario, sesiones
+):
+    usuario = crear_usuario(correo="misma-recovery@example.com")
+    hash_original = usuario.hash_contrasena
+    token_sesion = generar_token_sesion()
+    sesiones.crear(
+        usuario.id,
+        token_sesion,
+        datetime.now(UTC) + DURACION_SESION,
+    )
+    _solicitar(client, usuario.correo)
+    token = _token_de_ultimo_correo(correo_local)
+    credencial = db.scalar(
+        select(TokenCredencial).where(
+            TokenCredencial.token_hash == sha256(token.encode()).hexdigest()
+        )
+    )
+    assert credencial is not None
+
+    reutilizada = _restablecer(client, token, "ClaveSegura123!")
+
+    assert reutilizada.status_code == 409
+    assert reutilizada.json()["detail"] == {
+        "codigo": "CONTRASENA_REUTILIZADA",
+        "message": "La nueva contraseña debe ser diferente a la actual",
+    }
+    db.refresh(usuario)
+    db.refresh(credencial)
+    assert usuario.hash_contrasena == hash_original
+    assert credencial.utilizado_en is None
+    assert credencial.invalidado_en is None
+    assert sesiones.obtener_por_token(token_sesion) is not None
+    assert _validar(client, token).status_code == 200
+
+    corregida = _restablecer(client, token, "NuevaClave456!")
+
+    assert corregida.status_code == 200
+    db.refresh(usuario)
+    db.refresh(credencial)
+    assert verificar_contrasena("NuevaClave456!", usuario.hash_contrasena)
+    assert credencial.utilizado_en is not None
+    assert sesiones.obtener_por_token(token_sesion) is None
+
+
+def test_contrasena_debil_no_cambia_estado_y_conserva_token_y_sesion(
+    db, client, correo_local, crear_usuario, sesiones
+):
+    usuario = crear_usuario(correo="debil-recovery@example.com")
+    hash_original = usuario.hash_contrasena
+    token_sesion = generar_token_sesion()
+    sesiones.crear(
+        usuario.id,
+        token_sesion,
+        datetime.now(UTC) + DURACION_SESION,
+    )
+    _solicitar(client, usuario.correo)
+    token = _token_de_ultimo_correo(correo_local)
+    credencial = db.scalar(
+        select(TokenCredencial).where(
+            TokenCredencial.token_hash == sha256(token.encode()).hexdigest()
+        )
+    )
+    assert credencial is not None
+
+    respuesta = _restablecer(client, token, "password")
+
+    assert respuesta.status_code == 422
+    db.refresh(usuario)
+    db.refresh(credencial)
+    assert usuario.hash_contrasena == hash_original
+    assert credencial.utilizado_en is None
+    assert credencial.invalidado_en is None
+    assert sesiones.obtener_por_token(token_sesion) is not None
+    assert _validar(client, token).status_code == 200
 
 
 def test_token_reutilizado_falla_sin_nuevo_cambio(db, client, correo_local, crear_usuario):
@@ -331,13 +408,13 @@ def test_token_reutilizado_falla_sin_nuevo_cambio(db, client, correo_local, crea
     token = _token_de_ultimo_correo(correo_local)
     assert _restablecer(client, token).status_code == 200
 
-    repetido = _restablecer(client, token, "TerceraClave789")
+    repetido = _restablecer(client, token, "TerceraClave789!")
 
     assert repetido.status_code == 400
     assert repetido.json()["detail"]["codigo"] == "ENLACE_NO_DISPONIBLE"
     assert client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "TerceraClave789"},
+        json={"correo": usuario.correo, "contrasena": "TerceraClave789!"},
     ).status_code == 401
 
 
@@ -381,8 +458,8 @@ def test_passwords_diferentes_y_corta_son_rechazadas(client):
         "/api/auth/restablecer-contrasena",
         json={
             "token": "cualquier-token",
-            "nueva_contrasena": "NuevaClave456",
-            "confirmacion_contrasena": "OtraClave789",
+            "nueva_contrasena": "NuevaClave456!",
+            "confirmacion_contrasena": "OtraClave789!",
         },
     )
     corta = client.post(

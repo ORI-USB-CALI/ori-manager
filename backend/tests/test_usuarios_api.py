@@ -21,7 +21,7 @@ def _datos_usuario(
 ) -> dict[str, object]:
     return {
         "correo": correo or f"nuevo-{uuid4().hex}@example.com",
-        "contrasena": "ClaveNueva123",
+        "contrasena": "ClaveNueva123!",
         "nombre_completo": "Usuario nuevo",
         "rol": rol.value,
         "tipo_usuario": tipo_usuario.value,
@@ -245,7 +245,7 @@ def test_admin_no_puede_cambiar_rol_de_solicitantes(
         ),
         (
             "contrasena",
-            "ClaveDistinta123",
+            "ClaveDistinta123!",
             "La contraseña de los solicitantes se gestiona mediante recuperación de acceso",
         ),
     ],
@@ -387,13 +387,25 @@ def test_creacion_rechaza_campos_obligatorios_ausentes(
     assert respuesta.status_code == 422
 
 
-def test_creacion_exige_contrasena_minima(
+@pytest.mark.parametrize(
+    "contrasena",
+    [
+        "Corta1!",
+        "clavesegura123!",
+        "CLAVESEGURA123!",
+        "ClaveSegura!",
+        "ClaveSegura123",
+        "Clave Segura123",
+    ],
+)
+def test_creacion_exige_politica_completa_contrasena(
     client: TestClient,
     crear_usuario,
     entrar_como,
+    contrasena: str,
 ) -> None:
     _autenticar_admin(client, crear_usuario, entrar_como)
-    datos = {**_datos_usuario(), "contrasena": "corta"}
+    datos = {**_datos_usuario(), "contrasena": contrasena}
 
     assert client.post("/api/usuarios", json=datos).status_code == 422
 
@@ -428,7 +440,7 @@ def test_editar_datos_y_contrasena(
         f"/api/usuarios/{usuario.id}",
         json={
             "correo": "editado@example.com",
-            "contrasena": "ClaveEditada123",
+            "contrasena": "ClaveEditada123!",
             "telefono": "3110000000",
             "entidad_externa": "Entidad",
         },
@@ -441,10 +453,32 @@ def test_editar_datos_y_contrasena(
         "/api/auth/login",
         json={
             "correo": "editado@example.com",
-            "contrasena": "ClaveEditada123",
+            "contrasena": "ClaveEditada123!",
         },
     )
     assert login.status_code == 200
+
+
+def test_cambio_contrasena_debil_no_actualiza_usuario(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    usuario = crear_usuario(correo="debil-edicion@example.com")
+    hash_anterior = usuario.hash_contrasena
+    telefono_anterior = usuario.telefono
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"contrasena": "clavesegura123!", "telefono": "3110000000"},
+    )
+
+    assert respuesta.status_code == 422
+    db.refresh(usuario)
+    assert usuario.hash_contrasena == hash_anterior
+    assert usuario.telefono == telefono_anterior
 
 
 def test_contrasena_igual_rechaza_todo_el_patch_y_conserva_sesion(
@@ -463,7 +497,7 @@ def test_contrasena_igual_rechaza_todo_el_patch_y_conserva_sesion(
 
     respuesta = client.patch(
         f"/api/usuarios/{usuario.id}",
-        json={"telefono": "3110000000", "contrasena": "ClaveSegura123"},
+        json={"telefono": "3110000000", "contrasena": "ClaveSegura123!"},
     )
 
     assert respuesta.status_code == 409
@@ -473,14 +507,14 @@ def test_contrasena_igual_rechaza_todo_el_patch_y_conserva_sesion(
     db.refresh(usuario)
     assert usuario.hash_contrasena == hash_anterior
     assert usuario.telefono == telefono_anterior
-    assert verificar_contrasena("ClaveSegura123", usuario.hash_contrasena)
+    assert verificar_contrasena("ClaveSegura123!", usuario.hash_contrasena)
     assert sesiones.obtener_por_token(token_usuario) is not None
     client.cookies.set("session_id", token_usuario)
     assert client.get("/api/auth/me").status_code == 200
     client.cookies.clear()
     assert client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     ).status_code == 200
 
 
@@ -497,7 +531,7 @@ def test_cambio_contrasena_invalida_sesion_y_credencial_anterior(
 
     respuesta = client.patch(
         f"/api/usuarios/{usuario.id}",
-        json={"contrasena": "ClaveDistinta123"},
+        json={"contrasena": "ClaveDistinta123!"},
     )
 
     assert respuesta.status_code == 200
@@ -507,11 +541,11 @@ def test_cambio_contrasena_invalida_sesion_y_credencial_anterior(
     client.cookies.clear()
     assert client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     ).status_code == 401
     assert client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveDistinta123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveDistinta123!"},
     ).status_code == 200
 
 
@@ -529,7 +563,7 @@ def test_cambio_contrasena_invalida_todas_las_sesiones(
 
     respuesta = client.patch(
         f"/api/usuarios/{usuario.id}",
-        json={"contrasena": "ClaveDistinta123"},
+        json={"contrasena": "ClaveDistinta123!"},
     )
 
     assert respuesta.status_code == 200
@@ -548,7 +582,7 @@ def test_admin_cambia_su_contrasena_e_invalida_su_sesion(
 
     respuesta = client.patch(
         f"/api/usuarios/{admin.id}",
-        json={"contrasena": "ClaveDistinta123"},
+        json={"contrasena": "ClaveDistinta123!"},
     )
 
     assert respuesta.status_code == 200
@@ -557,7 +591,7 @@ def test_admin_cambia_su_contrasena_e_invalida_su_sesion(
     client.cookies.clear()
     assert client.post(
         "/api/auth/login",
-        json={"correo": admin.correo, "contrasena": "ClaveDistinta123"},
+        json={"correo": admin.correo, "contrasena": "ClaveDistinta123!"},
     ).status_code == 200
 
 
@@ -581,7 +615,7 @@ def test_fallo_al_guardar_contrasena_conserva_sesiones(
         with pytest.raises(RuntimeError, match="Fallo de persistencia simulado"):
             ServicioUsuarios(db, sesiones).actualizar(
                 usuario.id,
-                UsuarioActualizar(contrasena="ClaveDistinta123"),
+                UsuarioActualizar(contrasena="ClaveDistinta123!"),
             )
 
     db.rollback()
@@ -715,7 +749,7 @@ def test_cambiar_estado_invalida_sesiones(
     client.cookies.clear()
     login = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     assert login.status_code == 403
     assert login.cookies.get("session_id") is None
@@ -876,7 +910,7 @@ def test_usuario_desactivado_conserva_identidad_y_ultimo_acceso(
 
     login = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     assert login.status_code == 200
 

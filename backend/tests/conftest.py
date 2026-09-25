@@ -95,7 +95,7 @@ def crear_usuario(db: Session) -> Callable[..., Usuario]:
         tipo_usuario: TipoUsuario = TipoUsuario.INTERNO,
         activo: bool = True,
         correo: str | None = None,
-        contrasena: str = "ClaveSegura123",
+        contrasena: str = "ClaveSegura123!",
     ) -> Usuario:
         rol = db.scalar(select(Rol).where(Rol.codigo == codigo_rol.value))
         assert rol is not None
