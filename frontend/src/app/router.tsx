@@ -5,6 +5,7 @@ import { AliadoDetallePage } from '../pages/AliadoDetallePage'
 import { AliadosPage } from '../pages/AliadosPage'
 import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
+import { ConvenioHistorialPage } from '../pages/ConvenioHistorialPage'
 import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
+        { path: '/convenios/:convenioId/historial', element: <ConvenioHistorialPage /> },
       ] },
       { element: <RequierePermiso permiso="solicitudes.ver_propias" />, children: [
         { path: '/solicitudes', element: <MisSolicitudesPage /> },
