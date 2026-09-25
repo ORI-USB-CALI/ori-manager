@@ -24,8 +24,8 @@ from backend.services.verificacion_correo import ASUNTO_VERIFICACION, MENSAJE_RE
 def _datos(correo: str) -> dict[str, str]:
     return {
         "correo": correo,
-        "contrasena": "ClaveSegura123",
-        "confirmacion_contrasena": "ClaveSegura123",
+        "contrasena": "ClaveSegura123!",
+        "confirmacion_contrasena": "ClaveSegura123!",
         "nombre_completo": "Solicitante de verificación",
         "documento_identidad": "CC-123",
         "entidad_externa": "Entidad de prueba",

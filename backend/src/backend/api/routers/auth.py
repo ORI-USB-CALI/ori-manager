@@ -34,6 +34,7 @@ from backend.services.auth import (
 from backend.services.correo import EnviadorCorreo, get_enviador_correo
 from backend.services.recuperacion_contrasena import (
     MENSAJE_RECUPERACION,
+    ContrasenaReutilizadaError,
     ServicioRecuperacionContrasena,
     TokenRecuperacionInvalidoError,
 )
@@ -187,6 +188,14 @@ def restablecer_contrasena(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"codigo": exc.codigo, "message": str(exc)},
+        ) from exc
+    except ContrasenaReutilizadaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "codigo": "CONTRASENA_REUTILIZADA",
+                "message": str(exc),
+            },
         ) from exc
     return MensajePublico(message="Contraseña actualizada correctamente.")
 

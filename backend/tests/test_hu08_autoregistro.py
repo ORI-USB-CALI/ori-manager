@@ -1,5 +1,6 @@
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select, text
@@ -35,8 +36,8 @@ def unidades_registro(db):
 def _datos_interno(correo: str, unidad_id: int) -> dict[str, object]:
     return {
         "correo": correo,
-        "contrasena": "ClaveSegura123",
-        "confirmacion_contrasena": "ClaveSegura123",
+        "contrasena": "ClaveSegura123!",
+        "confirmacion_contrasena": "ClaveSegura123!",
         "nombre_completo": "Solicitante interno",
         "cargo": "Docente",
         "unidad_organizacional_id": unidad_id,
@@ -46,8 +47,8 @@ def _datos_interno(correo: str, unidad_id: int) -> dict[str, object]:
 def _datos_externo(correo: str = "persona@example.com") -> dict[str, object]:
     return {
         "correo": correo,
-        "contrasena": "ClaveSegura123",
-        "confirmacion_contrasena": "ClaveSegura123",
+        "contrasena": "ClaveSegura123!",
+        "confirmacion_contrasena": "ClaveSegura123!",
         "nombre_completo": "Solicitante externo",
         "documento_identidad": "CE-123",
         "entidad_externa": "Entidad externa",
@@ -177,7 +178,7 @@ def test_correo_duplicado_no_crea_usuario_y_orienta_siguiente_paso(db, client):
 def test_registro_rechaza_passwords_diferentes_y_minimo(client):
     diferentes = {
         **_datos_externo("diferentes@example.com"),
-        "confirmacion_contrasena": "OtraClave123",
+        "confirmacion_contrasena": "OtraClave123!",
     }
     corta = {
         **_datos_externo("corta@example.com"),
@@ -187,6 +188,29 @@ def test_registro_rechaza_passwords_diferentes_y_minimo(client):
 
     assert client.post("/api/auth/registro", json=diferentes).status_code == 422
     assert client.post("/api/auth/registro", json=corta).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "contrasena",
+    [
+        "Corta1!",
+        "clavesegura123!",
+        "CLAVESEGURA123!",
+        "ClaveSegura!",
+        "ClaveSegura123",
+        "Clave Segura123",
+    ],
+)
+def test_registro_aplica_politica_completa_contrasena(client, contrasena):
+    datos = {
+        **_datos_externo(f"politica-{uuid4().hex}@example.com"),
+        "contrasena": contrasena,
+        "confirmacion_contrasena": contrasena,
+    }
+
+    respuesta = client.post("/api/auth/registro", json=datos)
+
+    assert respuesta.status_code == 422
 
 
 def test_login_rechaza_solicitante_no_verificado(client):
@@ -213,7 +237,7 @@ def test_admin_no_puede_crear_roles_solicitantes(
     entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI))
     datos = {
         "correo": f"{rol.value.lower()}@example.com",
-        "contrasena": "ClaveSegura123",
+        "contrasena": "ClaveSegura123!",
         "nombre_completo": "No permitido",
         "rol": rol.value,
         "tipo_usuario": TipoUsuario.INTERNO.value,
@@ -250,7 +274,7 @@ def test_admin_crea_usuario_operativo_verificado(
     entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI))
     datos = {
         "correo": "operativo-verificado@example.com",
-        "contrasena": "ClaveSegura123",
+        "contrasena": "ClaveSegura123!",
         "nombre_completo": "Gestor verificado",
         "rol": CodigoRol.GESTOR_ORI.value,
         "tipo_usuario": TipoUsuario.INTERNO.value,

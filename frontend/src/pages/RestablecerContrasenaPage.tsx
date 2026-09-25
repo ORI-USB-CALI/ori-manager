@@ -3,6 +3,11 @@ import { type FormEvent, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { PasswordInput } from '../components/PasswordInput'
+import {
+  PASSWORD_POLICY_MESSAGE,
+  passwordPolicyError,
+} from '../security/passwordPolicy'
 
 interface MensajePublico {
   message: string
@@ -16,6 +21,14 @@ function codigoError(error: unknown): string | undefined {
     return error.detail.codigo
   }
   return undefined
+}
+
+function esErrorEnlace(codigo: string | undefined): boolean {
+  return (
+    codigo === 'ENLACE_INVALIDO' ||
+    codigo === 'ENLACE_EXPIRADO' ||
+    codigo === 'ENLACE_NO_DISPONIBLE'
+  )
 }
 
 export function RestablecerContrasenaPage() {
@@ -46,6 +59,11 @@ export function RestablecerContrasenaPage() {
     const datos = new FormData(evento.currentTarget)
     const nuevaContrasena = String(datos.get('nueva_contrasena') ?? '')
     const confirmacion = String(datos.get('confirmacion_contrasena') ?? '')
+    const errorPolitica = passwordPolicyError(nuevaContrasena)
+    if (errorPolitica) {
+      setErrorFormulario(errorPolitica)
+      return
+    }
     if (nuevaContrasena !== confirmacion) {
       setErrorFormulario('Las contraseñas no coinciden.')
       return
@@ -109,7 +127,7 @@ export function RestablecerContrasenaPage() {
   }
 
   const codigo = codigoError(restablecimiento.error)
-  if (codigo) {
+  if (esErrorEnlace(codigo)) {
     const expirado = codigo === 'ENLACE_EXPIRADO'
     return (
       <EstadoEnlace
@@ -123,6 +141,17 @@ export function RestablecerContrasenaPage() {
     )
   }
 
+  const mensajeError =
+    errorFormulario ??
+    (restablecimiento.error instanceof ApiError
+      ? restablecimiento.error.message
+      : 'No fue posible actualizar la contraseña.')
+
+  function limpiarErrorFormulario() {
+    setErrorFormulario(null)
+    if (restablecimiento.isError) restablecimiento.reset()
+  }
+
   return (
     <main className="login-page">
       <section className="card card-auth">
@@ -132,34 +161,34 @@ export function RestablecerContrasenaPage() {
         <form onSubmit={enviar}>
           {(errorFormulario || restablecimiento.isError) && (
             <p className="alert-error" role="alert">
-              {errorFormulario ?? 'No fue posible actualizar la contraseña.'}
+              {mensajeError}
             </p>
           )}
           <div className="form-group">
-            <label className="form-label" htmlFor="nueva-contrasena">Nueva contraseña</label>
-            <input
+            <PasswordInput
               id="nueva-contrasena"
+              label="Nueva contraseña"
               name="nueva_contrasena"
-              type="password"
-              className="form-control"
-              minLength={8}
               required
               autoComplete="new-password"
               autoFocus
-              placeholder="Mínimo 8 caracteres"
+              placeholder="Cree una contraseña segura"
+              aria-describedby="restablecer-politica-contrasena"
+              onChange={limpiarErrorFormulario}
             />
+            <small id="restablecer-politica-contrasena" className="form-help">
+              {PASSWORD_POLICY_MESSAGE}
+            </small>
           </div>
           <div className="form-group">
-            <label className="form-label" htmlFor="confirmacion-contrasena">Confirmar contraseña</label>
-            <input
+            <PasswordInput
               id="confirmacion-contrasena"
+              label="Confirmar contraseña"
               name="confirmacion_contrasena"
-              type="password"
-              className="form-control"
-              minLength={8}
               required
               autoComplete="new-password"
               placeholder="Repita la nueva contraseña"
+              onChange={limpiarErrorFormulario}
             />
           </div>
           <button

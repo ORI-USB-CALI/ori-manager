@@ -9,6 +9,11 @@ import {
   useSesion,
 } from '../auth/sesion'
 import { Select } from '../components/Select'
+import { PasswordInput } from '../components/PasswordInput'
+import {
+  PASSWORD_POLICY_MESSAGE,
+  passwordPolicyError,
+} from '../security/passwordPolicy'
 import {
   type Usuario,
   esRolSolicitante,
@@ -110,9 +115,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
       errores.nombre_completo = 'El nombre completo es obligatorio.'
     }
     if (!contrasena) errores.contrasena = 'La contraseña es obligatoria.'
-    else if (contrasena.length < 8) {
-      errores.contrasena = 'La contraseña debe tener al menos 8 caracteres.'
-    }
+    else errores.contrasena = passwordPolicyError(contrasena) ?? undefined
     if (!rol) errores.rol = 'Seleccione un rol.'
     return errores
   }
@@ -145,6 +148,21 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
       }
       guardar.mutate(datos)
       return
+    }
+
+    if (!esSolicitante && contrasena) {
+      const errorContrasena = passwordPolicyError(contrasena)
+      if (errorContrasena) {
+        setErroresCreacion((actuales) => ({
+          ...actuales,
+          contrasena: errorContrasena,
+        }))
+        return
+      }
+      setErroresCreacion((actuales) => ({
+        ...actuales,
+        contrasena: undefined,
+      }))
     }
 
     const cambios: Record<string, unknown> = {}
@@ -315,21 +333,20 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
             )}
             {!esSolicitante && (
               <div className="form-group form-span-2">
-                <label className="form-label" htmlFor="usuario-contrasena">
-                  {usuario ? 'Nueva contraseña' : 'Contraseña'}
-                </label>
-                <input
+                <PasswordInput
                   id="usuario-contrasena"
+                  label={usuario ? 'Nueva contraseña' : 'Contraseña'}
                   name="contrasena"
-                  type="password"
-                  className={`form-control ${erroresCreacion.contrasena ? 'is-invalid' : ''}`}
-                  minLength={8}
+                  className={erroresCreacion.contrasena ? 'is-invalid' : undefined}
                   required={!usuario}
                   disabled={!puedeEditar}
                   autoComplete="new-password"
-                  placeholder={usuario ? 'Vacío para conservar la actual' : 'Mínimo 8 caracteres'}
+                  placeholder={usuario ? 'Vacío para conservar la actual' : 'Cree una contraseña segura'}
                   aria-invalid={Boolean(erroresCreacion.contrasena)}
-                  aria-describedby={erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined}
+                  aria-describedby={[
+                    'usuario-contrasena-ayuda',
+                    erroresCreacion.contrasena ? 'usuario-contrasena-error' : null,
+                  ].filter(Boolean).join(' ')}
                   onChange={() =>
                     setErroresCreacion((actuales) => ({
                       ...actuales,
@@ -337,6 +354,9 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                     }))
                   }
                 />
+                <small id="usuario-contrasena-ayuda" className="form-help">
+                  {PASSWORD_POLICY_MESSAGE}
+                </small>
                 {erroresCreacion.contrasena && (
                   <small id="usuario-contrasena-error" className="form-error">
                     {erroresCreacion.contrasena}

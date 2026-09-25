@@ -4,6 +4,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { CLAVE_SESION, useSesion } from '../auth/sesion'
+import { PasswordInput } from '../components/PasswordInput'
 
 interface Credenciales {
   correo: string
@@ -81,14 +82,10 @@ export function LoginPage() {
             />
           </div>
           <div className="form-group">
-            <label className="form-label" htmlFor="contrasena">
-              Contraseña
-            </label>
-            <input
+            <PasswordInput
               id="contrasena"
+              label="Contraseña"
               name="contrasena"
-              type="password"
-              className="form-control"
               required
               autoComplete="current-password"
             />
