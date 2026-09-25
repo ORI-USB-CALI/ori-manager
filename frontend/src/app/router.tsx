@@ -10,6 +10,8 @@ import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
+import { SolicitudRecibidaPage } from '../pages/SolicitudRecibidaPage'
+import { SolicitudesRecibidasPage } from '../pages/SolicitudesRecibidasPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { RegistroPage } from '../pages/RegistroPage'
 import { RecuperarContrasenaPage } from '../pages/RecuperarContrasenaPage'
@@ -35,6 +37,10 @@ export const router = createBrowserRouter([
         { path: '/aliados/:aliadoId', element: <AliadoDetallePage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.crear" />, children: [{ path: '/convenios/nuevo', element: <ConvenioNuevoPage /> }] },
+      { element: <RequierePermiso permiso="solicitudes.ver_recibidas" />, children: [
+        { path: '/ori/solicitudes', element: <SolicitudesRecibidasPage /> },
+        { path: '/ori/solicitudes/:solicitudId', element: <SolicitudRecibidaPage /> },
+      ] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from backend.models.aliado import Aliado
     from backend.models.convenio import Convenio
     from backend.models.documento import Documento
+    from backend.models.tipo_convenio import TipoConvenio
     from backend.models.usuario import Usuario
 
 _TIPOS = ", ".join(f"'{valor.value}'" for valor in TipoSolicitante)
@@ -177,5 +178,6 @@ class SolicitudConvenio(Base):
     convenio: Mapped[Convenio | None] = relationship(
         back_populates="solicitud", uselist=False
     )
+    tipo_convenio: Mapped[TipoConvenio | None] = relationship()
     solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitante_id])
     documentos: Mapped[list[Documento]] = relationship(back_populates="solicitud")

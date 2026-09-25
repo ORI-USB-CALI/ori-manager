@@ -42,6 +42,11 @@ PERMISOS_HU_11 = {
     "solicitudes.editar_propias",
     "solicitudes.radicar",
 }
+PERMISOS_SOLICITUDES_RECIBIDAS = {
+    "solicitudes.ver_recibidas",
+    "solicitudes.gestionar_recibidas",
+    "solicitudes.aprobar",
+}
 PERMISOS_REVISION_JURIDICA = {
     "convenios.revisar",
 }
@@ -69,6 +74,7 @@ def test_permisos_coinciden_con_los_alcances_integrados() -> None:
         == PERMISOS_GESTION_USUARIOS
         | PERMISOS_EPICA_02
         | PERMISOS_HU_11
+        | PERMISOS_SOLICITUDES_RECIBIDAS
         | PERMISOS_REVISION_JURIDICA
     )
     assert len(valores) == len(set(valores))
@@ -100,7 +106,12 @@ def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
 
 def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
     assert permisos_para_rol(CodigoRol.GESTOR_ORI) == frozenset(
-        Permiso(valor) for valor in PERMISOS_EPICA_02
+        Permiso(valor)
+        for valor in PERMISOS_EPICA_02
+        | {
+            "solicitudes.ver_recibidas",
+            "solicitudes.gestionar_recibidas",
+        }
     )
     assert Permiso.ALIADOS_CORREGIR_IDENTIFICACION in permisos_para_rol(
         CodigoRol.GESTOR_ORI

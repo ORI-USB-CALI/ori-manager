@@ -41,9 +41,7 @@ export function AppLayout() {
             Inicio
           </NavLink>
           {puede('aliados.ver') && <NavLink to="/aliados">Aliados</NavLink>}
-          {puede('convenios.crear') && sesion.rol.codigo !== 'ADMINISTRADOR_ORI' && (
-            <NavLink to="/convenios/nuevo">Nuevo convenio</NavLink>
-          )}
+          {puede('solicitudes.ver_recibidas') && <NavLink to="/ori/solicitudes">Solicitudes recibidas</NavLink>}
           {puede('solicitudes.ver_propias') && <NavLink to="/solicitudes">Mis solicitudes</NavLink>}
           {puede('usuarios.ver') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}
         </nav>
