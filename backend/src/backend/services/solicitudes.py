@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
     EstadoSolicitud,
@@ -183,7 +184,9 @@ class ServicioSolicitudes:
             .where(SolicitudConvenio.estado != EstadoSolicitud.BORRADOR)
             .options(
                 selectinload(SolicitudConvenio.documentos),
-                selectinload(SolicitudConvenio.convenio),
+                selectinload(SolicitudConvenio.convenio).selectinload(
+                    Convenio.etapa_actual
+                ),
                 selectinload(SolicitudConvenio.tipo_convenio),
             )
         )

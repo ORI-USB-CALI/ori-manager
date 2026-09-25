@@ -93,10 +93,13 @@ def _lanzar_http(exc: ErrorSolicitud) -> NoReturn:
 
 def _recibida(solicitud: SolicitudConvenio) -> SolicitudRecibidaLeer:
     datos = SolicitudLeer.model_validate(solicitud).model_dump()
+    convenio = solicitud.convenio
     return SolicitudRecibidaLeer.model_validate(
         {
             **datos,
-            "convenio_id": solicitud.convenio.id if solicitud.convenio else None,
+            "convenio_id": convenio.id if convenio else None,
+            "convenio_estado": convenio.estado if convenio else None,
+            "convenio_etapa": convenio.etapa_actual if convenio else None,
             "tipo_convenio_nombre": (
                 solicitud.tipo_convenio.nombre if solicitud.tipo_convenio else None
             ),

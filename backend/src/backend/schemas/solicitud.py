@@ -5,12 +5,14 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.enums import (
+    EstadoConvenio,
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
     TipoIdentificacion,
     TipoSolicitante,
 )
+from backend.schemas.convenio import EtapaResumen
 
 
 class SolicitudCampos(BaseModel):
@@ -103,6 +105,8 @@ class SolicitudListado(BaseModel):
 
 class SolicitudRecibidaLeer(SolicitudLeer):
     convenio_id: int | None
+    convenio_estado: EstadoConvenio | None
+    convenio_etapa: EtapaResumen | None
     tipo_convenio_nombre: str | None
 
 
