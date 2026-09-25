@@ -49,7 +49,6 @@ from backend.services.solicitudes import (
     SolicitudIncompleta,
     SolicitudNoEditable,
     SolicitudNoEncontrada,
-    TransicionSolicitudInvalida,
 )
 
 router = APIRouter(prefix="/solicitudes", tags=["Solicitudes"])
@@ -65,8 +64,6 @@ PuedeVerRecibidas = Annotated[
 PuedeGestionarRecibidas = Annotated[
     Usuario, requiere(Permiso.SOLICITUDES_GESTIONAR_RECIBIDAS)
 ]
-PuedeAprobar = Annotated[Usuario, requiere(Permiso.SOLICITUDES_APROBAR)]
-PuedeCrearConvenios = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 
 NOMBRES_DOCUMENTOS = {
     TipoDocumentoSolicitud.CAMARA_COMERCIO: "Cámara de Comercio",
@@ -82,7 +79,7 @@ NOMBRES_DOCUMENTOS = {
 def _lanzar_http(exc: ErrorSolicitud) -> NoReturn:
     if isinstance(exc, SolicitudNoEncontrada):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, (SolicitudNoEditable, TransicionSolicitudInvalida)):
+    if isinstance(exc, SolicitudNoEditable):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if isinstance(exc, (DocumentoInvalido, ReferenciaSolicitudInvalida)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
@@ -224,49 +221,18 @@ def obtener_documento_solicitud_recibida(
 
 
 @router.post(
-    "/recibidas/{solicitud_id}/iniciar-estudio",
-    response_model=SolicitudRecibidaLeer,
-)
-def iniciar_estudio_solicitud(
-    solicitud_id: int, db: DatabaseSession, usuario: PuedeGestionarRecibidas
-) -> SolicitudRecibidaLeer:
-    try:
-        return _recibida(
-            ServicioSolicitudes(db).iniciar_estudio(solicitud_id, usuario)
-        )
-    except ErrorSolicitud as exc:
-        _lanzar_http(exc)
-
-
-@router.post(
-    "/recibidas/{solicitud_id}/aprobar", response_model=SolicitudRecibidaLeer
-)
-def aprobar_solicitud_recibida(
-    solicitud_id: int, db: DatabaseSession, usuario: PuedeAprobar
-) -> SolicitudRecibidaLeer:
-    try:
-        return _recibida(ServicioSolicitudes(db).aprobar(solicitud_id, usuario))
-    except ErrorSolicitud as exc:
-        _lanzar_http(exc)
-
-
-@router.post(
     "/recibidas/{solicitud_id}/iniciar-elaboracion",
     response_model=ConvenioLeer,
 )
 def iniciar_elaboracion_solicitud(
     solicitud_id: int,
     db: DatabaseSession,
-    usuario: PuedeVerRecibidas,
-    _: PuedeCrearConvenios,
+    usuario: PuedeGestionarRecibidas,
 ):
     try:
-        ServicioSolicitudes(db).obtener_recibida(solicitud_id)
         return ServicioConvenios(db).iniciar_desde_solicitud(
             solicitud_id, usuario
         )
-    except ErrorSolicitud as exc:
-        _lanzar_http(exc)
     except ErrorConvenio as exc:
         _lanzar_http_convenio(exc)
 

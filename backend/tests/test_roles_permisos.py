@@ -45,7 +45,6 @@ PERMISOS_HU_11 = {
 PERMISOS_SOLICITUDES_RECIBIDAS = {
     "solicitudes.ver_recibidas",
     "solicitudes.gestionar_recibidas",
-    "solicitudes.aprobar",
 }
 PERMISOS_REVISION_JURIDICA = {
     "convenios.revisar",
@@ -99,9 +98,12 @@ def test_contenedor_de_la_matriz_es_inmutable() -> None:
 
 
 def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
-    assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(Permiso) - {
-        Permiso.CONVENIOS_REVISAR
-    }
+    assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(
+        Permiso(valor)
+        for valor in PERMISOS_GESTION_USUARIOS
+        | PERMISOS_EPICA_02
+        | PERMISOS_SOLICITUDES_RECIBIDAS
+    )
 
 
 def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:

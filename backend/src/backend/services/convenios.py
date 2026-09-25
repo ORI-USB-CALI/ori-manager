@@ -195,10 +195,13 @@ class ServicioConvenios:
         if origen_id is not None and self.db.get(Convenio, origen_id) is None:
             raise ReferenciaConvenioInvalida("El convenio de origen no existe")
 
-    def crear(self, datos: ConvenioCrear, usuario: Usuario) -> Convenio:
-        solicitud = self.db.get(SolicitudConvenio, datos.solicitud_id)
-        if solicitud is None:
-            raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
+    def _crear_en_transaccion(
+        self,
+        datos: ConvenioCrear,
+        usuario: Usuario,
+        solicitud: SolicitudConvenio,
+    ) -> Convenio:
+        """Construye el convenio y su historial inicial sin hacer commit."""
         if solicitud.estado != EstadoSolicitud.APROBADA:
             raise SolicitudNoAprobada(
                 "Solo una solicitud APROBADA puede originar un convenio"
@@ -239,9 +242,9 @@ class ServicioConvenios:
             creado_por_id=usuario.id,
         )
         self.db.add(convenio)
-        try:
-            self.db.flush()
-            historial = HistorialEtapa(
+        self.db.flush()
+        self.db.add(
+            HistorialEtapa(
                 convenio_id=convenio.id,
                 etapa_origen_id=None,
                 etapa_destino_id=elaboracion.id,
@@ -249,7 +252,15 @@ class ServicioConvenios:
                 responsable_id=usuario.id,
                 observacion=None,
             )
-            self.db.add(historial)
+        )
+        return convenio
+
+    def crear(self, datos: ConvenioCrear, usuario: Usuario) -> Convenio:
+        solicitud = self.db.get(SolicitudConvenio, datos.solicitud_id)
+        if solicitud is None:
+            raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
+        try:
+            convenio = self._crear_en_transaccion(datos, usuario, solicitud)
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
@@ -271,15 +282,35 @@ class ServicioConvenios:
         )
         if solicitud is None:
             raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
+        estados_admitidos = {
+            EstadoSolicitud.RADICADA.value,
+            EstadoSolicitud.EN_ESTUDIO.value,
+            EstadoSolicitud.APROBADA.value,
+        }
+        if solicitud.estado not in estados_admitidos:
+            raise SolicitudNoAprobada(
+                "Solo una solicitud RADICADA, EN_ESTUDIO o APROBADA puede iniciar elaboración"
+            )
+        estado_anterior = solicitud.estado
+        if estado_anterior != EstadoSolicitud.APROBADA.value:
+            solicitud.estado = EstadoSolicitud.APROBADA.value
+            self.db.add(
+                Auditoria(
+                    usuario_id=usuario.id,
+                    entidad="solicitud",
+                    registro_id=solicitud.id,
+                    accion=AccionAuditoria.UPDATE.value,
+                    campo="estado",
+                    valor_anterior=estado_anterior,
+                    valor_nuevo=EstadoSolicitud.APROBADA.value,
+                )
+            )
         existente = self.db.scalar(
             select(Convenio).where(Convenio.solicitud_id == solicitud_id)
         )
         if existente is not None:
+            self.db.commit()
             return self.obtener(existente.id)
-        if solicitud.estado != EstadoSolicitud.APROBADA:
-            raise SolicitudNoAprobada(
-                "Solo una solicitud APROBADA puede iniciar elaboración"
-            )
         datos = ConvenioCrear(
             solicitud_id=solicitud.id,
             tipo_convenio_id=solicitud.tipo_convenio_id,
@@ -287,14 +318,22 @@ class ServicioConvenios:
             implicacion_financiera=solicitud.implicacion_financiera,
         )
         try:
-            return self.crear(datos, usuario)
-        except ConvenioDuplicado:
+            convenio = self._crear_en_transaccion(datos, usuario, solicitud)
+            self.db.commit()
+            return self.obtener(convenio.id)
+        except IntegrityError:
+            self.db.rollback()
             existente = self.db.scalar(
                 select(Convenio).where(Convenio.solicitud_id == solicitud_id)
             )
             if existente is None:
-                raise
+                raise ConvenioDuplicado(
+                    "La solicitud o el código ya están asociados a otro convenio"
+                )
             return self.obtener(existente.id)
+        except (ErrorConvenio, SQLAlchemyError):
+            self.db.rollback()
+            raise
 
     def obtener(self, convenio_id: int) -> Convenio:
         convenio = self.db.scalar(
@@ -309,6 +348,33 @@ class ServicioConvenios:
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
         return convenio
+
+    def listar_revisiones_juridicas_pendientes(self) -> list[RevisionConvenio]:
+        return list(
+            self.db.scalars(
+                select(RevisionConvenio)
+                .join(RevisionConvenio.convenio)
+                .join(Convenio.etapa_actual)
+                .options(
+                    joinedload(RevisionConvenio.convenio).joinedload(
+                        Convenio.solicitud
+                    ),
+                    joinedload(RevisionConvenio.convenio).joinedload(
+                        Convenio.tipo_convenio
+                    ),
+                    joinedload(RevisionConvenio.convenio).joinedload(
+                        Convenio.creado_por
+                    ),
+                )
+                .where(
+                    RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                    RevisionConvenio.estado
+                    == EstadoRevisionConvenio.PENDIENTE.value,
+                    Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA,
+                )
+                .order_by(RevisionConvenio.creado_en, RevisionConvenio.id)
+            )
+        )
 
     def obtener_para_revision(
         self, convenio_id: int
@@ -410,21 +476,13 @@ class ServicioConvenios:
             raise ConvenioNoEncontrado("Convenio no encontrado")
         return convenio
 
-    def actualizar(
+    def _aplicar_cambios(
         self,
-        convenio_id: int,
-        datos: ConvenioElaboracionActualizar,
+        convenio: Convenio,
+        cambios: dict[str, object],
         usuario: Usuario,
-    ) -> Convenio:
-        convenio = self.obtener(convenio_id)
-        if (
-            convenio.etapa_actual is None
-            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
-        ):
-            raise ConvenioNoEditable(
-                "Solo se puede editar un convenio en etapa de Elaboración"
-            )
-        cambios = datos.model_dump(exclude_unset=True)
+    ) -> None:
+        """Valida y aplica cambios con auditoría, sin cerrar la transacción."""
         combinados = {
             "tipo_convenio_id": convenio.tipo_convenio_id,
             "alcance": convenio.alcance,
@@ -450,6 +508,24 @@ class ServicioConvenios:
                     valor_nuevo=_a_texto(nuevo),
                 )
             )
+
+    def actualizar(
+        self,
+        convenio_id: int,
+        datos: ConvenioElaboracionActualizar,
+        usuario: Usuario,
+    ) -> Convenio:
+        convenio = self.obtener(convenio_id)
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        ):
+            raise ConvenioNoEditable(
+                "Solo se puede editar un convenio en etapa de Elaboración"
+            )
+        self._aplicar_cambios(
+            convenio, datos.model_dump(exclude_unset=True), usuario
+        )
         try:
             self.db.commit()
         except IntegrityError as exc:
@@ -457,13 +533,22 @@ class ServicioConvenios:
             raise ConvenioDuplicado("El código ya pertenece a otro convenio") from exc
         return self.obtener(convenio.id)
 
-    def finalizar_elaboracion(self, convenio_id: int, usuario: Usuario) -> Convenio:
+    def finalizar_elaboracion(
+        self,
+        convenio_id: int,
+        usuario: Usuario,
+        datos: ConvenioElaboracionActualizar | None = None,
+    ) -> Convenio:
         """Congela el proyecto y abre la ronda de revisión jurídica.
 
         La transición de etapa, el historial y la revisión se escriben en un solo
         commit: o el convenio queda entregado a Jurídica, o no cambia nada.
         """
-        convenio = self.obtener(convenio_id)
+        convenio = self.db.scalar(
+            select(Convenio).where(Convenio.id == convenio_id).with_for_update()
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
         if (
             convenio.etapa_actual is None
             or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
@@ -472,8 +557,19 @@ class ServicioConvenios:
                 "Solo se puede finalizar un convenio en etapa de Elaboración"
             )
 
+        try:
+            self._aplicar_cambios(
+                convenio,
+                datos.model_dump(exclude_unset=True) if datos is not None else {},
+                usuario,
+            )
+        except ErrorConvenio:
+            self.db.rollback()
+            raise
+
         faltantes = validar_completitud(convenio)
         if faltantes:
+            self.db.rollback()
             raise ElaboracionIncompleta(faltantes)
 
         pendiente = self.db.scalar(
@@ -493,6 +589,7 @@ class ServicioConvenios:
             .limit(1)
         )
         if pendiente is not None:
+            self.db.rollback()
             raise RevisionNoDisponible(
                 "Debe atender todas las observaciones jurídicas pendientes "
                 "antes de reenviar el convenio"

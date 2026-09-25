@@ -617,6 +617,62 @@ def test_ca06_finalizar_incompleto_no_cambia_nada(
     )
 
 
+def test_finalizar_aplica_el_formulario_actual_sin_patch_previo(
+    client, db, gestor, crear_convenio
+) -> None:
+    convenio = crear_convenio(gestor)
+    tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
+    datos = {
+        "tipo_convenio_id": tipo.id,
+        "objeto": "Objeto redactado al finalizar",
+        "alcance": "INSTITUCIONAL",
+        "unidad_organizacional_id": None,
+        "implicacion_financiera": "Sin erogación presupuestal",
+        "duracion_meses": 18,
+        "fecha_inicio": "2026-10-01",
+        "fecha_vencimiento": "2028-04-01",
+    }
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio.id}/elaboracion/finalizar", json=datos
+    )
+
+    assert respuesta.status_code == 200
+    db.refresh(convenio)
+    assert convenio.objeto == datos["objeto"]
+    assert convenio.duracion_meses == 18
+    assert convenio.etapa_actual.codigo == "REVISION_AVAL_JURIDICO"
+    revision = _revisiones_de(db, convenio.id)[0]
+    assert revision.estado == EstadoRevisionConvenio.PENDIENTE.value
+    assert revision.snapshot_datos["objeto"] == datos["objeto"]
+    assert revision.snapshot_datos["duracion_meses"] == 18
+
+
+def test_finalizar_invalido_no_persiste_cambios_del_body(
+    client, db, gestor, crear_convenio
+) -> None:
+    convenio = crear_convenio(gestor, objeto="Objeto persistido")
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio.id}/elaboracion/finalizar",
+        json={"objeto": "Cambio que debe revertirse"},
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"]["faltantes"]
+    db.refresh(convenio)
+    assert convenio.objeto == "Objeto persistido"
+    assert convenio.etapa_actual.codigo == "ELABORACION"
+    assert _revisiones_de(db, convenio.id) == []
+    assert not db.scalars(
+        select(Auditoria).where(
+            Auditoria.entidad == "convenio",
+            Auditoria.registro_id == convenio.id,
+            Auditoria.campo == "objeto",
+        )
+    ).all()
+
+
 def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     client, db, gestor, convenio_listo
 ) -> None:

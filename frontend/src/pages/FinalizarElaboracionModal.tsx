@@ -7,7 +7,9 @@ import type { Convenio } from './epica02'
 
 interface Props {
   convenioId: number
+  valores: Record<string, string | number | null>
   onFinalizado: () => Promise<unknown>
+  onErrorValidacion: (error: unknown) => void
   onCerrar: () => void
 }
 
@@ -17,7 +19,7 @@ function texto(error: unknown): string {
   return 'No fue posible completar la operación.'
 }
 
-export function FinalizarElaboracionModal({ convenioId, onFinalizado, onCerrar }: Props) {
+export function FinalizarElaboracionModal({ convenioId, valores, onFinalizado, onErrorValidacion, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
   const notify = useNotifications()
 
@@ -26,13 +28,20 @@ export function FinalizarElaboracionModal({ convenioId, onFinalizado, onCerrar }
   }, [])
 
   const finalizar = useMutation({
-    mutationFn: () => apiFetch<Convenio>(`/convenios/${convenioId}/elaboracion/finalizar`, { method: 'POST' }),
+    mutationFn: () => apiFetch<Convenio>(`/convenios/${convenioId}/elaboracion/finalizar`, {
+      method: 'POST',
+      body: JSON.stringify(valores),
+    }),
     onSuccess: async () => {
       await onFinalizado()
       dialogo.current?.close()
       notify({ type: 'success', message: 'Elaboración finalizada. El convenio quedó en revisión jurídica.' })
     },
-    onError: (error) => notify({ type: 'error', message: texto(error) }),
+    onError: (error) => {
+      onErrorValidacion(error)
+      dialogo.current?.close()
+      notify({ type: 'error', message: texto(error) })
+    },
   })
 
   return (

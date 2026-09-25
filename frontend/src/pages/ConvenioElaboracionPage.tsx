@@ -12,7 +12,6 @@ import {
   type TipoAliado,
   useCatalogosElaboracion,
   useElaboracionConvenio,
-  useValidacionElaboracion,
 } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 
@@ -84,7 +83,26 @@ function erroresServidor(error: unknown): Record<string, string> {
       return typeof campo === 'string' && typeof item.msg === 'string' ? [[campo, item.msg]] : []
     }))
   }
+  if ('faltantes' in error.detail && Array.isArray(error.detail.faltantes)) {
+    return Object.fromEntries(error.detail.faltantes.flatMap((item: unknown) => {
+      if (!item || typeof item !== 'object' || !('campo' in item) || !('motivo' in item)) return []
+      return typeof item.campo === 'string' && typeof item.motivo === 'string'
+        ? [[item.campo, item.motivo]]
+        : []
+    }))
+  }
   return {}
+}
+
+function valoresFormulario(formulario: HTMLFormElement): Record<string, string | number | null> {
+  const form = new FormData(formulario)
+  return Object.fromEntries(CAMPOS_FORMULARIO.map((campo) => {
+    const bruto = String(form.get(campo) ?? '').trim()
+    const valor = campo === 'tipo_convenio_id' || campo === 'unidad_organizacional_id' || campo === 'duracion_meses'
+      ? (bruto ? Number(bruto) : null)
+      : (bruto || null)
+    return [campo, valor]
+  }))
 }
 
 function camposModificados(formulario: HTMLFormElement, original: ElaboracionConvenio): Record<string, string | number | null> {
@@ -112,7 +130,6 @@ export function ConvenioElaboracionPage() {
   const { convenioId } = useParams()
   const id = Number(convenioId)
   const elaboracion = useElaboracionConvenio(id)
-  const validacion = useValidacionElaboracion(id)
   const catalogos = useCatalogosElaboracion()
   const { puede } = useSesion()
   const notify = useNotifications()
@@ -122,6 +139,7 @@ export function ConvenioElaboracionPage() {
   const [respuestas, setRespuestas] = useState<Record<number, string>>({})
   const [alcanceSeleccionado, setAlcanceSeleccionado] = useState<string | null>(null)
   const [modalFinalizarAbierto, setModalFinalizarAbierto] = useState(false)
+  const [valoresFinalizacion, setValoresFinalizacion] = useState<Record<string, string | number | null>>({})
   const historial = useQuery({
     queryKey: ['convenio', id, 'historial'],
     queryFn: () => apiFetch<HistorialConvenio>(`/convenios/${id}/revisiones`),
@@ -137,7 +155,6 @@ export function ConvenioElaboracionPage() {
       notify({ type: 'success', message: 'Avance guardado. El convenio permanece en Elaboración.' })
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
-        queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion', 'validacion'] }),
       ])
     },
     onError: (error) => {
@@ -175,19 +192,15 @@ export function ConvenioElaboracionPage() {
   const solicitud = datos.solicitud
   const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === CODIGO_ETAPA_ELABORACION
   const alcance = alcanceSeleccionado ?? datos.alcance ?? ''
-  const faltantes = Object.fromEntries((validacion.data?.faltantes ?? []).map((item) => [item.campo, item.motivo]))
   const observacionesJuridicas = historial.data?.revisiones
     .filter((revision) => revision.tipo === 'JURIDICA')
     .flatMap((revision) => revision.observaciones)
     .filter((observacion) => observacion.origen === 'REVISOR_ORI') ?? []
   const observacionesPendientes = observacionesJuridicas.filter((observacion) => observacion.estado === 'PENDIENTE')
-  const puedeFinalizar = editable
-    && validacion.data?.completo === true
-    && historial.isSuccess
-    && observacionesPendientes.length === 0
+  const puedeFinalizar = editable && observacionesPendientes.length === 0
 
   function mensajeCampo(campo: string) {
-    return errores[campo] || faltantes[campo]
+    return errores[campo]
   }
 
   function idCampo(campo: (typeof CAMPOS_FORMULARIO)[number]) {
@@ -375,12 +388,6 @@ export function ConvenioElaboracionPage() {
             </label>
           </div>
 
-          {editable && validacion.data && !validacion.data.completo && (
-            <p className="alert-error">
-              Faltan {validacion.data.faltantes.length} campo(s) para poder finalizar la elaboración y enviarla a revisión jurídica.
-            </p>
-          )}
-
           {editable && (
             <div className="page-toolbar">
               <button className="btn btn-outline" type="submit" disabled={guardar.isPending}>
@@ -390,12 +397,15 @@ export function ConvenioElaboracionPage() {
                 className="btn btn-primary"
                 type="button"
                 disabled={!puedeFinalizar}
-                title={puedeFinalizar
-                  ? undefined
-                  : observacionesPendientes.length > 0
-                    ? 'Atienda todas las observaciones jurídicas antes de reenviar el convenio'
-                    : 'Complete la información requerida para habilitar la finalización'}
-                onClick={() => setModalFinalizarAbierto(true)}
+                title={!puedeFinalizar && observacionesPendientes.length > 0
+                  ? 'Atienda todas las observaciones jurídicas antes de reenviar el convenio'
+                  : undefined}
+                onClick={() => {
+                  if (!formRef.current) return
+                  setErrores({})
+                  setValoresFinalizacion(valoresFormulario(formRef.current))
+                  setModalFinalizarAbierto(true)
+                }}
               >
                 Finalizar elaboración
               </button>
@@ -485,11 +495,12 @@ export function ConvenioElaboracionPage() {
       {modalFinalizarAbierto && (
         <FinalizarElaboracionModal
           convenioId={id}
+          valores={valoresFinalizacion}
           onCerrar={() => setModalFinalizarAbierto(false)}
+          onErrorValidacion={(error) => setErrores(erroresServidor(error))}
           onFinalizado={() => Promise.all([
             queryClient.invalidateQueries({ queryKey: ['convenio', id] }),
             queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
-            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion', 'validacion'] }),
           ])}
         />
       )}
