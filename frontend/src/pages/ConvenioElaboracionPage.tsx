@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
@@ -37,6 +37,24 @@ const AYUDAS_ELABORACION: Record<(typeof CAMPOS_FORMULARIO)[number], string> = {
   duracion_meses: 'Indique la duración prevista del convenio expresada en meses.',
   fecha_inicio: 'Fecha prevista para iniciar la ejecución. Este dato es opcional en Elaboración.',
   fecha_vencimiento: 'Fecha prevista de terminación. Si informa ambas fechas, debe ser posterior al inicio.',
+}
+
+interface ObservacionJuridica {
+  id: number
+  origen: string
+  descripcion: string
+  respuesta: string | null
+  estado: 'PENDIENTE' | 'ATENDIDA'
+  fecha_atencion: string | null
+}
+
+interface HistorialRevision {
+  tipo: string
+  observaciones: ObservacionJuridica[]
+}
+
+interface HistorialConvenio {
+  revisiones: HistorialRevision[]
 }
 
 function fecha(valor: string | null) {
@@ -101,8 +119,15 @@ export function ConvenioElaboracionPage() {
   const queryClient = useQueryClient()
   const formRef = useRef<HTMLFormElement>(null)
   const [errores, setErrores] = useState<Record<string, string>>({})
+  const [respuestas, setRespuestas] = useState<Record<number, string>>({})
   const [alcanceSeleccionado, setAlcanceSeleccionado] = useState<string | null>(null)
   const [modalFinalizarAbierto, setModalFinalizarAbierto] = useState(false)
+  const historial = useQuery({
+    queryKey: ['convenio', id, 'historial'],
+    queryFn: () => apiFetch<HistorialConvenio>(`/convenios/${id}/revisiones`),
+    enabled: Number.isInteger(id) && id > 0,
+    retry: false,
+  })
 
   const guardar = useMutation({
     mutationFn: (cambios: Record<string, unknown>) =>
@@ -120,6 +145,22 @@ export function ConvenioElaboracionPage() {
       notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible guardar el avance.' })
     },
   })
+  const atender = useMutation({
+    mutationFn: ({ observacionId, respuesta }: { observacionId: number; respuesta: string }) =>
+      apiFetch(`/convenios/${id}/observaciones/${observacionId}/atender`, {
+        method: 'PATCH',
+        body: JSON.stringify({ respuesta }),
+      }),
+    onSuccess: async (_, variables) => {
+      setRespuestas((actuales) => ({ ...actuales, [variables.observacionId]: '' }))
+      notify({ type: 'success', message: 'Observación jurídica atendida correctamente.' })
+      await queryClient.invalidateQueries({ queryKey: ['convenio', id, 'historial'] })
+    },
+    onError: (error) => notify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'No fue posible atender la observación.',
+    }),
+  })
 
   if (elaboracion.isPending) return <p className="estado-pagina">Cargando elaboración…</p>
   if (elaboracion.isError) {
@@ -135,7 +176,15 @@ export function ConvenioElaboracionPage() {
   const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === CODIGO_ETAPA_ELABORACION
   const alcance = alcanceSeleccionado ?? datos.alcance ?? ''
   const faltantes = Object.fromEntries((validacion.data?.faltantes ?? []).map((item) => [item.campo, item.motivo]))
-  const puedeFinalizar = editable && validacion.data?.completo === true
+  const observacionesJuridicas = historial.data?.revisiones
+    .filter((revision) => revision.tipo === 'JURIDICA')
+    .flatMap((revision) => revision.observaciones)
+    .filter((observacion) => observacion.origen === 'REVISOR_ORI') ?? []
+  const observacionesPendientes = observacionesJuridicas.filter((observacion) => observacion.estado === 'PENDIENTE')
+  const puedeFinalizar = editable
+    && validacion.data?.completo === true
+    && historial.isSuccess
+    && observacionesPendientes.length === 0
 
   function mensajeCampo(campo: string) {
     return errores[campo] || faltantes[campo]
@@ -341,7 +390,11 @@ export function ConvenioElaboracionPage() {
                 className="btn btn-primary"
                 type="button"
                 disabled={!puedeFinalizar}
-                title={puedeFinalizar ? undefined : 'Complete la información requerida para habilitar la finalización'}
+                title={puedeFinalizar
+                  ? undefined
+                  : observacionesPendientes.length > 0
+                    ? 'Atienda todas las observaciones jurídicas antes de reenviar el convenio'
+                    : 'Complete la información requerida para habilitar la finalización'}
                 onClick={() => setModalFinalizarAbierto(true)}
               >
                 Finalizar elaboración
@@ -362,6 +415,72 @@ export function ConvenioElaboracionPage() {
           )}
         </section>
       </form>
+
+      {observacionesJuridicas.length > 0 && (
+        <section className="card observaciones-elaboracion">
+          <h2>Observaciones de la revisión jurídica</h2>
+          <p className="section-help">
+            Revise las correcciones solicitadas y responda cada observación pendiente antes de reenviar el convenio.
+          </p>
+          {observacionesJuridicas.map((observacion) => {
+            const respuesta = respuestas[observacion.id] ?? ''
+            const pendiente = observacion.estado === 'PENDIENTE'
+            const errorRespuesta = pendiente && respuestas[observacion.id] !== undefined && !respuesta.trim()
+            return (
+              <article className="observacion-elaboracion" key={observacion.id}>
+                <div className="page-toolbar">
+                  <h3>{observacion.descripcion}</h3>
+                  <span className={`badge ${pendiente ? 'badge-pendiente' : 'badge-activo'}`}>
+                    {pendiente ? 'Pendiente' : 'Atendida'}
+                  </span>
+                </div>
+                {!pendiente && (
+                  <p><strong>Respuesta:</strong> {observacion.respuesta ?? '—'}</p>
+                )}
+                {pendiente && editable && (
+                  <div className="form-group">
+                    <label className="form-label" htmlFor={`respuesta-observacion-${observacion.id}`}>
+                      Respuesta
+                    </label>
+                    <textarea
+                      id={`respuesta-observacion-${observacion.id}`}
+                      className={`form-control ${errorRespuesta ? 'is-invalid' : ''}`}
+                      value={respuesta}
+                      placeholder="Describa la corrección realizada para atender esta observación."
+                      aria-invalid={errorRespuesta}
+                      aria-describedby={errorRespuesta ? `respuesta-observacion-${observacion.id}-error` : undefined}
+                      onChange={(event) => setRespuestas((actuales) => ({
+                        ...actuales,
+                        [observacion.id]: event.target.value,
+                      }))}
+                    />
+                    {errorRespuesta && (
+                      <span id={`respuesta-observacion-${observacion.id}-error`} className="form-error">
+                        La respuesta es obligatoria.
+                      </span>
+                    )}
+                    <button
+                      className="btn btn-outline"
+                      type="button"
+                      disabled={atender.isPending}
+                      onClick={() => {
+                        const normalizada = respuesta.trim()
+                        if (!normalizada) {
+                          setRespuestas((actuales) => ({ ...actuales, [observacion.id]: '' }))
+                          return
+                        }
+                        atender.mutate({ observacionId: observacion.id, respuesta: normalizada })
+                      }}
+                    >
+                      Marcar como atendida
+                    </button>
+                  </div>
+                )}
+              </article>
+            )
+          })}
+        </section>
+      )}
 
       {modalFinalizarAbierto && (
         <FinalizarElaboracionModal

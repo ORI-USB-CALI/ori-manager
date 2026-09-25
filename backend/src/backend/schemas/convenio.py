@@ -1,11 +1,17 @@
 from datetime import date, datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
+    EstadoObservacionRevision,
+    EstadoRevisionConvenio,
     EstadoSolicitud,
+    OrigenObservacionRevision,
+    ResultadoRevisionConvenio,
+    TipoRevisionConvenio,
     TipoSolicitante,
 )
 
@@ -181,3 +187,109 @@ class ValidacionElaboracionLeer(BaseModel):
 class CatalogosElaboracionLeer(BaseModel):
     tipos_convenio: list[TipoConvenioElaboracionOpcion]
     unidades_organizacionales: list[UnidadOrganizacionalResumen]
+
+
+class ObservacionRevisionLeer(BaseModel):
+    """Una observación registrada durante un ciclo de revisión (CA-04, CA-06)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    origen: OrigenObservacionRevision
+    descripcion: str
+    respuesta: str | None
+    estado: EstadoObservacionRevision
+    registrada_por: UsuarioResumen
+    responsable: UsuarioResumen | None
+    atendida_por: UsuarioResumen | None
+    fecha_atencion: datetime | None
+    creado_en: datetime
+
+
+class RevisionConvenioLeer(BaseModel):
+    """Un ciclo de revisión (jurídica, de contraparte o final) con su resultado
+    y las observaciones que dejó, para CA-06 y CA-07."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: TipoRevisionConvenio
+    estado: EstadoRevisionConvenio
+    resultado: ResultadoRevisionConvenio | None
+    responsable: UsuarioResumen | None
+    resuelta_por: UsuarioResumen | None
+    snapshot_datos: dict[str, Any] | None
+    creado_en: datetime
+    resuelta_en: datetime | None
+    observaciones: list[ObservacionRevisionLeer]
+
+
+class HistorialEtapaLeer(BaseModel):
+    """Un cambio de etapa del convenio, para la trazabilidad de CA-07."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    etapa_origen: EtapaResumen | None
+    etapa_destino: EtapaResumen
+    usuario: UsuarioResumen
+    responsable: UsuarioResumen | None
+    observacion: str | None
+    fecha_cambio: datetime
+
+
+class HistorialConvenioLeer(BaseModel):
+    """Historial completo de un convenio: sus rondas de revisión y sus cambios
+    de etapa, ordenados cronológicamente (CA-06, CA-07)."""
+
+    revisiones: list[RevisionConvenioLeer]
+    cambios_etapa: list[HistorialEtapaLeer]
+
+
+class DocumentoConvenioLeer(BaseModel):
+    """Un documento cargado al convenio, para CA-01 ('documentos asociados')."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: str
+    nombre_archivo: str
+    tipo_mime: str
+    tamano_bytes: int
+    creado_en: datetime
+
+
+class ConvenioParaRevisionLeer(BaseModel):
+    """Convenio preparado para la pantalla principal de revisión jurídica:
+    su información, documentos y la ronda de revisión pendiente que el
+    Revisor ORI debe resolver (CA-01, CA-02 de HU-13)."""
+
+    convenio: ConvenioElaboracionLeer
+    documentos: list[DocumentoConvenioLeer]
+    revision_pendiente: RevisionConvenioLeer
+
+class DevolverRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observaciones: list[str] = Field(min_length=1)
+
+    @field_validator("observaciones")
+    @classmethod
+    def validar_observaciones(cls, valores: list[str]) -> list[str]:
+        if any(not valor.strip() for valor in valores):
+            raise ValueError("Cada observación debe tener contenido")
+        return [valor.strip() for valor in valores]
+
+
+class AtenderObservacion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    respuesta: str = Field(min_length=1)
+
+    @field_validator("respuesta")
+    @classmethod
+    def validar_respuesta(cls, valor: str) -> str:
+        normalizada = valor.strip()
+        if not normalizada:
+            raise ValueError("La respuesta debe tener contenido")
+        return normalizada

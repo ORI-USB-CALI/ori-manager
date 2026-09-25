@@ -1,6 +1,8 @@
 from typing import Annotated, NoReturn
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,11 +14,19 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import (
+    AtenderObservacion,
     CatalogosElaboracionLeer,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionLeer,
     ConvenioLeer,
+    ConvenioParaRevisionLeer,
+    DevolverRevision,
+    DocumentoConvenioLeer,
+    HistorialConvenioLeer,
+    HistorialEtapaLeer,
+    ObservacionRevisionLeer,
+    RevisionConvenioLeer,
     ValidacionElaboracionLeer,
 )
 from backend.services.convenios import (
@@ -25,23 +35,41 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ElaboracionIncompleta,
     ErrorConvenio,
+    ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
+    RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
     validar_completitud,
 )
+from backend.services.documentos import (
+    AlmacenDocumentos,
+    ErrorAlmacenDocumentos,
+    get_almacen_documentos,
+)
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
+Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
+PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, (ConvenioDuplicado, SolicitudNoAprobada, ConvenioNoEditable)):
+    if isinstance(
+        exc,
+        (
+            ConvenioDuplicado,
+            SolicitudNoAprobada,
+            ConvenioNoEditable,
+            RevisionNoDisponible,
+            ObservacionNoDisponible,
+        ),
+    ):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if isinstance(exc, ElaboracionIncompleta):
         raise HTTPException(
@@ -139,5 +167,146 @@ def actualizar_convenio(
 ) -> Convenio:
     try:
         return ServicioConvenios(db).actualizar(convenio_id, datos, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get("/{convenio_id}/revisiones", response_model=HistorialConvenioLeer)
+def obtener_historial_convenio(
+    convenio_id: int, db: DatabaseSession, _: PuedeVer
+) -> HistorialConvenioLeer:
+    """CA-06/CA-07 de HU-13: historial de rondas de revisión y cambios de
+    etapa del convenio, ordenados cronológicamente.
+
+    Se ordena por `id` (autoincremental), no por el timestamp: dentro de una
+    misma transacción, `now()` en Postgres devuelve siempre el mismo valor
+    para todas las filas insertadas, así que `creado_en`/`fecha_cambio`
+    pueden empatar entre sí y no garantizan el orden real de inserción.
+    """
+    try:
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    revisiones = sorted(convenio.revisiones, key=lambda revision: revision.id)
+    cambios_etapa = sorted(convenio.historial_etapas, key=lambda cambio: cambio.id)
+    return HistorialConvenioLeer(
+        revisiones=[RevisionConvenioLeer.model_validate(r) for r in revisiones],
+        cambios_etapa=[HistorialEtapaLeer.model_validate(h) for h in cambios_etapa],
+    )
+
+
+@router.get("/{convenio_id}/revision", response_model=ConvenioParaRevisionLeer)
+def obtener_revision_pendiente(
+    convenio_id: int, db: DatabaseSession, _: PuedeRevisar
+) -> ConvenioParaRevisionLeer:
+    """CA-01/CA-02 de HU-13: pantalla principal de revisión jurídica — el
+    convenio preparado para revisión, sus documentos y la ronda de revisión
+    pendiente que el Revisor ORI debe resolver."""
+    try:
+        convenio, revision_pendiente, documentos = ServicioConvenios(
+            db
+        ).obtener_para_revision(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return ConvenioParaRevisionLeer(
+        convenio=ConvenioElaboracionLeer.model_validate(convenio),
+        documentos=[
+            DocumentoConvenioLeer.model_validate(documento)
+            for documento in documentos
+        ],
+        revision_pendiente=RevisionConvenioLeer.model_validate(revision_pendiente),
+    )
+
+
+@router.get("/{convenio_id}/documentos/{documento_id}/contenido")
+def obtener_contenido_documento(
+    convenio_id: int,
+    documento_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    _: PuedeVer,
+) -> Response:
+    try:
+        documento, contenido = ServicioConvenios(
+            db, almacen
+        ).obtener_contenido_documento(convenio_id, documento_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible recuperar el documento almacenado",
+        ) from exc
+    nombre = quote(documento.nombre_archivo, safe="")
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+    )
+
+
+@router.patch(
+    "/{convenio_id}/observaciones/{observacion_id}/atender",
+    response_model=ObservacionRevisionLeer,
+)
+def atender_observacion(
+    convenio_id: int,
+    observacion_id: int,
+    datos: AtenderObservacion,
+    db: DatabaseSession,
+    usuario: PuedeEditar,
+) -> ObservacionRevisionLeer:
+    try:
+        observacion = ServicioConvenios(db).atender_observacion(
+            convenio_id, observacion_id, datos.respuesta, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        cargada = next(
+            observacion_historial
+            for revision in convenio.revisiones
+            for observacion_historial in revision.observaciones
+            if observacion_historial.id == observacion.id
+        )
+        return ObservacionRevisionLeer.model_validate(cargada)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revisiones/{revision_id}/aprobar",
+    response_model=RevisionConvenioLeer,
+)
+def aprobar_revision(
+    convenio_id: int, revision_id: int, db: DatabaseSession, usuario: PuedeRevisar
+) -> RevisionConvenioLeer:
+    try:
+        ServicioConvenios(db).aprobar(convenio_id, revision_id, usuario)
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(r for r in convenio.revisiones if r.id == revision_id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revisiones/{revision_id}/devolver",
+    response_model=RevisionConvenioLeer,
+)
+def devolver_revision(
+    convenio_id: int,
+    revision_id: int,
+    datos: DevolverRevision,
+    db: DatabaseSession,
+    usuario: PuedeRevisar,
+) -> RevisionConvenioLeer:
+    try:
+        ServicioConvenios(db).devolver(
+            convenio_id, revision_id, datos.observaciones, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(r for r in convenio.revisiones if r.id == revision_id)
+        )
     except ErrorConvenio as exc:
         _lanzar_http(exc)

@@ -32,6 +32,8 @@ class GraphFalso:
             )
         if ruta.endswith(f"/items/approot:/{self.storage_root}"):
             return httpx.Response(200, json={"id": "root"})
+        if request.method == "GET" and ruta.endswith("/items/documento/content"):
+            return httpx.Response(200, content=b"contenido")
         if request.method == "GET" and ":/" in ruta:
             item_id, nombre = ruta.rsplit("/items/", 1)[1].split(":/", 1)
             carpeta_id = self.carpetas.get((item_id, nombre))
@@ -159,6 +161,7 @@ def test_graph_obtiene_token_approot_guarda_consulta_y_elimina(storage_root):
 
     almacen.guardar(clave, b"contenido")
     assert almacen.existe(clave) is True
+    assert almacen.leer(clave) == b"contenido"
     almacen.eliminar(clave)
     assert almacen.existe(clave) is False
     almacen.eliminar(clave)
@@ -183,6 +186,23 @@ def test_graph_obtiene_token_approot_guarda_consulta_y_elimina(storage_root):
     )
     assert any(request.method == "PUT" for request in graph.peticiones)
     assert any(request.method == "DELETE" for request in graph.peticiones)
+
+
+def test_almacen_local_lee_y_protege_la_clave(tmp_path):
+    almacen = AlmacenDocumentosLocal(tmp_path)
+    almacen.guardar("solicitudes/123/documento.pdf", b"contenido local")
+
+    assert almacen.leer("solicitudes/123/documento.pdf") == b"contenido local"
+
+    with pytest.raises(ValueError, match="Clave de almacenamiento inválida"):
+        almacen.leer("../documento.pdf")
+
+
+def test_almacen_local_reporta_documento_ausente(tmp_path):
+    almacen = AlmacenDocumentosLocal(tmp_path)
+
+    with pytest.raises(ErrorAlmacenDocumentos, match="no está disponible"):
+        almacen.leer("solicitudes/123/ausente.pdf")
 
 
 @pytest.mark.parametrize(

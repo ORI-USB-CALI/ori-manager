@@ -25,6 +25,7 @@ TIPOS_DOCUMENTO_REPRESENTACION = frozenset(
 
 class AlmacenDocumentos(Protocol):
     def guardar(self, clave: str, contenido: bytes) -> None: ...
+    def leer(self, clave: str) -> bytes: ...
     def eliminar(self, clave: str) -> None: ...
     def existe(self, clave: str) -> bool: ...
 
@@ -55,6 +56,15 @@ class AlmacenDocumentosLocal:
         temporal = ruta.with_suffix(f"{ruta.suffix}.tmp")
         temporal.write_bytes(contenido)
         temporal.replace(ruta)
+
+    def leer(self, clave: str) -> bytes:
+        ruta = self._ruta(clave)
+        try:
+            return ruta.read_bytes()
+        except OSError as exc:
+            raise ErrorAlmacenDocumentos(
+                "El documento almacenado no está disponible"
+            ) from exc
 
     def eliminar(self, clave: str) -> None:
         ruta = self._ruta(clave)
@@ -224,6 +234,24 @@ class AlmacenDocumentosMicrosoftGraph:
 
     def existe(self, clave: str) -> bool:
         return self._buscar(self._partes(clave)).status_code != 404
+
+    def leer(self, clave: str) -> bytes:
+        respuesta = self._buscar(self._partes(clave))
+        if respuesta.status_code == 404:
+            raise ErrorAlmacenDocumentos(
+                "El documento almacenado no está disponible"
+            )
+        try:
+            item_id = respuesta.json()["id"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ErrorAlmacenDocumentos(
+                "Microsoft Graph devolvió un documento inválido"
+            ) from exc
+        return self._solicitar(
+            "GET",
+            f"/drives/{quote(self._drive_id, safe='')}/items/"
+            f"{quote(item_id, safe='')}/content",
+        ).content
 
     def eliminar(self, clave: str) -> None:
         respuesta = self._buscar(self._partes(clave))

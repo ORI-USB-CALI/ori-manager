@@ -24,6 +24,7 @@ export type Permiso =
   | 'convenios.ver'
   | 'convenios.crear'
   | 'convenios.editar'
+  | 'convenios.revisar'
   | 'solicitudes.crear'
   | 'solicitudes.ver_propias'
   | 'solicitudes.editar_propias'

@@ -1,22 +1,27 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
+from backend.models.documento import Documento
 from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
     EstadoConvenio,
+    EstadoObservacionRevision,
     EstadoRevisionConvenio,
     EstadoSolicitud,
+    OrigenObservacionRevision,
+    ResultadoRevisionConvenio,
     TipoRevisionConvenio,
 )
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
@@ -27,6 +32,7 @@ from backend.schemas.convenio import (
     ConvenioCrear,
     ConvenioElaboracionActualizar,
 )
+from backend.services.documentos import AlmacenDocumentos
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
@@ -148,6 +154,14 @@ class ConvenioNoEditable(ErrorConvenio):
     pass
 
 
+class RevisionNoDisponible(ErrorConvenio):
+    pass
+
+
+class ObservacionNoDisponible(ErrorConvenio):
+    pass
+
+
 class ElaboracionIncompleta(ErrorConvenio):
     def __init__(self, faltantes: list[CampoFaltante]) -> None:
         self.faltantes = faltantes
@@ -159,8 +173,16 @@ class ConfiguracionConvenioInvalida(RuntimeError):
 
 
 class ServicioConvenios:
-    def __init__(self, db: Session):
+    def __init__(
+        self, db: Session, almacen: AlmacenDocumentos | None = None
+    ):
         self.db = db
+        self.almacen = almacen
+
+    def _almacen_requerido(self) -> AlmacenDocumentos:
+        if self.almacen is None:
+            raise RuntimeError("El servicio requiere almacenamiento documental")
+        return self.almacen
 
     def _validar_referencias(self, datos: dict[str, object]) -> None:
         tipo_id = datos.get("tipo_convenio_id")
@@ -253,6 +275,88 @@ class ServicioConvenios:
             raise ConvenioNoEncontrado("Convenio no encontrado")
         return convenio
 
+    def obtener_para_revision(
+        self, convenio_id: int
+    ) -> tuple[Convenio, RevisionConvenio, list[Documento]]:
+        """Convenio con su documentación y la ronda de revisión jurídica
+        pendiente, para la pantalla principal de revisión (CA-01 de HU-13)."""
+        convenio = self.db.scalar(
+            select(Convenio)
+            .options(
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.creado_por),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.unidad_organizacional),
+            )
+            .where(Convenio.id == convenio_id)
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_JURIDICA
+        ):
+            raise ConvenioNoEditable(
+                "El convenio no está en etapa de revisión jurídica"
+            )
+
+        revision_pendiente = self.db.scalar(
+            select(RevisionConvenio)
+            .options(
+                selectinload(RevisionConvenio.observaciones),
+                joinedload(RevisionConvenio.responsable),
+                joinedload(RevisionConvenio.resuelta_por),
+            )
+            .where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+            )
+        )
+        if revision_pendiente is None:
+            # En la práctica esto solo pasa cuando aprobar()/devolver() ya
+            # resolvieron la ronda pero el convenio todavía no avanzó de
+            # etapa (aprobar() no la mueve): no es un error de configuración,
+            # es que ya no hay nada pendiente que revisar.
+            raise RevisionNoDisponible(
+                "No hay una ronda de revisión jurídica pendiente para este convenio"
+            )
+        documentos = list(
+            self.db.scalars(
+                select(Documento)
+                .where(
+                    Documento.es_vigente.is_(True),
+                    or_(
+                        Documento.solicitud_id == convenio.solicitud_id,
+                        Documento.convenio_id == convenio.id,
+                    ),
+                )
+                .order_by(Documento.creado_en, Documento.id)
+            )
+        )
+        return convenio, revision_pendiente, documentos
+
+    def obtener_contenido_documento(
+        self, convenio_id: int, documento_id: int
+    ) -> tuple[Documento, bytes]:
+        convenio = self.obtener(convenio_id)
+        documento = self.db.scalar(
+            select(Documento).where(
+                Documento.id == documento_id,
+                Documento.es_vigente.is_(True),
+                or_(
+                    Documento.solicitud_id == convenio.solicitud_id,
+                    Documento.convenio_id == convenio.id,
+                ),
+            )
+        )
+        if documento is None:
+            raise ConvenioNoEncontrado("Documento no encontrado")
+        contenido = self._almacen_requerido().leer(documento.ruta_almacenamiento)
+        return documento, contenido
+
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""
         convenio = self.db.scalar(
@@ -337,6 +441,28 @@ class ServicioConvenios:
         if faltantes:
             raise ElaboracionIncompleta(faltantes)
 
+        pendiente = self.db.scalar(
+            select(ObservacionRevision.id)
+            .join(
+                RevisionConvenio,
+                RevisionConvenio.id == ObservacionRevision.revision_convenio_id,
+            )
+            .where(
+                ObservacionRevision.convenio_id == convenio.id,
+                ObservacionRevision.origen
+                == OrigenObservacionRevision.REVISOR_ORI.value,
+                ObservacionRevision.estado
+                == EstadoObservacionRevision.PENDIENTE.value,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+            .limit(1)
+        )
+        if pendiente is not None:
+            raise RevisionNoDisponible(
+                "Debe atender todas las observaciones jurídicas pendientes "
+                "antes de reenviar el convenio"
+            )
+
         juridica = self.db.scalar(
             select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA)
         )
@@ -378,3 +504,206 @@ class ServicioConvenios:
             self.db.rollback()
             raise
         return self.obtener(convenio.id)
+
+    def _revision_juridica_pendiente(
+        self, convenio_id: int, revision_id: int
+    ) -> tuple[Convenio, RevisionConvenio]:
+        # Bloquear la fila evita que dos acciones resuelvan la misma ronda.
+        revision = self.db.scalar(
+            select(RevisionConvenio)
+            .where(
+                RevisionConvenio.id == revision_id,
+                RevisionConvenio.convenio_id == convenio_id,
+            )
+            .with_for_update()
+        )
+        if revision is None:
+            raise ConvenioNoEncontrado("Revisión no encontrada para este convenio")
+        convenio = self.obtener(convenio_id)
+        if (
+            revision.tipo != TipoRevisionConvenio.JURIDICA.value
+            or revision.estado != EstadoRevisionConvenio.PENDIENTE.value
+            or revision.resultado is not None
+            or convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_JURIDICA
+        ):
+            raise RevisionNoDisponible("La revisión jurídica ya no está pendiente")
+        return convenio, revision
+
+    def aprobar(
+        self, convenio_id: int, revision_id: int, usuario: Usuario
+    ) -> RevisionConvenio:
+        convenio, revision = self._revision_juridica_pendiente(
+            convenio_id, revision_id
+        )
+        pendiente = self.db.scalar(
+            select(ObservacionRevision.id)
+            .join(
+                RevisionConvenio,
+                RevisionConvenio.id == ObservacionRevision.revision_convenio_id,
+            )
+            .where(
+                ObservacionRevision.convenio_id == convenio.id,
+                ObservacionRevision.origen
+                == OrigenObservacionRevision.REVISOR_ORI.value,
+                ObservacionRevision.estado
+                == EstadoObservacionRevision.PENDIENTE.value,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+            .limit(1)
+        )
+        if pendiente is not None:
+            raise RevisionNoDisponible("Hay observaciones pendientes por atender")
+        revision.estado = EstadoRevisionConvenio.RESUELTA.value
+        revision.resultado = ResultadoRevisionConvenio.APROBADA.value
+        revision.resuelta_por_id = usuario.id
+        revision.resuelta_en = datetime.now(UTC)
+        try:
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return revision
+
+    def atender_observacion(
+        self,
+        convenio_id: int,
+        observacion_id: int,
+        respuesta: str,
+        usuario: Usuario,
+    ) -> ObservacionRevision:
+        texto = respuesta.strip()
+        if not texto:
+            raise ReferenciaConvenioInvalida("La respuesta debe tener contenido")
+
+        observacion = self.db.scalar(
+            select(ObservacionRevision)
+            .where(
+                ObservacionRevision.id == observacion_id,
+                ObservacionRevision.convenio_id == convenio_id,
+            )
+            .with_for_update()
+        )
+        if observacion is None:
+            raise ConvenioNoEncontrado(
+                "Observación no encontrada para este convenio"
+            )
+
+        convenio = self.obtener(convenio_id)
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        ):
+            raise ObservacionNoDisponible(
+                "Las observaciones solo pueden atenderse durante la Elaboración"
+            )
+        if observacion.origen != OrigenObservacionRevision.REVISOR_ORI.value:
+            raise ObservacionNoDisponible(
+                "La observación no corresponde a la revisión jurídica"
+            )
+        if observacion.estado != EstadoObservacionRevision.PENDIENTE.value:
+            raise ObservacionNoDisponible("La observación ya fue atendida")
+
+        observacion.respuesta = texto
+        observacion.atendida_por = usuario
+        observacion.fecha_atencion = datetime.now(UTC)
+        observacion.estado = EstadoObservacionRevision.ATENDIDA.value
+        try:
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return observacion
+
+    def devolver(
+        self, convenio_id: int, revision_id: int, observaciones: list[str],
+        usuario: Usuario,
+    ) -> RevisionConvenio:
+        if not observaciones or any(not texto.strip() for texto in observaciones):
+            raise ReferenciaConvenioInvalida("Debe incluir al menos una observación")
+        convenio, revision = self._revision_juridica_pendiente(
+            convenio_id, revision_id
+        )
+        elaboracion = self.db.scalar(
+            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_ELABORACION)
+        )
+        if elaboracion is None:
+            raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+        historial = HistorialEtapa(
+            convenio_id=convenio.id,
+            etapa_origen_id=convenio.etapa_actual_id,
+            etapa_destino_id=elaboracion.id,
+            usuario_id=usuario.id,
+            responsable_id=convenio.creado_por_id,
+            observacion="Devolución de revisión jurídica",
+        )
+        self.db.add(historial)
+        try:
+            self.db.flush()
+            for texto in observaciones:
+                self.db.add(ObservacionRevision(
+                    convenio_id=convenio.id,
+                    historial_etapa_id=historial.id,
+                    revision_convenio_id=revision.id,
+                    origen=OrigenObservacionRevision.REVISOR_ORI.value,
+                    registrada_por_id=usuario.id,
+                    responsable_id=convenio.creado_por_id,
+                    descripcion=texto.strip(),
+                    estado=EstadoObservacionRevision.PENDIENTE.value,
+                ))
+            revision.estado = EstadoRevisionConvenio.RESUELTA.value
+            revision.resultado = ResultadoRevisionConvenio.DEVUELTA.value
+            revision.resuelta_por_id = usuario.id
+            revision.resuelta_en = datetime.now(UTC)
+            convenio.etapa_actual = elaboracion
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return revision
+
+    def obtener_historial(self, convenio_id: int) -> Convenio:
+        """Convenio con sus rondas de revisión, observaciones y cambios de etapa,
+        para la vista de historial y trazabilidad (CA-06, CA-07 de HU-13).
+
+        No filtra por tipo de revisión a propósito: aunque hoy solo existe la
+        ronda jurídica (HU-13), el historial debe seguir siendo válido cuando
+        HU-14/HU-15 agreguen sus propias rondas sobre el mismo convenio.
+        """
+        convenio = self.db.scalar(
+            select(Convenio)
+            .options(
+                selectinload(Convenio.revisiones)
+                .selectinload(RevisionConvenio.observaciones)
+                .joinedload(ObservacionRevision.registrada_por),
+                selectinload(Convenio.revisiones)
+                .selectinload(RevisionConvenio.observaciones)
+                .joinedload(ObservacionRevision.responsable),
+                selectinload(Convenio.revisiones)
+                .selectinload(RevisionConvenio.observaciones)
+                .joinedload(ObservacionRevision.atendida_por),
+                selectinload(Convenio.revisiones).joinedload(
+                    RevisionConvenio.responsable
+                ),
+                selectinload(Convenio.revisiones).joinedload(
+                    RevisionConvenio.resuelta_por
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.etapa_origen
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.etapa_destino
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.usuario
+                ),
+                selectinload(Convenio.historial_etapas).joinedload(
+                    HistorialEtapa.responsable
+                ),
+            )
+            .execution_options(populate_existing=True)
+            .where(Convenio.id == convenio_id)
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        return convenio
