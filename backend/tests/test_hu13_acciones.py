@@ -117,3 +117,112 @@ def test_historial_conserva_observaciones_y_devolucion_via_api(
     assert [o["descripcion"] for o in revisada["observaciones"]] == ["Corregir objeto"]
     assert revisada["observaciones"][0]["estado"] == "PENDIENTE"
     assert cuerpo["cambios_etapa"][-1]["etapa_destino"]["codigo"] == "ELABORACION"
+
+
+def test_atencion_exige_editor_respuesta_y_estado_pendiente(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+):
+    revision = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    devolucion = client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/devolver",
+        json={"observaciones": ["Corregir el objeto"]},
+    )
+    observacion_id = devolucion.json()["observaciones"][0]["id"]
+    ruta = (
+        f"/api/convenios/{convenio_listo.id}/observaciones/"
+        f"{observacion_id}/atender"
+    )
+
+    assert client.patch(ruta, json={"respuesta": "Corregido"}).status_code == 403
+    entrar_como(gestor)
+    assert client.patch(ruta, json={"respuesta": "   "}).status_code == 422
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+    ).status_code == 409
+
+    respuesta = client.patch(
+        ruta, json={"respuesta": "  Se corrigió el objeto solicitado.  "}
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["estado"] == "ATENDIDA"
+    assert cuerpo["respuesta"] == "Se corrigió el objeto solicitado."
+    assert cuerpo["atendida_por"]["id"] == gestor.id
+    assert cuerpo["fecha_atencion"] is not None
+    assert client.patch(ruta, json={"respuesta": "Otra respuesta"}).status_code == 409
+
+
+def test_ciclo_real_devolucion_correccion_atencion_reenvio_y_aprobacion(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+):
+    objeto_inicial = convenio_listo.objeto
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+    ).status_code == 200
+    primera = db.scalar(
+        select(RevisionConvenio)
+        .where(RevisionConvenio.convenio_id == convenio_listo.id)
+        .order_by(RevisionConvenio.id)
+    )
+    snapshot_primera = dict(primera.snapshot_datos)
+
+    entrar_como(revisor)
+    devolucion = client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{primera.id}/devolver",
+        json={"observaciones": ["Ajustar el objeto del convenio"]},
+    )
+    assert devolucion.status_code == 200
+    observacion_id = devolucion.json()["observaciones"][0]["id"]
+
+    entrar_como(gestor)
+    assert client.patch(
+        f"/api/convenios/{convenio_listo.id}",
+        json={"objeto": "Objeto corregido del convenio"},
+    ).status_code == 200
+    assert client.patch(
+        f"/api/convenios/{convenio_listo.id}/observaciones/"
+        f"{observacion_id}/atender",
+        json={"respuesta": "Se ajustó el objeto conforme a la observación."},
+    ).status_code == 200
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+    ).status_code == 200
+
+    revisiones = list(
+        db.scalars(
+            select(RevisionConvenio)
+            .where(RevisionConvenio.convenio_id == convenio_listo.id)
+            .order_by(RevisionConvenio.id)
+        )
+    )
+    assert len(revisiones) == 2
+    segunda = revisiones[1]
+    assert snapshot_primera["objeto"] == objeto_inicial
+    assert primera.snapshot_datos["objeto"] == objeto_inicial
+    assert segunda.snapshot_datos["objeto"] == "Objeto corregido del convenio"
+    assert primera.snapshot_datos != segunda.snapshot_datos
+
+    entrar_como(revisor)
+    aprobacion = client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{segunda.id}/aprobar"
+    )
+    assert aprobacion.status_code == 200
+    historial = client.get(
+        f"/api/convenios/{convenio_listo.id}/revisiones"
+    ).json()
+    primera_api, segunda_api = historial["revisiones"]
+    observacion = primera_api["observaciones"][0]
+    assert primera_api["estado"] == "RESUELTA"
+    assert primera_api["resultado"] == "DEVUELTA"
+    assert observacion["estado"] == "ATENDIDA"
+    assert observacion["respuesta"]
+    assert observacion["atendida_por"]["id"] == gestor.id
+    assert observacion["fecha_atencion"] is not None
+    assert segunda_api["estado"] == "RESUELTA"
+    assert segunda_api["resultado"] == "APROBADA"
+    assert segunda_api["resuelta_por"]["id"] == revisor.id
+    assert segunda_api["resuelta_en"] is not None
+    db.refresh(convenio_listo)
+    assert convenio_listo.etapa_actual.codigo == "REVISION_AVAL_JURIDICO"

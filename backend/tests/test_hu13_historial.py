@@ -1,79 +1,8 @@
-"""HU-13 — Realizar revisión y aval jurídico del convenio.
-
-Parte cubierta aquí: historial y trazabilidad (CA-06, CA-07), expuestos en
-GET /convenios/{id}/revisiones. No cubre aprobar()/devolver() (Persona 2) ni
-la pantalla principal de revisión (Persona 3): ese endpoint no existe todavía
-en este archivo, así que el "ciclo anterior" de las pruebas de CA-06 se arma
-a mano (ver `_simular_devolucion`), sin depender de código que aún no existe.
-"""
-
-from datetime import UTC, datetime
+"""HU-13: historial y trazabilidad de rondas reales de revisión."""
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from backend.models.convenio import Convenio
-from backend.models.enums import (
-    EstadoObservacionRevision,
-    EstadoRevisionConvenio,
-    OrigenObservacionRevision,
-    ResultadoRevisionConvenio,
-)
-from backend.models.etapa import Etapa
-from backend.models.historial_etapa import HistorialEtapa
-from backend.models.observacion_revision import ObservacionRevision
 from backend.models.revision_convenio import RevisionConvenio
-from backend.models.usuario import Usuario
-
-# gestor, revisor, solicitante, crear_convenio y convenio_listo viven en
-# conftest.py (compartidas con test_hu13_revision.py y test_hu13_acciones.py).
-
-
-def _simular_devolucion(db: Session, convenio: Convenio, revisor: Usuario, gestor: Usuario) -> None:
-    """Deja el mismo estado que dejaría ServicioConvenios.devolver() de HU-13
-    (Persona 2), sin depender de esa implementación: resuelve la ronda de
-    revisión pendiente como DEVUELTA con una observación atendida, y regresa
-    el convenio a Elaboración. Solo para preparar el escenario de un
-    segundo ciclo en las pruebas de CA-06.
-    """
-    revision_pendiente = db.scalar(
-        select(RevisionConvenio)
-        .where(RevisionConvenio.convenio_id == convenio.id)
-        .order_by(RevisionConvenio.id.desc())
-    )
-    observacion = ObservacionRevision(
-        convenio_id=convenio.id,
-        historial_etapa_id=revision_pendiente.historial_etapa_id,
-        revision_convenio_id=revision_pendiente.id,
-        origen=OrigenObservacionRevision.REVISOR_ORI.value,
-        registrada_por_id=revisor.id,
-        responsable_id=gestor.id,
-        descripcion="Falta anexar el certificado de representación legal",
-        respuesta="Se anexó el certificado solicitado",
-        atendida_por_id=gestor.id,
-        fecha_atencion=datetime.now(UTC),
-        estado=EstadoObservacionRevision.ATENDIDA.value,
-    )
-    db.add(observacion)
-    revision_pendiente.estado = EstadoRevisionConvenio.RESUELTA.value
-    revision_pendiente.resultado = ResultadoRevisionConvenio.DEVUELTA.value
-    revision_pendiente.resuelta_por_id = revisor.id
-    revision_pendiente.resuelta_en = datetime.now(UTC)
-
-    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
-    db.add(
-        HistorialEtapa(
-            convenio_id=convenio.id,
-            etapa_origen_id=convenio.etapa_actual_id,
-            etapa_destino_id=elaboracion.id,
-            usuario_id=revisor.id,
-            responsable_id=gestor.id,
-            observacion="Devuelto con observaciones",
-        )
-    )
-    convenio.etapa_actual_id = elaboracion.id
-    db.commit()
-
 
 # ---- CA-06/CA-07: historial y trazabilidad ------------------------------
 
@@ -129,14 +58,26 @@ def test_trazabilidad_registra_usuario_y_fecha_del_cambio_de_etapa(
 
 
 def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
-    client, db, gestor, revisor, convenio_listo
+    client, db, gestor, revisor, entrar_como, convenio_listo
 ) -> None:
     client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
-    db.refresh(convenio_listo)
-
-    _simular_devolucion(db, convenio_listo, revisor, gestor)
-
-    # Corregido y reenviado: reutiliza el mismo endpoint real de HU-12.
+    primera = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id
+        )
+    )
+    entrar_como(revisor)
+    devolucion = client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{primera.id}/devolver",
+        json={"observaciones": ["Falta anexar el certificado"]},
+    )
+    observacion_id = devolucion.json()["observaciones"][0]["id"]
+    entrar_como(gestor)
+    assert client.patch(
+        f"/api/convenios/{convenio_listo.id}/observaciones/"
+        f"{observacion_id}/atender",
+        json={"respuesta": "Se anexó el certificado solicitado"},
+    ).status_code == 200
     segunda = client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
     )
@@ -151,7 +92,10 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
     assert primera["resultado"] == "DEVUELTA"
     assert len(primera["observaciones"]) == 1
     assert primera["observaciones"][0]["estado"] == "ATENDIDA"
-    assert primera["observaciones"][0]["respuesta"] == "Se anexó el certificado solicitado"
+    assert (
+        primera["observaciones"][0]["respuesta"]
+        == "Se anexó el certificado solicitado"
+    )
 
     assert segunda_revision["estado"] == "PENDIENTE"
     assert segunda_revision["resultado"] is None

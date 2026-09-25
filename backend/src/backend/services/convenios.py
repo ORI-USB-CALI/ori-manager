@@ -1,12 +1,13 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
+from backend.models.documento import Documento
 from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
@@ -31,6 +32,7 @@ from backend.schemas.convenio import (
     ConvenioCrear,
     ConvenioElaboracionActualizar,
 )
+from backend.services.documentos import AlmacenDocumentos
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
@@ -156,6 +158,10 @@ class RevisionNoDisponible(ErrorConvenio):
     pass
 
 
+class ObservacionNoDisponible(ErrorConvenio):
+    pass
+
+
 class ElaboracionIncompleta(ErrorConvenio):
     def __init__(self, faltantes: list[CampoFaltante]) -> None:
         self.faltantes = faltantes
@@ -167,8 +173,16 @@ class ConfiguracionConvenioInvalida(RuntimeError):
 
 
 class ServicioConvenios:
-    def __init__(self, db: Session):
+    def __init__(
+        self, db: Session, almacen: AlmacenDocumentos | None = None
+    ):
         self.db = db
+        self.almacen = almacen
+
+    def _almacen_requerido(self) -> AlmacenDocumentos:
+        if self.almacen is None:
+            raise RuntimeError("El servicio requiere almacenamiento documental")
+        return self.almacen
 
     def _validar_referencias(self, datos: dict[str, object]) -> None:
         tipo_id = datos.get("tipo_convenio_id")
@@ -263,7 +277,7 @@ class ServicioConvenios:
 
     def obtener_para_revision(
         self, convenio_id: int
-    ) -> tuple[Convenio, RevisionConvenio]:
+    ) -> tuple[Convenio, RevisionConvenio, list[Documento]]:
         """Convenio con su documentación y la ronda de revisión jurídica
         pendiente, para la pantalla principal de revisión (CA-01 de HU-13)."""
         convenio = self.db.scalar(
@@ -275,7 +289,6 @@ class ServicioConvenios:
                 joinedload(Convenio.etapa_actual),
                 joinedload(Convenio.tipo_convenio),
                 joinedload(Convenio.unidad_organizacional),
-                selectinload(Convenio.documentos),
             )
             .where(Convenio.id == convenio_id)
         )
@@ -310,7 +323,39 @@ class ServicioConvenios:
             raise RevisionNoDisponible(
                 "No hay una ronda de revisión jurídica pendiente para este convenio"
             )
-        return convenio, revision_pendiente
+        documentos = list(
+            self.db.scalars(
+                select(Documento)
+                .where(
+                    Documento.es_vigente.is_(True),
+                    or_(
+                        Documento.solicitud_id == convenio.solicitud_id,
+                        Documento.convenio_id == convenio.id,
+                    ),
+                )
+                .order_by(Documento.creado_en, Documento.id)
+            )
+        )
+        return convenio, revision_pendiente, documentos
+
+    def obtener_contenido_documento(
+        self, convenio_id: int, documento_id: int
+    ) -> tuple[Documento, bytes]:
+        convenio = self.obtener(convenio_id)
+        documento = self.db.scalar(
+            select(Documento).where(
+                Documento.id == documento_id,
+                Documento.es_vigente.is_(True),
+                or_(
+                    Documento.solicitud_id == convenio.solicitud_id,
+                    Documento.convenio_id == convenio.id,
+                ),
+            )
+        )
+        if documento is None:
+            raise ConvenioNoEncontrado("Documento no encontrado")
+        contenido = self._almacen_requerido().leer(documento.ruta_almacenamiento)
+        return documento, contenido
 
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""
@@ -396,6 +441,28 @@ class ServicioConvenios:
         if faltantes:
             raise ElaboracionIncompleta(faltantes)
 
+        pendiente = self.db.scalar(
+            select(ObservacionRevision.id)
+            .join(
+                RevisionConvenio,
+                RevisionConvenio.id == ObservacionRevision.revision_convenio_id,
+            )
+            .where(
+                ObservacionRevision.convenio_id == convenio.id,
+                ObservacionRevision.origen
+                == OrigenObservacionRevision.REVISOR_ORI.value,
+                ObservacionRevision.estado
+                == EstadoObservacionRevision.PENDIENTE.value,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+            .limit(1)
+        )
+        if pendiente is not None:
+            raise RevisionNoDisponible(
+                "Debe atender todas las observaciones jurídicas pendientes "
+                "antes de reenviar el convenio"
+            )
+
         juridica = self.db.scalar(
             select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA)
         )
@@ -470,10 +537,20 @@ class ServicioConvenios:
             convenio_id, revision_id
         )
         pendiente = self.db.scalar(
-            select(ObservacionRevision.id).where(
+            select(ObservacionRevision.id)
+            .join(
+                RevisionConvenio,
+                RevisionConvenio.id == ObservacionRevision.revision_convenio_id,
+            )
+            .where(
                 ObservacionRevision.convenio_id == convenio.id,
-                ObservacionRevision.estado == EstadoObservacionRevision.PENDIENTE.value,
-            ).limit(1)
+                ObservacionRevision.origen
+                == OrigenObservacionRevision.REVISOR_ORI.value,
+                ObservacionRevision.estado
+                == EstadoObservacionRevision.PENDIENTE.value,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+            .limit(1)
         )
         if pendiente is not None:
             raise RevisionNoDisponible("Hay observaciones pendientes por atender")
@@ -487,6 +564,56 @@ class ServicioConvenios:
             self.db.rollback()
             raise
         return revision
+
+    def atender_observacion(
+        self,
+        convenio_id: int,
+        observacion_id: int,
+        respuesta: str,
+        usuario: Usuario,
+    ) -> ObservacionRevision:
+        texto = respuesta.strip()
+        if not texto:
+            raise ReferenciaConvenioInvalida("La respuesta debe tener contenido")
+
+        observacion = self.db.scalar(
+            select(ObservacionRevision)
+            .where(
+                ObservacionRevision.id == observacion_id,
+                ObservacionRevision.convenio_id == convenio_id,
+            )
+            .with_for_update()
+        )
+        if observacion is None:
+            raise ConvenioNoEncontrado(
+                "Observación no encontrada para este convenio"
+            )
+
+        convenio = self.obtener(convenio_id)
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        ):
+            raise ObservacionNoDisponible(
+                "Las observaciones solo pueden atenderse durante la Elaboración"
+            )
+        if observacion.origen != OrigenObservacionRevision.REVISOR_ORI.value:
+            raise ObservacionNoDisponible(
+                "La observación no corresponde a la revisión jurídica"
+            )
+        if observacion.estado != EstadoObservacionRevision.PENDIENTE.value:
+            raise ObservacionNoDisponible("La observación ya fue atendida")
+
+        observacion.respuesta = texto
+        observacion.atendida_por = usuario
+        observacion.fecha_atencion = datetime.now(UTC)
+        observacion.estado = EstadoObservacionRevision.ATENDIDA.value
+        try:
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return observacion
 
     def devolver(
         self, convenio_id: int, revision_id: int, observaciones: list[str],
@@ -574,6 +701,7 @@ class ServicioConvenios:
                     HistorialEtapa.responsable
                 ),
             )
+            .execution_options(populate_existing=True)
             .where(Convenio.id == convenio_id)
         )
         if convenio is None:

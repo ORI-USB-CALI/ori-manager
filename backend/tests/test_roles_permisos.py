@@ -92,8 +92,10 @@ def test_contenedor_de_la_matriz_es_inmutable() -> None:
         )
 
 
-def test_administrador_ori_posee_todos_los_permisos_definidos() -> None:
-    assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(Permiso) - {Permiso.CONVENIOS_REVISAR}
+def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
+    assert permisos_para_rol(CodigoRol.ADMINISTRADOR_ORI) == frozenset(Permiso) - {
+        Permiso.CONVENIOS_REVISAR
+    }
 
 
 def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:

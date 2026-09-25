@@ -674,6 +674,46 @@ a:hover {
   margin-top: 8px;
 }
 
+.snapshot-revision,
+.documentos-revision,
+.revision-acciones {
+  margin-top: 18px;
+}
+
+.revision-acciones {
+  display: grid;
+  gap: 16px;
+}
+
+.revision-acciones textarea,
+.observacion-elaboracion textarea {
+  min-height: 96px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.observaciones-elaboracion {
+  margin-top: 24px;
+}
+
+.observacion-elaboracion {
+  padding: 16px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.observacion-elaboracion .page-toolbar {
+  margin-bottom: 10px;
+}
+
+.observacion-elaboracion .form-group {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
+.observacion-elaboracion .btn {
+  align-self: flex-start;
+}
+
 .footer-internal {
   display: flex;
   min-height: 48px;

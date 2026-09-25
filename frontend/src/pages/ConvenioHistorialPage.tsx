@@ -154,7 +154,7 @@ export function ConvenioHistorialPage() {
                 <span className={`badge ${badge.clase}`}>{badge.texto}</span>
               </h3>
               <dl>
-                <dt>Versión revisada</dt>
+                <dt>Objeto revisado</dt>
                 <dd>{revision.snapshot_datos?.objeto ?? '—'}</dd>
                 <dt>Entregada a revisión</dt>
                 <dd>{fechaHora(revision.creado_en)}</dd>

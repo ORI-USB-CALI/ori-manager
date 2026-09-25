@@ -279,3 +279,17 @@ class DevolverRevision(BaseModel):
         if any(not valor.strip() for valor in valores):
             raise ValueError("Cada observación debe tener contenido")
         return [valor.strip() for valor in valores]
+
+
+class AtenderObservacion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    respuesta: str = Field(min_length=1)
+
+    @field_validator("respuesta")
+    @classmethod
+    def validar_respuesta(cls, valor: str) -> str:
+        normalizada = valor.strip()
+        if not normalizada:
+            raise ValueError("La respuesta debe tener contenido")
+        return normalizada
