@@ -23,6 +23,7 @@ from backend.schemas.solicitud import (
     SolicitudCrear,
     SolicitudLeer,
     SolicitudListado,
+    SolicitudRechazar,
     SolicitudRecibidaLeer,
     SolicitudRecibidaListado,
     TipoDocumentoOpcion,
@@ -49,6 +50,7 @@ from backend.services.solicitudes import (
     SolicitudIncompleta,
     SolicitudNoEditable,
     SolicitudNoEncontrada,
+    SolicitudNoRevisable,
 )
 
 router = APIRouter(prefix="/solicitudes", tags=["Solicitudes"])
@@ -79,7 +81,7 @@ NOMBRES_DOCUMENTOS = {
 def _lanzar_http(exc: ErrorSolicitud) -> NoReturn:
     if isinstance(exc, SolicitudNoEncontrada):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    if isinstance(exc, SolicitudNoEditable):
+    if isinstance(exc, (SolicitudNoEditable, SolicitudNoRevisable)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if isinstance(exc, (DocumentoInvalido, ReferenciaSolicitudInvalida)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
@@ -102,6 +104,11 @@ def _recibida(solicitud: SolicitudConvenio) -> SolicitudRecibidaLeer:
             "convenio_etapa": convenio.etapa_actual if convenio else None,
             "tipo_convenio_nombre": (
                 solicitud.tipo_convenio.nombre if solicitud.tipo_convenio else None
+            ),
+            "decidida_por_nombre": (
+                solicitud.decidida_por.nombre_completo
+                if solicitud.decidida_por
+                else None
             ),
         }
     )
@@ -221,6 +228,31 @@ def obtener_documento_solicitud_recibida(
         media_type=documento.tipo_mime,
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
     )
+
+
+@router.post("/recibidas/{solicitud_id}/aceptar", response_model=SolicitudRecibidaLeer)
+def aceptar_solicitud(
+    solicitud_id: int, db: DatabaseSession, usuario: PuedeGestionarRecibidas
+) -> SolicitudRecibidaLeer:
+    try:
+        return _recibida(ServicioSolicitudes(db).aceptar(solicitud_id, usuario))
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.post("/recibidas/{solicitud_id}/rechazar", response_model=SolicitudRecibidaLeer)
+def rechazar_solicitud(
+    solicitud_id: int,
+    datos: SolicitudRechazar,
+    db: DatabaseSession,
+    usuario: PuedeGestionarRecibidas,
+) -> SolicitudRecibidaLeer:
+    try:
+        return _recibida(
+            ServicioSolicitudes(db).rechazar(solicitud_id, datos.motivo, usuario)
+        )
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
 
 
 @router.post(

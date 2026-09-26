@@ -111,6 +111,13 @@ class SolicitudRecibidaLeer(SolicitudLeer):
     convenio_estado: EstadoConvenio | None
     convenio_etapa: EtapaResumen | None
     tipo_convenio_nombre: str | None
+    decidida_por_nombre: str | None
+
+
+class SolicitudRechazar(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    motivo: str = Field(min_length=1, max_length=2000)
 
 
 class SolicitudRecibidaListado(BaseModel):
