@@ -1,4 +1,5 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
@@ -28,10 +29,35 @@ export function SolicitudRecibidaPage() {
     onError: (error: Error) => notify({ type: 'error', message: error.message }),
   })
 
+  const cliente = useQueryClient()
+  const [motivo, setMotivo] = useState('')
+  const [rechazando, setRechazando] = useState(false)
+  const refrescar = () => cliente.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] })
+  const aceptar = useMutation({
+    mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/aceptar`, { method: 'POST' }),
+    onSuccess: async () => {
+      await refrescar()
+      notify({ type: 'success', message: 'Solicitud aceptada' })
+    },
+    onError: (error: Error) => notify({ type: 'error', message: error.message }),
+  })
+  const rechazar = useMutation({
+    mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/rechazar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+    onSuccess: async () => {
+      await refrescar()
+      setRechazando(false)
+      notify({ type: 'success', message: 'Solicitud rechazada' })
+    },
+    onError: (error: Error) => notify({ type: 'error', message: error.message }),
+  })
+
   if (consulta.isPending) return <p className="estado-pagina">Cargando solicitud…</p>
   if (consulta.isError) return <p className="alert-error">{consulta.error.message}</p>
   const solicitud = consulta.data
   if (!solicitud) return null
+  const pendiente = ['RADICADA', 'EN_ESTUDIO'].includes(solicitud.estado)
+  const gestiona = puede('solicitudes.gestionar_recibidas')
+  const ocupado = aceptar.isPending || rechazar.isPending
 
   return (
     <>
@@ -72,10 +98,34 @@ export function SolicitudRecibidaPage() {
         {solicitud.documentos.length === 0 ? <p>No hay documentos adjuntos.</p> : <ul>{solicitud.documentos.map((documento) => <li key={documento.id}><a href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido`} target="_blank" rel="noreferrer">{documento.nombre_original}</a> <span className="badge">{documento.tipo_documento}</span></li>)}</ul>}
       </section>
 
+      {solicitud.fecha_decision && (
+        <section className="card"><h2>Decisión ORI</h2><dl>
+          <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : 'Aceptada'}</dd>
+          <dt>Responsable</dt><dd>{valor(solicitud.decidida_por_nombre)}</dd>
+          <dt>Fecha y hora</dt><dd>{new Date(solicitud.fecha_decision).toLocaleString()}</dd>
+          {solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
+        </dl></section>
+      )}
+
+      {pendiente && gestiona && rechazando && (
+        <section className="card"><h2>Rechazar solicitud</h2>
+          <label className="form-group" htmlFor="motivo-rechazo"><span className="form-label">Motivo del rechazo *</span>
+            <textarea id="motivo-rechazo" className="form-control" value={motivo} maxLength={2000} onChange={(evento) => setMotivo(evento.target.value)} required /></label>
+          <div className="page-toolbar">
+            <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setRechazando(false)}>Cancelar</button>
+            <button className="btn btn-danger" type="button" disabled={!motivo.trim() || ocupado} onClick={() => rechazar.mutate()}>Confirmar rechazo</button>
+          </div>
+        </section>
+      )}
+
       <div className="page-toolbar">
         <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
-        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
-        {['RADICADA', 'EN_ESTUDIO', 'APROBADA'].includes(solicitud.estado) && !solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
+        {pendiente && gestiona && !rechazando && <>
+          <button className="btn btn-danger" type="button" disabled={ocupado} onClick={() => setRechazando(true)}>Rechazar</button>
+          <button className="btn btn-primary" type="button" disabled={ocupado} onClick={() => window.confirm('¿Confirma que acepta esta solicitud?') && aceptar.mutate()}>Aceptar</button>
+        </>}
+        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && gestiona && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
+        {solicitud.estado === 'APROBADA' && !solicitud.convenio_id && gestiona && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
       </div>
     </>
   )

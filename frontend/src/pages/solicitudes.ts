@@ -63,6 +63,9 @@ export interface Solicitud {
   estado: EstadoSolicitud
   fecha_radicacion: string | null
   fecha_recibido_ori: string | null
+  motivo_rechazo: string | null
+  decidida_por_id: number | null
+  fecha_decision: string | null
   documentos: DocumentoSolicitud[]
   creado_en: string
   actualizado_en: string
@@ -78,6 +81,7 @@ export interface SolicitudRecibida extends Solicitud {
     nombre: string
   } | null
   tipo_convenio_nombre: string | null
+  decidida_por_nombre: string | null
 }
 
 export interface CatalogosSolicitud {
