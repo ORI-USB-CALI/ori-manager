@@ -149,6 +149,12 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     entrar_como(administrador)
     assert client.get("/api/solicitudes/mias").status_code == 403
     assert client.post("/api/solicitudes", json={}).status_code == 403
+    assert client.post(
+        f"/api/solicitudes/recibidas/{otra}/iniciar-elaboracion"
+    ).status_code == 409
+    assert client.post(
+        f"/api/solicitudes/recibidas/{otra}/aceptar"
+    ).status_code == 200
     iniciada_admin = client.post(
         f"/api/solicitudes/recibidas/{otra}/iniciar-elaboracion"
     )
@@ -161,6 +167,9 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     ).status_code == 403
 
     entrar_como(gestor)
+    assert client.post(
+        f"/api/solicitudes/recibidas/{solicitud_id}/aceptar"
+    ).status_code == 200
     iniciada = client.post(
         f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-elaboracion"
     )

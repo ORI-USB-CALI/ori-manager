@@ -93,6 +93,9 @@ class SolicitudLeer(SolicitudCampos):
     estado: EstadoSolicitud
     fecha_radicacion: datetime | None
     fecha_recibido_ori: datetime | None
+    motivo_rechazo: str | None
+    decidida_por_id: int | None
+    fecha_decision: datetime | None
     documentos: list[DocumentoSolicitudLeer]
     creado_en: datetime
     actualizado_en: datetime
@@ -108,6 +111,13 @@ class SolicitudRecibidaLeer(SolicitudLeer):
     convenio_estado: EstadoConvenio | None
     convenio_etapa: EtapaResumen | None
     tipo_convenio_nombre: str | None
+    decidida_por_nombre: str | None
+
+
+class SolicitudRechazar(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    motivo: str = Field(min_length=1, max_length=2000)
 
 
 class SolicitudRecibidaListado(BaseModel):
