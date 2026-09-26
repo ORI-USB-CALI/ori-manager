@@ -93,6 +93,9 @@ class SolicitudLeer(SolicitudCampos):
     estado: EstadoSolicitud
     fecha_radicacion: datetime | None
     fecha_recibido_ori: datetime | None
+    motivo_rechazo: str | None
+    decidida_por_id: int | None
+    fecha_decision: datetime | None
     documentos: list[DocumentoSolicitudLeer]
     creado_en: datetime
     actualizado_en: datetime

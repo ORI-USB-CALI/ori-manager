@@ -164,6 +164,12 @@ class SolicitudConvenio(Base):
         nullable=False,
     )
     motivo_rechazo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decidida_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
+    )
+    fecha_decision: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -180,4 +186,5 @@ class SolicitudConvenio(Base):
     )
     tipo_convenio: Mapped[TipoConvenio | None] = relationship()
     solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitante_id])
+    decidida_por: Mapped[Usuario | None] = relationship(foreign_keys=[decidida_por_id])
     documentos: Mapped[list[Documento]] = relationship(back_populates="solicitud")
