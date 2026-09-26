@@ -21,6 +21,7 @@ from backend.schemas.convenio import (
     ConvenioElaboracionLeer,
     ConvenioLeer,
     ConvenioParaRevisionLeer,
+    ConvenioRevisionFinalLeer,
     DevolverRevision,
     DocumentoConvenioLeer,
     HistorialConvenioLeer,
@@ -339,3 +340,15 @@ def devolver_revision(
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.get("/{convenio_id}/revision-final", response_model=ConvenioRevisionFinalLeer)
+def obtener_revision_final(
+    convenio_id: int, db: DatabaseSession, _: PuedeVer
+) -> Convenio:
+    """Endpoint para consultar los datos y versión aprobada del convenio durante la revisión final (CA-01)."""
+    try:
+        return ServicioConvenios(db).obtener_revision_final(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+

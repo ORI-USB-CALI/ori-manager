@@ -304,3 +304,53 @@ class AtenderObservacion(BaseModel):
         if not normalizada:
             raise ValueError("La respuesta debe tener contenido")
         return normalizada
+
+
+class FirmaConvenioLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    convenio_id: int
+    orden: int
+    rol_firmante: str
+    parte: str
+    usuario_id: int | None = None
+    nombre_firmante: str | None = None
+    cargo_firmante: str | None = None
+    modalidad: str | None = None
+    estado: str
+    fecha_firma: datetime | None = None
+    documento_id: int | None = None
+    observacion: str | None = None
+    creado_en: datetime
+
+
+class DocumentoRevisionResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre_archivo: str
+    tipo_documento: str
+    ruta_almacenamiento: str
+    tamano_bytes: int
+    creado_en: datetime
+
+
+class ConvenioRevisionFinalLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    codigo: str | None = None
+    solicitud_id: int
+    aliado_id: int | None = None
+    objeto: str | None = None
+    implicacion_financiera: str | None = None
+    estado: EstadoConvenio
+    etapa_actual_id: int | None = None
+    revision_final_aprobada: bool = True
+    proceso_firmas_abierto: bool = False
+    documento_aprobado: DocumentoRevisionResumen | None = None
+    firmas: list[FirmaConvenioLeer] = []
+    creado_en: datetime
+    actualizado_en: datetime
+

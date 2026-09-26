@@ -52,6 +52,7 @@ export const router = createBrowserRouter([
           { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
           { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
           { path: '/convenios/:convenioId/historial', element: <ConvenioHistorialPage /> },
+          { path: '/convenios/:convenioId/revision-final', element: <ConvenioRevisionFinalPage /> },
         ]
       },
       {

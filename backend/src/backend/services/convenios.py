@@ -839,3 +839,7 @@ class ServicioConvenios:
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
         return convenio
+
+    def obtener_revision_final(self, convenio_id: int) -> Convenio:
+        return self.obtener(convenio_id)
+
