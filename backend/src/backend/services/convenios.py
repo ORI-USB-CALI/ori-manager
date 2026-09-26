@@ -236,6 +236,7 @@ class ServicioConvenios:
         }
         convenio = Convenio(
             **valores,
+            solicitud=solicitud,
             aliado_id=aliado_id,
             etapa_actual_id=elaboracion.id,
             estado=EstadoConvenio.EN_TRAMITE.value,
@@ -282,28 +283,9 @@ class ServicioConvenios:
         )
         if solicitud is None:
             raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
-        estados_admitidos = {
-            EstadoSolicitud.RADICADA.value,
-            EstadoSolicitud.EN_ESTUDIO.value,
-            EstadoSolicitud.APROBADA.value,
-        }
-        if solicitud.estado not in estados_admitidos:
+        if solicitud.estado != EstadoSolicitud.APROBADA.value:
             raise SolicitudNoAprobada(
-                "Solo una solicitud RADICADA, EN_ESTUDIO o APROBADA puede iniciar elaboración"
-            )
-        estado_anterior = solicitud.estado
-        if estado_anterior != EstadoSolicitud.APROBADA.value:
-            solicitud.estado = EstadoSolicitud.APROBADA.value
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="solicitud",
-                    registro_id=solicitud.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="estado",
-                    valor_anterior=estado_anterior,
-                    valor_nuevo=EstadoSolicitud.APROBADA.value,
-                )
+                "La solicitud debe estar ACEPTADA antes de iniciar la elaboración"
             )
         existente = self.db.scalar(
             select(Convenio).where(Convenio.solicitud_id == solicitud_id)

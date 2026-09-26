@@ -165,3 +165,36 @@ def test_administrador_tambien_puede_aceptar(
     entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI, TipoUsuario.INTERNO))
     respuesta = client.post(f"/api/solicitudes/recibidas/{solicitud.id}/aceptar")
     assert respuesta.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "estado",
+    [EstadoSolicitud.RADICADA, EstadoSolicitud.EN_ESTUDIO, EstadoSolicitud.RECHAZADA],
+)
+def test_no_se_inicia_elaboracion_sin_aceptacion(
+    client, db, gestor, crear_solicitud, estado
+):
+    solicitud = crear_solicitud(estado)
+    respuesta = client.post(
+        f"/api/solicitudes/recibidas/{solicitud.id}/iniciar-elaboracion"
+    )
+    assert respuesta.status_code == 409
+    db.expire_all()
+    assert db.get(SolicitudConvenio, solicitud.id).estado == estado.value
+
+
+def test_rechazada_no_permite_crear_convenio_directo(client, gestor, crear_solicitud):
+    solicitud = crear_solicitud(EstadoSolicitud.RECHAZADA)
+    respuesta = client.post(
+        "/api/convenios", json={"solicitud_id": solicitud.id, "objeto": "x"}
+    )
+    assert respuesta.status_code == 409
+
+
+def test_aceptada_luego_inicia_elaboracion(client, gestor, crear_solicitud):
+    solicitud = crear_solicitud()
+    client.post(f"/api/solicitudes/recibidas/{solicitud.id}/aceptar")
+    respuesta = client.post(
+        f"/api/solicitudes/recibidas/{solicitud.id}/iniciar-elaboracion"
+    )
+    assert respuesta.status_code == 200
