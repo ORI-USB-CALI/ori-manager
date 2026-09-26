@@ -141,8 +141,8 @@ export function ConvenioDetallePage() {
             <p><dt>Objeto</dt><dd>{snapshot?.objeto ?? '—'}</dd></p>
             <p><dt>Alcance</dt><dd>{snapshot?.alcance ?? '—'}</dd></p>
             <p><dt>Tipo de convenio</dt><dd>
-  {consultaRevision.data?.convenio.tipo_convenio?.nombre ?? '—'}
-</dd></p>
+              {consultaRevision.data?.convenio.tipo_convenio?.nombre ?? '—'}
+            </dd></p>
             <p><dt>Implicación financiera</dt><dd>{snapshot?.implicacion_financiera ?? '—'}</dd></p>
             <p><dt>Duración</dt><dd>{snapshot?.duracion_meses != null ? `${snapshot.duracion_meses} meses` : '—'}</dd></p>
             <p><dt>Fechas</dt><dd>{fecha(snapshot?.fecha_inicio)} – {fecha(snapshot?.fecha_vencimiento)}</dd></p>

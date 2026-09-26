@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from backend.models.aliado import Aliado
     from backend.models.documento import Documento
     from backend.models.etapa import Etapa
+    from backend.models.firma_convenio import FirmaConvenio
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
     from backend.models.revision_convenio import RevisionConvenio
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from backend.models.tipo_convenio import TipoConvenio
     from backend.models.unidad_organizacional import UnidadOrganizacional
     from backend.models.usuario import Usuario
+
 
 _ESTADOS = ", ".join(f"'{valor.value}'" for valor in EstadoConvenio)
 _ALCANCES = ", ".join(f"'{valor.value}'" for valor in AlcanceConvenio)
@@ -84,3 +86,8 @@ class Convenio(Base):
     revisiones: Mapped[list[RevisionConvenio]] = relationship(
         back_populates="convenio"
     )
+    firmas: Mapped[list[FirmaConvenio]] = relationship(
+        back_populates="convenio", cascade="all, delete-orphan", order_by="FirmaConvenio.orden"
+    )
+
+

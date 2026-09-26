@@ -216,3 +216,56 @@ export function useCatalogosElaboracion() {
     retry: false,
   })
 }
+
+export interface FirmaConvenio {
+  id: number
+  convenio_id: number
+  orden: number
+  rol_firmante: string
+  parte: string
+  usuario_id: number | null
+  nombre_firmante: string | null
+  cargo_firmante: string | null
+  modalidad: string | null
+  estado: string
+  fecha_firma: string | null
+  documento_id: number | null
+  observacion: string | null
+  creado_en: string
+}
+
+export interface DocumentoRevisionResumen {
+  id: number
+  nombre_archivo: string
+  tipo_documento: string
+  ruta_almacenamiento: string
+  tamano_bytes: number
+  creado_en: string
+}
+
+export interface ConvenioRevisionFinal {
+  id: number
+  codigo: string | null
+  solicitud_id: number
+  aliado_id: number | null
+  objeto: string | null
+  implicacion_financiera: string | null
+  estado: EstadoConvenio
+  etapa_actual_id: number | null
+  revision_final_aprobada: boolean
+  proceso_firmas_abierto: boolean
+  documento_aprobado: DocumentoRevisionResumen | null
+  firmas: FirmaConvenio[]
+  creado_en: string
+  actualizado_en: string
+}
+
+export function useRevisionFinalConvenio(convenioId: number) {
+  return useQuery({
+    queryKey: ['convenios', convenioId, 'revision-final'],
+    queryFn: () => apiFetch<ConvenioRevisionFinal>(`/convenios/${convenioId}/revision-final`),
+    enabled: Number.isInteger(convenioId),
+    retry: false,
+  })
+}
+

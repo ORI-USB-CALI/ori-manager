@@ -4,6 +4,7 @@ from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.etapa import Etapa
+from backend.models.firma_convenio import FirmaConvenio
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.pais import Pais
@@ -23,6 +24,7 @@ __all__ = [
     "Convenio",
     "Documento",
     "Etapa",
+    "FirmaConvenio",
     "HistorialEtapa",
     "ObservacionRevision",
     "Pais",
