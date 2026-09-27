@@ -823,6 +823,181 @@ a:hover {
   align-self: flex-start;
 }
 
+.elaboracion-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 24px;
+  align-items: start;
+}
+
+.elaboracion-documento {
+  min-width: 0;
+  border-top: 4px solid var(--color-naranja);
+}
+
+.elaboracion-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.editor-cabecera,
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-cabecera {
+  margin-bottom: 20px;
+}
+
+.editor-cabecera h2,
+.elaboracion-panel h2 {
+  margin-bottom: 6px;
+}
+
+.editor-cabecera .section-help,
+.datos-clave .section-help {
+  margin-bottom: 0;
+}
+
+.convenio-editor {
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+.editor-toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: white;
+}
+
+.editor-toolbar button {
+  min-height: 34px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: white;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.editor-toolbar button:hover:not(:disabled) {
+  border-color: var(--color-naranja);
+}
+
+.editor-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.editor-toolbar-spacer {
+  flex: 1;
+}
+
+.convenio-editor .ProseMirror {
+  box-sizing: border-box;
+  width: min(100%, 850px);
+  min-height: 720px;
+  margin: 24px auto;
+  padding: 64px 72px;
+  outline: none;
+  background: white;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 9%);
+  line-height: 1.65;
+}
+
+.acciones-verticales {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.proyecto-resumen {
+  border-top: 4px solid var(--color-magenta);
+}
+
+.proyecto-datos {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 10px 16px;
+  margin-top: 18px;
+}
+
+.proyecto-datos dt {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.proyecto-datos dd {
+  margin: 0;
+  font-weight: 650;
+  text-align: right;
+}
+
+.datos-clave-campos {
+  padding-top: 18px;
+  margin-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+.datos-clave-campos .form-group + .form-group {
+  margin-top: 14px;
+}
+
+.version-lista {
+  display: grid;
+  gap: 12px;
+}
+
+.version-lista article {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  font-size: 13px;
+}
+
+.version-lista article.version-actual {
+  border-color: var(--color-naranja);
+  background: #f6f9fc;
+}
+
+.version-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.version-lista span {
+  color: var(--text-secondary);
+}
+
+.resumen-pendientes {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #f0b7b7;
+  border-radius: 8px;
+  background: #fff6f6;
+  color: var(--color-error);
+}
+
+.resumen-pendientes ul {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px;
+  margin: 8px 0 0;
+}
+
 .footer-internal {
   display: flex;
   min-height: 48px;
@@ -853,6 +1028,16 @@ a:hover {
 
   .page {
     padding: 16px;
+  }
+
+  .elaboracion-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .convenio-editor .ProseMirror {
+    min-height: 520px;
+    margin: 0;
+    padding: 32px 24px;
   }
 }
 

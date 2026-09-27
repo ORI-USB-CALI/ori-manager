@@ -7,7 +7,7 @@ import type { Convenio } from './epica02'
 
 interface Props {
   convenioId: number
-  valores: Record<string, string | number | null>
+  valores: Record<string, unknown>
   onFinalizado: () => Promise<unknown>
   onErrorValidacion: (error: unknown) => void
   onCerrar: () => void
@@ -47,7 +47,7 @@ export function FinalizarElaboracionModal({ convenioId, valores, onFinalizado, o
   return (
     <dialog ref={dialogo} className="modal" onClose={onCerrar} aria-labelledby="finalizar-modal-titulo">
       <div className="modal-header">
-        <h2 id="finalizar-modal-titulo">Finalizar elaboración</h2>
+        <h2 id="finalizar-modal-titulo">Finalizar elaboración del proyecto</h2>
         <button type="button" className="btn-icon" aria-label="Cerrar" onClick={() => dialogo.current?.close()}>
           ×
         </button>
@@ -55,8 +55,8 @@ export function FinalizarElaboracionModal({ convenioId, valores, onFinalizado, o
 
       <section className="modal-section">
         <p>
-          Esta acción congela la información del convenio tal como está ahora y abre una ronda de
-          revisión jurídica. El convenio dejará de ser editable desde esta pantalla.
+          Esta acción conserva la versión preparada y abre la primera revisión jurídica.
+          El proyecto dejará de ser editable desde esta pantalla.
         </p>
         <p className="texto-secundario">¿Confirma que desea finalizar la elaboración?</p>
       </section>

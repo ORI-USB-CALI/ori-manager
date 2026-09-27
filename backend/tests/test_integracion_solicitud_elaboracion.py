@@ -11,6 +11,14 @@ from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
+from backend.models.version_convenio import VersionConvenio
+
+
+def _texto_documento(nodo: dict[str, object]) -> str:
+    partes = [str(nodo.get("text", ""))]
+    for hijo in nodo.get("content", []):
+        partes.append(_texto_documento(hijo))
+    return " ".join(partes)
 
 
 def _datos_solicitud(tipo_convenio_id: int) -> dict[str, object]:
@@ -189,6 +197,29 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     assert convenio.fecha_inicio is None
     assert convenio.fecha_vencimiento is None
     assert convenio.duracion_meses is None
+    assert convenio.version_actual == 1
+    assert convenio.plantilla_origen_id is not None
+    version_inicial = db.scalar(
+        select(VersionConvenio).where(
+            VersionConvenio.convenio_id == convenio.id,
+            VersionConvenio.numero == 1,
+        )
+    )
+    contenido_inicial = _texto_documento(version_inicial.contenido)
+    for precargado in (
+        "Universidad del Pacífico",
+        "Ana Pérez",
+        "Fortalecer la cooperación académica",
+        "Desarrollar cooperación académica internacional",
+        "Intercambios y proyectos conjuntos",
+        "Dos proyectos durante la vigencia",
+        "Sin erogación inicial",
+        "24 meses",
+        "Evaluación y acuerdo escrito",
+        "Carlos Ruiz",
+        "María Salas",
+    ):
+        assert precargado in contenido_inicial
 
     segundo_intento = client.post(
         f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-elaboracion"

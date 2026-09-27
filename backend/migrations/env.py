@@ -12,12 +12,14 @@ from backend.models import (  # noqa: F401
     Convenio,
     Etapa,
     Pais,
+    PlantillaConvenio,
     Rol,
     SolicitudConvenio,
     TipoConvenio,
     TokenCredencial,
     UnidadOrganizacional,
     Usuario,
+    VersionConvenio,
 )
 
 config = context.config

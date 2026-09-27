@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
     from backend.models.usuario import Usuario
+    from backend.models.version_convenio import VersionConvenio
 
 _TIPOS = ", ".join(f"'{valor.value}'" for valor in TipoRevisionConvenio)
 _ESTADOS = ", ".join(f"'{valor.value}'" for valor in EstadoRevisionConvenio)
@@ -50,6 +51,9 @@ class RevisionConvenio(Base):
     documento_id: Mapped[int | None] = mapped_column(
         ForeignKey("documento.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    version_convenio_id: Mapped[int | None] = mapped_column(
+        ForeignKey("version_convenio.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     responsable_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
     )
@@ -78,6 +82,9 @@ class RevisionConvenio(Base):
     convenio: Mapped[Convenio] = relationship(back_populates="revisiones")
     historial_etapa: Mapped[HistorialEtapa | None] = relationship()
     documento: Mapped[Documento | None] = relationship(back_populates="revisiones")
+    version_convenio: Mapped[VersionConvenio | None] = relationship(
+        back_populates="revisiones"
+    )
     responsable: Mapped[Usuario | None] = relationship(
         foreign_keys=[responsable_id]
     )

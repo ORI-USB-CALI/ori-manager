@@ -18,6 +18,8 @@ from backend.schemas.convenio import (
     CatalogosElaboracionLeer,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
+    ConvenioElaboracionFinalizar,
+    ConvenioElaboracionGuardar,
     ConvenioElaboracionLeer,
     ConvenioLeer,
     ConvenioParaRevisionLeer,
@@ -29,8 +31,11 @@ from backend.schemas.convenio import (
     RevisionConvenioLeer,
     RevisionJuridicaPendienteLeer,
     ValidacionElaboracionLeer,
+    VersionConvenioLeer,
+    VersionConvenioResumen,
 )
 from backend.services.convenios import (
+    ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
@@ -41,7 +46,6 @@ from backend.services.convenios import (
     RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
-    validar_completitud,
 )
 from backend.services.documentos import (
     AlmacenDocumentos,
@@ -61,6 +65,15 @@ PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    if isinstance(exc, ConflictoVersionConvenio):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(exc),
+                "expected_version": exc.esperada,
+                "current_version": exc.actual,
+            },
+        ) from exc
     if isinstance(
         exc,
         (
@@ -165,11 +178,51 @@ def validar_elaboracion(
     convenio_id: int, db: DatabaseSession, _: PuedeVer
 ) -> ValidacionElaboracionLeer:
     try:
-        convenio = ServicioConvenios(db).obtener(convenio_id)
+        faltantes = ServicioConvenios(db).validar_elaboracion(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
-    faltantes = validar_completitud(convenio)
     return ValidacionElaboracionLeer(completo=not faltantes, faltantes=faltantes)
+
+
+@router.patch(
+    "/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer
+)
+def guardar_elaboracion(
+    convenio_id: int,
+    datos: ConvenioElaboracionGuardar,
+    db: DatabaseSession,
+    usuario: PuedeEditar,
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).guardar_elaboracion(
+            convenio_id, datos, usuario
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/versiones", response_model=list[VersionConvenioResumen]
+)
+def listar_versiones(
+    convenio_id: int, db: DatabaseSession, _: PuedeVer
+) -> list[VersionConvenioResumen]:
+    try:
+        return ServicioConvenios(db).listar_versiones(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/versiones/{numero}", response_model=VersionConvenioLeer
+)
+def obtener_version(
+    convenio_id: int, numero: int, db: DatabaseSession, _: PuedeVer
+) -> VersionConvenioLeer:
+    try:
+        return ServicioConvenios(db).obtener_version(convenio_id, numero)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
 
 
 @router.post("/{convenio_id}/elaboracion/finalizar", response_model=ConvenioLeer)
@@ -177,7 +230,7 @@ def finalizar_elaboracion(
     convenio_id: int,
     db: DatabaseSession,
     usuario: PuedeEditar,
-    datos: ConvenioElaboracionActualizar | None = None,
+    datos: ConvenioElaboracionFinalizar | None = None,
 ) -> Convenio:
     try:
         return ServicioConvenios(db).finalizar_elaboracion(
