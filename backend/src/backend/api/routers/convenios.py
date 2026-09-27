@@ -27,10 +27,13 @@ from backend.schemas.convenio import (
     CrearObservacionRevision,
     DevolverRevision,
     DocumentoConvenioLeer,
+    EnviarRevisionContraparte,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     ObservacionRevisionLeer,
     RevisionContenidoGuardar,
+    RevisionContraparteDetalleLeer,
+    RevisionContrapartePendienteLeer,
     RevisionConvenioLeer,
     RevisionJuridicaPendienteLeer,
     ValidacionElaboracionLeer,
@@ -40,6 +43,7 @@ from backend.schemas.convenio import (
     VersionRevisionReferencia,
 )
 from backend.services.convenios import (
+    AccesoRevisionDenegado,
     ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
@@ -65,9 +69,17 @@ PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
+PuedeGestionarContraparte = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE)
+]
+PuedeRevisarContraparte = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_REVISAR_CONTRAPARTE_PROPIA)
+]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
+    if isinstance(exc, AccesoRevisionDenegado):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     if isinstance(exc, ConflictoVersionConvenio):
@@ -160,6 +172,34 @@ def listar_revisiones_juridicas_pendientes(
             ),
         )
         for revision in revisiones
+    ]
+
+
+@router.get(
+    "/revisiones-contraparte/pendientes",
+    response_model=list[RevisionContrapartePendienteLeer],
+)
+def listar_revisiones_contraparte_pendientes(
+    db: DatabaseSession, usuario: PuedeRevisarContraparte
+) -> list[RevisionContrapartePendienteLeer]:
+    revisiones = ServicioConvenios(db).listar_revisiones_contraparte_pendientes(
+        usuario
+    )
+    return [
+        RevisionContrapartePendienteLeer(
+            revision_id=revision.id,
+            convenio_id=revision.convenio.id,
+            codigo_convenio=revision.convenio.codigo,
+            solicitud_consecutivo=revision.convenio.solicitud.consecutivo,
+            objeto=revision.convenio.objeto,
+            version_id=revision.version_convenio.id,
+            version_numero=revision.version_convenio.numero,
+            fecha_envio=revision.creado_en,
+            enviada_por=revision.creada_por,
+            estado=revision.estado,
+        )
+        for revision in revisiones
+        if revision.version_convenio is not None and revision.creada_por is not None
     ]
 
 
@@ -472,6 +512,102 @@ def devolver_revision(
         convenio = ServicioConvenios(db).obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(
             next(r for r in convenio.revisiones if r.id == revision_id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revision-contraparte/enviar",
+    response_model=RevisionConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def enviar_revision_contraparte(
+    convenio_id: int,
+    datos: EnviarRevisionContraparte,
+    db: DatabaseSession,
+    usuario: PuedeGestionarContraparte,
+) -> RevisionConvenioLeer:
+    try:
+        revision = ServicioConvenios(db).enviar_a_contraparte(
+            convenio_id, datos.expected_version, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(item for item in convenio.revisiones if item.id == revision.id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/revisiones/{revision_id}/contraparte",
+    response_model=RevisionContraparteDetalleLeer,
+)
+def obtener_revision_contraparte(
+    convenio_id: int,
+    revision_id: int,
+    db: DatabaseSession,
+    usuario: PuedeRevisarContraparte,
+) -> RevisionContraparteDetalleLeer:
+    try:
+        convenio, revision, version = ServicioConvenios(
+            db
+        ).obtener_revision_contraparte(convenio_id, revision_id, usuario)
+        return RevisionContraparteDetalleLeer(
+            convenio=ConvenioElaboracionLeer.model_validate(convenio),
+            revision=RevisionConvenioLeer.model_validate(revision),
+            version_recibida=VersionConvenioLeer.model_validate(version),
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revisiones/{revision_id}/contraparte/aprobar",
+    response_model=RevisionConvenioLeer,
+)
+def aprobar_revision_contraparte(
+    convenio_id: int,
+    revision_id: int,
+    datos: AprobarRevision,
+    db: DatabaseSession,
+    usuario: PuedeRevisarContraparte,
+) -> RevisionConvenioLeer:
+    try:
+        ServicioConvenios(db).aprobar_contraparte(
+            convenio_id, revision_id, datos.expected_version, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(item for item in convenio.revisiones if item.id == revision_id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revisiones/{revision_id}/contraparte/devolver",
+    response_model=RevisionConvenioLeer,
+)
+def devolver_revision_contraparte(
+    convenio_id: int,
+    revision_id: int,
+    datos: DevolverRevision,
+    db: DatabaseSession,
+    usuario: PuedeRevisarContraparte,
+) -> RevisionConvenioLeer:
+    try:
+        ServicioConvenios(db).devolver_contraparte(
+            convenio_id,
+            revision_id,
+            datos.observaciones,
+            datos.expected_version,
+            usuario,
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(item for item in convenio.revisiones if item.id == revision_id)
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)

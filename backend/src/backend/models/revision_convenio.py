@@ -74,6 +74,12 @@ class RevisionConvenio(Base):
             unique=True,
             postgresql_where=text("tipo = 'JURIDICA' AND estado = 'PENDIENTE'"),
         ),
+        Index(
+            "uq_revision_convenio_contraparte_pendiente",
+            "convenio_id",
+            unique=True,
+            postgresql_where=text("tipo = 'CONTRAPARTE' AND estado = 'PENDIENTE'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -99,6 +105,9 @@ class RevisionConvenio(Base):
     numero_ronda: Mapped[int | None] = mapped_column(Integer, nullable=True)
     responsable_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
+    )
+    creada_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     estado: Mapped[str] = mapped_column(
         String(20),
@@ -134,6 +143,7 @@ class RevisionConvenio(Base):
     responsable: Mapped[Usuario | None] = relationship(
         foreign_keys=[responsable_id]
     )
+    creada_por: Mapped[Usuario | None] = relationship(foreign_keys=[creada_por_id])
     resuelta_por: Mapped[Usuario | None] = relationship(
         foreign_keys=[resuelta_por_id]
     )

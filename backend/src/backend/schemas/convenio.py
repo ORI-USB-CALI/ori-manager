@@ -134,6 +134,7 @@ class PlantillaConvenioResumen(BaseModel):
 class VersionConvenioResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     numero: int
     autor: UsuarioResumen
     etapa: EtapaResumen
@@ -268,6 +269,7 @@ class RevisionConvenioLeer(BaseModel):
     estado: EstadoRevisionConvenio
     resultado: ResultadoRevisionConvenio | None
     responsable: UsuarioResumen | None
+    creada_por: UsuarioResumen | None
     resuelta_por: UsuarioResumen | None
     snapshot_datos: dict[str, Any] | None
     creado_en: datetime
@@ -287,6 +289,19 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     instancia_juridica: int | None
     numero_ronda: int | None
     version_numero: int | None
+
+
+class RevisionContrapartePendienteLeer(BaseModel):
+    revision_id: int
+    convenio_id: int
+    codigo_convenio: str | None
+    solicitud_consecutivo: str
+    objeto: str | None
+    version_id: int
+    version_numero: int
+    fecha_envio: datetime
+    enviada_por: UsuarioResumen
+    estado: EstadoRevisionConvenio
 
 
 class HistorialEtapaLeer(BaseModel):
@@ -353,6 +368,16 @@ class AprobarRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_version: int = Field(ge=0)
+
+
+class EnviarRevisionContraparte(AprobarRevision):
+    pass
+
+
+class RevisionContraparteDetalleLeer(BaseModel):
+    convenio: ConvenioElaboracionLeer
+    revision: RevisionConvenioLeer
+    version_recibida: VersionConvenioLeer
 
 
 class CrearObservacionRevision(BaseModel):
