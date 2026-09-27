@@ -86,6 +86,13 @@ class ResultadoRevisionConvenio(StrEnum):
     DEVUELTA = "DEVUELTA"
 
 
+class ContextoVersionConvenio(StrEnum):
+    INICIALIZACION = "INICIALIZACION"
+    GUARDADO = "GUARDADO"
+    FINALIZACION = "FINALIZACION"
+    CORRECCION_REVISION = "CORRECCION_REVISION"
+
+
 class AccionAuditoria(StrEnum):
     INSERT = "INSERT"
     UPDATE = "UPDATE"

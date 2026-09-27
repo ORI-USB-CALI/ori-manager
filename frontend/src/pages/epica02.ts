@@ -57,6 +57,8 @@ export interface Convenio {
   aliado: Pick<Aliado, 'id' | 'nombre' | 'identificacion' | 'activo'> | null
   tipo_convenio_id: number | null
   etapa_actual_id: number | null
+  plantilla_origen_id: number | null
+  version_actual: number
   estado: EstadoConvenio
   objeto: string | null
   alcance: 'PROGRAMA' | 'INSTITUCIONAL' | null
@@ -167,6 +169,32 @@ export interface ElaboracionConvenio extends Convenio {
   etapa_actual: EtapaResumen | null
   tipo_convenio: TipoConvenioResumen | null
   unidad_organizacional: UnidadOrganizacionalResumen | null
+  plantilla_origen: PlantillaConvenioResumen | null
+  contenido: Record<string, unknown> | null
+}
+
+export interface PlantillaConvenioResumen {
+  id: number
+  codigo: string
+  nombre: string
+}
+
+export interface VersionConvenioResumen {
+  numero: number
+  autor: { id: number; nombre_completo: string; correo: string }
+  etapa: EtapaResumen
+  contexto: string
+  creado_en: string
+  plantilla: PlantillaConvenioResumen | null
+}
+
+export function useVersionesConvenio(convenioId: number) {
+  return useQuery({
+    queryKey: ['convenios', convenioId, 'versiones'],
+    queryFn: () => apiFetch<VersionConvenioResumen[]>(`/convenios/${convenioId}/versiones`),
+    enabled: Number.isInteger(convenioId),
+    retry: false,
+  })
 }
 
 export function useElaboracionConvenio(convenioId: number) {

@@ -11,6 +11,7 @@ from backend.models.documento import Documento
 from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
+    ContextoVersionConvenio,
     EstadoConvenio,
     EstadoObservacionRevision,
     EstadoRevisionConvenio,
@@ -22,15 +23,25 @@ from backend.models.enums import (
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.observacion_revision import ObservacionRevision
+from backend.models.plantilla_convenio import PlantillaConvenio
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import (
     CampoFaltante,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
+    ConvenioElaboracionFinalizar,
+    ConvenioElaboracionGuardar,
+)
+from backend.services.contenido_convenio import (
+    ContenidoConvenioInvalido,
+    documento_tiene_texto,
+    expandir_plantilla,
+    validar_contenido,
 )
 from backend.services.documentos import AlmacenDocumentos
 
@@ -154,6 +165,15 @@ class ConvenioNoEditable(ErrorConvenio):
     pass
 
 
+class ConflictoVersionConvenio(ErrorConvenio):
+    def __init__(self, esperada: int, actual: int) -> None:
+        self.esperada = esperada
+        self.actual = actual
+        super().__init__(
+            f"La versión esperada era {esperada}, pero la versión actual es {actual}"
+        )
+
+
 class RevisionNoDisponible(ErrorConvenio):
     pass
 
@@ -194,6 +214,72 @@ class ServicioConvenios:
         origen_id = datos.get("convenio_origen_id")
         if origen_id is not None and self.db.get(Convenio, origen_id) is None:
             raise ReferenciaConvenioInvalida("El convenio de origen no existe")
+
+    def _plantilla_base_activa(self) -> PlantillaConvenio:
+        plantillas = list(
+            self.db.scalars(
+                select(PlantillaConvenio)
+                .where(PlantillaConvenio.activa.is_(True))
+                .order_by(PlantillaConvenio.id)
+                .limit(2)
+            )
+        )
+        if len(plantillas) != 1:
+            raise ConfiguracionConvenioInvalida(
+                "Debe existir exactamente una plantilla de convenio activa"
+            )
+        return plantillas[0]
+
+    def _crear_version(
+        self,
+        convenio: Convenio,
+        contenido: dict[str, object],
+        usuario: Usuario,
+        contexto: ContextoVersionConvenio,
+        *,
+        auditar: bool = True,
+    ) -> VersionConvenio:
+        try:
+            validar_contenido(contenido)
+        except ContenidoConvenioInvalido as exc:
+            raise ReferenciaConvenioInvalida(str(exc)) from exc
+        anterior = convenio.version_actual
+        version = VersionConvenio(
+            convenio_id=convenio.id,
+            numero=anterior + 1,
+            contenido=contenido,
+            snapshot_metadata=_snapshot_de(convenio),
+            autor_id=usuario.id,
+            etapa_id=convenio.etapa_actual_id,
+            contexto=contexto.value,
+            plantilla_id=convenio.plantilla_origen_id,
+        )
+        self.db.add(version)
+        convenio.version_actual = version.numero
+        if auditar:
+            self.db.add(
+                Auditoria(
+                    usuario_id=usuario.id,
+                    entidad=ENTIDAD_CONVENIO,
+                    registro_id=convenio.id,
+                    accion=AccionAuditoria.UPDATE.value,
+                    campo="contenido_proyecto",
+                    valor_anterior=f"versión {anterior}" if anterior else None,
+                    valor_nuevo=f"versión {version.numero}",
+                )
+            )
+        self.db.flush()
+        return version
+
+    def _version_actual(self, convenio: Convenio) -> VersionConvenio | None:
+        if convenio.version_actual == 0:
+            return None
+        return self.db.scalar(
+            select(VersionConvenio).where(
+                VersionConvenio.convenio_id == convenio.id,
+                VersionConvenio.numero == convenio.version_actual,
+            )
+        )
 
     def _crear_en_transaccion(
         self,
@@ -241,6 +327,9 @@ class ServicioConvenios:
             estado=EstadoConvenio.EN_TRAMITE.value,
             creado_por_id=usuario.id,
         )
+        # Mantiene coherente la relación ya cargada en la misma sesión (por
+        # ejemplo, la bandeja consultada antes de iniciar la elaboración).
+        convenio.solicitud = solicitud
         self.db.add(convenio)
         self.db.flush()
         self.db.add(
@@ -252,6 +341,26 @@ class ServicioConvenios:
                 responsable_id=usuario.id,
                 observacion=None,
             )
+        )
+        plantilla = self._plantilla_base_activa()
+        tipo_nombre = self.db.scalar(
+            select(TipoConvenio.nombre).where(
+                TipoConvenio.id == solicitud.tipo_convenio_id
+            )
+        )
+        try:
+            contenido_inicial = expandir_plantilla(
+                plantilla.contenido_base, solicitud, tipo_nombre
+            )
+        except ContenidoConvenioInvalido as exc:
+            raise ConfiguracionConvenioInvalida(str(exc)) from exc
+        convenio.plantilla_origen_id = plantilla.id
+        self._crear_version(
+            convenio,
+            contenido_inicial,
+            usuario,
+            ContextoVersionConvenio.INICIALIZACION,
+            auditar=False,
         )
         return convenio
 
@@ -390,6 +499,7 @@ class ServicioConvenios:
                 joinedload(Convenio.etapa_actual),
                 joinedload(Convenio.tipo_convenio),
                 joinedload(Convenio.unidad_organizacional),
+                joinedload(Convenio.plantilla_origen),
             )
             .where(Convenio.id == convenio_id)
         )
@@ -437,6 +547,8 @@ class ServicioConvenios:
                 .order_by(Documento.creado_en, Documento.id)
             )
         )
+        version = self._version_actual(convenio)
+        convenio.contenido = version.contenido if version is not None else None
         return convenio, revision_pendiente, documentos
 
     def obtener_contenido_documento(
@@ -469,19 +581,91 @@ class ServicioConvenios:
                 joinedload(Convenio.etapa_actual),
                 joinedload(Convenio.tipo_convenio),
                 joinedload(Convenio.unidad_organizacional),
+                joinedload(Convenio.plantilla_origen),
             )
             .where(Convenio.id == convenio_id)
         )
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
+        version = self._version_actual(convenio)
+        convenio.contenido = version.contenido if version is not None else None
         return convenio
+
+    def validar_elaboracion(self, convenio_id: int) -> list[CampoFaltante]:
+        convenio = self.obtener(convenio_id)
+        version = self._version_actual(convenio)
+        return self._faltantes_elaboracion(convenio, version)
+
+    def _faltantes_elaboracion(
+        self, convenio: Convenio, version: VersionConvenio | None
+    ) -> list[CampoFaltante]:
+        faltantes = validar_completitud(convenio)
+        if version is None:
+            faltantes.append(
+                CampoFaltante(
+                    campo="contenido",
+                    motivo="Debe existir una versión guardada del documento",
+                )
+            )
+            return faltantes
+        try:
+            tiene_texto = documento_tiene_texto(version.contenido)
+        except ContenidoConvenioInvalido:
+            faltantes.append(
+                CampoFaltante(
+                    campo="contenido",
+                    motivo="La versión guardada del documento no es válida",
+                )
+            )
+        else:
+            if not tiene_texto:
+                faltantes.append(
+                    CampoFaltante(
+                        campo="contenido",
+                        motivo="El documento no puede estar vacío",
+                    )
+                )
+        return faltantes
+
+    def listar_versiones(self, convenio_id: int) -> list[VersionConvenio]:
+        if self.db.get(Convenio, convenio_id) is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        return list(
+            self.db.scalars(
+                select(VersionConvenio)
+                .options(
+                    joinedload(VersionConvenio.autor),
+                    joinedload(VersionConvenio.etapa),
+                    joinedload(VersionConvenio.plantilla),
+                )
+                .where(VersionConvenio.convenio_id == convenio_id)
+                .order_by(VersionConvenio.numero.desc())
+            )
+        )
+
+    def obtener_version(self, convenio_id: int, numero: int) -> VersionConvenio:
+        version = self.db.scalar(
+            select(VersionConvenio)
+            .options(
+                joinedload(VersionConvenio.autor),
+                joinedload(VersionConvenio.etapa),
+                joinedload(VersionConvenio.plantilla),
+            )
+            .where(
+                VersionConvenio.convenio_id == convenio_id,
+                VersionConvenio.numero == numero,
+            )
+        )
+        if version is None:
+            raise ConvenioNoEncontrado("Versión de convenio no encontrada")
+        return version
 
     def _aplicar_cambios(
         self,
         convenio: Convenio,
         cambios: dict[str, object],
         usuario: Usuario,
-    ) -> None:
+    ) -> bool:
         """Valida y aplica cambios con auditoría, sin cerrar la transacción."""
         combinados = {
             "tipo_convenio_id": convenio.tipo_convenio_id,
@@ -491,11 +675,13 @@ class ServicioConvenios:
             **cambios,
         }
         self._validar_referencias(combinados)
+        cambio_realizado = False
         for campo, valor in cambios.items():
             nuevo = valor.value if isinstance(valor, AlcanceConvenio) else valor
             anterior = getattr(convenio, campo)
             if anterior == nuevo:
                 continue
+            cambio_realizado = True
             setattr(convenio, campo, nuevo)
             self.db.add(
                 Auditoria(
@@ -508,6 +694,58 @@ class ServicioConvenios:
                     valor_nuevo=_a_texto(nuevo),
                 )
             )
+        return cambio_realizado
+
+    def guardar_elaboracion(
+        self,
+        convenio_id: int,
+        datos: ConvenioElaboracionGuardar,
+        usuario: Usuario,
+    ) -> Convenio:
+        convenio = self.db.scalar(
+            select(Convenio).where(Convenio.id == convenio_id).with_for_update()
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        ):
+            raise ConvenioNoEditable(
+                "Solo se puede editar un convenio en etapa de Elaboración"
+            )
+        if datos.expected_version != convenio.version_actual:
+            self.db.rollback()
+            raise ConflictoVersionConvenio(
+                datos.expected_version, convenio.version_actual
+            )
+        try:
+            validar_contenido(datos.contenido)
+        except ContenidoConvenioInvalido as exc:
+            self.db.rollback()
+            raise ReferenciaConvenioInvalida(str(exc)) from exc
+
+        actual = self._version_actual(convenio)
+        cambios_metadata = datos.model_dump(
+            exclude={"contenido", "expected_version"}, exclude_unset=True
+        )
+        cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata, usuario)
+        cambio_contenido = actual is None or actual.contenido != datos.contenido
+        if not cambio_metadata and not cambio_contenido:
+            self.db.rollback()
+            return self.obtener_para_elaboracion(convenio.id)
+        try:
+            self._crear_version(
+                convenio,
+                datos.contenido,
+                usuario,
+                ContextoVersionConvenio.GUARDADO,
+            )
+            self.db.commit()
+        except (IntegrityError, SQLAlchemyError):
+            self.db.rollback()
+            raise
+        return self.obtener_para_elaboracion(convenio.id)
 
     def actualizar(
         self,
@@ -537,7 +775,7 @@ class ServicioConvenios:
         self,
         convenio_id: int,
         usuario: Usuario,
-        datos: ConvenioElaboracionActualizar | None = None,
+        datos: ConvenioElaboracionFinalizar | None = None,
     ) -> Convenio:
         """Congela el proyecto y abre la ronda de revisión jurídica.
 
@@ -557,17 +795,47 @@ class ServicioConvenios:
                 "Solo se puede finalizar un convenio en etapa de Elaboración"
             )
 
-        try:
-            self._aplicar_cambios(
-                convenio,
-                datos.model_dump(exclude_unset=True) if datos is not None else {},
-                usuario,
+        if (
+            datos is not None
+            and datos.expected_version is not None
+            and datos.expected_version != convenio.version_actual
+        ):
+            self.db.rollback()
+            raise ConflictoVersionConvenio(
+                datos.expected_version, convenio.version_actual
             )
+
+        actual = self._version_actual(convenio)
+        contenido = datos.contenido if datos is not None else None
+        if contenido is not None:
+            try:
+                validar_contenido(contenido)
+            except ContenidoConvenioInvalido as exc:
+                self.db.rollback()
+                raise ReferenciaConvenioInvalida(str(exc)) from exc
+        contenido_final = contenido if contenido is not None else (
+            actual.contenido if actual is not None else None
+        )
+        cambios = (
+            datos.model_dump(
+                exclude={"contenido", "expected_version"}, exclude_unset=True
+            )
+            if datos is not None
+            else {}
+        )
+        try:
+            cambio_metadata = self._aplicar_cambios(convenio, cambios, usuario)
         except ErrorConvenio:
             self.db.rollback()
             raise
-
-        faltantes = validar_completitud(convenio)
+        cambio_contenido = (
+            contenido is not None
+            and (actual is None or contenido != actual.contenido)
+        )
+        version_para_validar = actual
+        if contenido_final is not None and (actual is None or cambio_contenido):
+            version_para_validar = VersionConvenio(contenido=contenido_final)
+        faltantes = self._faltantes_elaboracion(convenio, version_para_validar)
         if faltantes:
             self.db.rollback()
             raise ElaboracionIncompleta(faltantes)
@@ -599,8 +867,28 @@ class ServicioConvenios:
             select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA)
         )
         if juridica is None:
+            self.db.rollback()
             raise ConfiguracionConvenioInvalida(
                 "No existe la etapa obligatoria REVISION_AVAL_JURIDICO"
+            )
+
+        version_final = actual
+        if cambio_metadata or cambio_contenido or actual is None:
+            version_final = self._crear_version(
+                convenio,
+                contenido_final,
+                usuario,
+                ContextoVersionConvenio.FINALIZACION,
+            )
+        if version_final is None:
+            self.db.rollback()
+            raise ElaboracionIncompleta(
+                [
+                    CampoFaltante(
+                        campo="contenido",
+                        motivo="Debe existir una versión guardada del documento",
+                    )
+                ]
             )
 
         historial = HistorialEtapa(
@@ -626,6 +914,7 @@ class ServicioConvenios:
                     documento_id=None,
                     responsable_id=None,
                     snapshot_datos=_snapshot_de(convenio),
+                    version_convenio_id=version_final.id,
                 )
             )
             # Se asigna la relación, no solo el FK: si quedara desincronizada, una

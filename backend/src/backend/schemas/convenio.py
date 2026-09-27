@@ -53,6 +53,16 @@ class ConvenioElaboracionActualizar(BaseModel):
     duracion_meses: int | None = Field(default=None, ge=0)
 
 
+class ConvenioElaboracionGuardar(ConvenioElaboracionActualizar):
+    contenido: dict[str, Any]
+    expected_version: int = Field(ge=0)
+
+
+class ConvenioElaboracionFinalizar(ConvenioElaboracionActualizar):
+    contenido: dict[str, Any] | None = None
+    expected_version: int | None = Field(default=None, ge=0)
+
+
 class UsuarioResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -75,6 +85,8 @@ class ConvenioLeer(ConvenioCamposEditables):
     solicitud_id: int
     aliado_id: int | None
     etapa_actual_id: int | None
+    plantilla_origen_id: int | None
+    version_actual: int
     estado: EstadoConvenio
     creado_por_id: int
     creado_por: UsuarioResumen
@@ -109,6 +121,30 @@ class UnidadOrganizacionalResumen(BaseModel):
     codigo: str
     nombre: str
     tipo: str
+
+
+class PlantillaConvenioResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    codigo: str
+    nombre: str
+
+
+class VersionConvenioResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    numero: int
+    autor: UsuarioResumen
+    etapa: EtapaResumen
+    contexto: str
+    creado_en: datetime
+    plantilla: PlantillaConvenioResumen | None
+
+
+class VersionConvenioLeer(VersionConvenioResumen):
+    contenido: dict[str, Any]
+    snapshot_metadata: dict[str, Any]
 
 
 class SolicitudAntecedenteLeer(BaseModel):
@@ -172,6 +208,8 @@ class ConvenioElaboracionLeer(ConvenioLeer):
     etapa_actual: EtapaResumen | None
     tipo_convenio: TipoConvenioResumen | None
     unidad_organizacional: UnidadOrganizacionalResumen | None
+    plantilla_origen: PlantillaConvenioResumen | None
+    contenido: dict[str, Any] | None
 
 
 class CampoFaltante(BaseModel):
@@ -213,6 +251,7 @@ class RevisionConvenioLeer(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    version_convenio_id: int | None
     tipo: TipoRevisionConvenio
     estado: EstadoRevisionConvenio
     resultado: ResultadoRevisionConvenio | None
