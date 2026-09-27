@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
@@ -487,6 +487,50 @@ class ServicioConvenios:
                 .order_by(RevisionConvenio.creado_en, RevisionConvenio.id)
             )
         )
+
+    def listar_tablero(
+        self,
+    ) -> tuple[list[Etapa], list[tuple[Convenio, Usuario | None]]]:
+        """Etapas del ciclo de vida y convenios en trámite con el responsable que
+        tiene pendiente la gestión.
+
+        El responsable sale de la última transición del historial. Se toma por
+        `id` y no por `fecha_cambio`, que puede empatar dentro de una transacción.
+        """
+        etapas = list(
+            self.db.scalars(
+                select(Etapa).where(Etapa.activa.is_(True)).order_by(Etapa.orden)
+            )
+        )
+        ultima_transicion = (
+            select(
+                HistorialEtapa.convenio_id,
+                func.max(HistorialEtapa.id).label("historial_id"),
+            )
+            .group_by(HistorialEtapa.convenio_id)
+            .subquery()
+        )
+        responsable = aliased(Usuario)
+        filas = self.db.execute(
+            select(Convenio, responsable)
+            .outerjoin(Convenio.etapa_actual)
+            .outerjoin(
+                ultima_transicion, ultima_transicion.c.convenio_id == Convenio.id
+            )
+            .outerjoin(
+                HistorialEtapa,
+                HistorialEtapa.id == ultima_transicion.c.historial_id,
+            )
+            .outerjoin(responsable, responsable.id == HistorialEtapa.responsable_id)
+            .options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.solicitud),
+            )
+            .where(Convenio.estado == EstadoConvenio.EN_TRAMITE.value)
+            .order_by(Etapa.orden, Convenio.creado_en, Convenio.id)
+        ).all()
+        return etapas, [(convenio, usuario) for convenio, usuario in filas]
 
     def obtener_para_revision(
         self, convenio_id: int
