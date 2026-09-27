@@ -823,11 +823,71 @@ a:hover {
   align-self: flex-start;
 }
 
+.observacion-cabecera {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.observacion-cabecera h3 {
+  margin: 0;
+}
+
+.observaciones-pendientes {
+  margin-top: 0;
+  border-left: 4px solid var(--color-naranja);
+}
+
 .elaboracion-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 24px;
   align-items: start;
+}
+
+.elaboracion-principal {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.revision-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 24px;
+  align-items: start;
+}
+
+.revision-documento {
+  min-width: 0;
+  border-top: 4px solid var(--color-naranja);
+}
+
+.revision-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.revision-ronda {
+  color: var(--text-secondary);
+  font-weight: 650;
+}
+
+.revision-observaciones {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.revision-observaciones article {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.revision-decision {
+  display: grid;
+  gap: 10px;
 }
 
 .elaboracion-documento {
@@ -1031,6 +1091,10 @@ a:hover {
   }
 
   .elaboracion-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .revision-workspace {
     grid-template-columns: 1fr;
   }
 

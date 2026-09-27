@@ -3,7 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,6 +49,31 @@ class RevisionConvenio(Base):
             f"resultado IS NULL OR resultado IN ({_RESULTADOS})",
             name="ck_revision_convenio_resultado",
         ),
+        CheckConstraint(
+            "instancia_juridica IS NULL OR instancia_juridica IN (1, 2)",
+            name="ck_revision_convenio_instancia_juridica",
+        ),
+        CheckConstraint(
+            "numero_ronda IS NULL OR numero_ronda > 0",
+            name="ck_revision_convenio_numero_ronda_positivo",
+        ),
+        CheckConstraint(
+            "(instancia_juridica IS NULL) = (numero_ronda IS NULL)",
+            name="ck_revision_convenio_coordenadas_juridicas",
+        ),
+        UniqueConstraint(
+            "convenio_id",
+            "tipo",
+            "numero_ronda",
+            "instancia_juridica",
+            name="uq_revision_convenio_ronda_instancia",
+        ),
+        Index(
+            "uq_revision_convenio_juridica_pendiente",
+            "convenio_id",
+            unique=True,
+            postgresql_where=text("tipo = 'JURIDICA' AND estado = 'PENDIENTE'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -54,6 +90,13 @@ class RevisionConvenio(Base):
     version_convenio_id: Mapped[int | None] = mapped_column(
         ForeignKey("version_convenio.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    version_resultado_id: Mapped[int | None] = mapped_column(
+        ForeignKey("version_convenio.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    instancia_juridica: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    numero_ronda: Mapped[int | None] = mapped_column(Integer, nullable=True)
     responsable_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
     )
@@ -83,7 +126,10 @@ class RevisionConvenio(Base):
     historial_etapa: Mapped[HistorialEtapa | None] = relationship()
     documento: Mapped[Documento | None] = relationship(back_populates="revisiones")
     version_convenio: Mapped[VersionConvenio | None] = relationship(
-        back_populates="revisiones"
+        back_populates="revisiones_recibidas", foreign_keys=[version_convenio_id]
+    )
+    version_resultado: Mapped[VersionConvenio | None] = relationship(
+        back_populates="revisiones_resultado", foreign_keys=[version_resultado_id]
     )
     responsable: Mapped[Usuario | None] = relationship(
         foreign_keys=[responsable_id]

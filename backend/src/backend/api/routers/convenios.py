@@ -14,6 +14,7 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import (
+    AprobarRevision,
     AtenderObservacion,
     CatalogosElaboracionLeer,
     ConvenioCrear,
@@ -23,16 +24,20 @@ from backend.schemas.convenio import (
     ConvenioElaboracionLeer,
     ConvenioLeer,
     ConvenioParaRevisionLeer,
+    CrearObservacionRevision,
     DevolverRevision,
     DocumentoConvenioLeer,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     ObservacionRevisionLeer,
+    RevisionContenidoGuardar,
     RevisionConvenioLeer,
     RevisionJuridicaPendienteLeer,
     ValidacionElaboracionLeer,
     VersionConvenioLeer,
     VersionConvenioResumen,
+    VersionRevisionActual,
+    VersionRevisionReferencia,
 )
 from backend.services.convenios import (
     ConflictoVersionConvenio,
@@ -146,6 +151,13 @@ def listar_revisiones_juridicas_pendientes(
             tipo_convenio=revision.convenio.tipo_convenio,
             responsable=revision.convenio.creado_por,
             fecha_recepcion=revision.creado_en,
+            instancia_juridica=revision.instancia_juridica,
+            numero_ronda=revision.numero_ronda,
+            version_numero=(
+                revision.version_convenio.numero
+                if revision.version_convenio is not None
+                else None
+            ),
         )
         for revision in revisiones
     ]
@@ -285,9 +297,13 @@ def obtener_revision_pendiente(
     convenio preparado para revisión, sus documentos y la ronda de revisión
     pendiente que el Revisor ORI debe resolver."""
     try:
-        convenio, revision_pendiente, documentos = ServicioConvenios(
-            db
-        ).obtener_para_revision(convenio_id)
+        (
+            convenio,
+            revision_pendiente,
+            documentos,
+            version_recibida,
+            version_actual,
+        ) = ServicioConvenios(db).obtener_para_revision(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     return ConvenioParaRevisionLeer(
@@ -297,7 +313,64 @@ def obtener_revision_pendiente(
             for documento in documentos
         ],
         revision_pendiente=RevisionConvenioLeer.model_validate(revision_pendiente),
+        version_recibida=VersionRevisionReferencia.model_validate(version_recibida),
+        version_actual=VersionRevisionActual.model_validate(version_actual),
+        version_resultado=(
+            VersionRevisionReferencia.model_validate(
+                revision_pendiente.version_resultado
+            )
+            if revision_pendiente.version_resultado is not None
+            else None
+        ),
     )
+
+
+@router.patch(
+    "/{convenio_id}/revisiones/{revision_id}/contenido",
+    response_model=VersionRevisionActual,
+)
+def guardar_contenido_revision(
+    convenio_id: int,
+    revision_id: int,
+    datos: RevisionContenidoGuardar,
+    db: DatabaseSession,
+    usuario: PuedeRevisar,
+) -> VersionRevisionActual:
+    try:
+        version = ServicioConvenios(db).guardar_contenido_revision(
+            convenio_id, revision_id, datos, usuario
+        )
+        return VersionRevisionActual.model_validate(version)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revisiones/{revision_id}/observaciones",
+    response_model=ObservacionRevisionLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_observacion_revision(
+    convenio_id: int,
+    revision_id: int,
+    datos: CrearObservacionRevision,
+    db: DatabaseSession,
+    usuario: PuedeRevisar,
+) -> ObservacionRevisionLeer:
+    try:
+        observacion = ServicioConvenios(db).registrar_observacion_revision(
+            convenio_id, revision_id, datos.descripcion, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        cargada = next(
+            item
+            for revision in convenio.revisiones
+            for item in revision.observaciones
+            if item.id == observacion.id
+        )
+        return ObservacionRevisionLeer.model_validate(cargada)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
 
 
 @router.get("/{convenio_id}/documentos/{documento_id}/contenido")
@@ -359,10 +432,16 @@ def atender_observacion(
     response_model=RevisionConvenioLeer,
 )
 def aprobar_revision(
-    convenio_id: int, revision_id: int, db: DatabaseSession, usuario: PuedeRevisar
+    convenio_id: int,
+    revision_id: int,
+    datos: AprobarRevision,
+    db: DatabaseSession,
+    usuario: PuedeRevisar,
 ) -> RevisionConvenioLeer:
     try:
-        ServicioConvenios(db).aprobar(convenio_id, revision_id, usuario)
+        ServicioConvenios(db).aprobar(
+            convenio_id, revision_id, datos.expected_version, usuario
+        )
         convenio = ServicioConvenios(db).obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(
             next(r for r in convenio.revisiones if r.id == revision_id)
@@ -384,7 +463,11 @@ def devolver_revision(
 ) -> RevisionConvenioLeer:
     try:
         ServicioConvenios(db).devolver(
-            convenio_id, revision_id, datos.observaciones, usuario
+            convenio_id,
+            revision_id,
+            datos.observaciones,
+            datos.expected_version,
+            usuario,
         )
         convenio = ServicioConvenios(db).obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(

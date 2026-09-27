@@ -1,5 +1,7 @@
 """HU-13: historial y trazabilidad de rondas reales de revisión."""
 
+from copy import deepcopy
+
 from sqlalchemy import select
 
 from backend.models.revision_convenio import RevisionConvenio
@@ -33,6 +35,10 @@ def test_finalizar_elaboracion_deja_una_revision_juridica_pendiente(
     assert revision["estado"] == "PENDIENTE"
     assert revision["resultado"] is None
     assert revision["resuelta_en"] is None
+    assert revision["instancia_juridica"] == 1
+    assert revision["numero_ronda"] == 1
+    assert revision["version_convenio"]["numero"] == convenio_listo.version_actual
+    assert revision["version_resultado"] is None
     assert revision["observaciones"] == []
     assert revision["snapshot_datos"]["objeto"] == convenio_listo.objeto
 
@@ -69,7 +75,10 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
     entrar_como(revisor)
     devolucion = client.post(
         f"/api/convenios/{convenio_listo.id}/revisiones/{primera.id}/devolver",
-        json={"observaciones": ["Falta anexar el certificado"]},
+        json={
+            "expected_version": convenio_listo.version_actual,
+            "observaciones": ["Falta anexar el certificado"],
+        },
     )
     observacion_id = devolucion.json()["observaciones"][0]["id"]
     entrar_como(gestor)
@@ -77,6 +86,18 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
         f"/api/convenios/{convenio_listo.id}/observaciones/"
         f"{observacion_id}/atender",
         json={"respuesta": "Se anexó el certificado solicitado"},
+    ).status_code == 200
+    elaboracion = client.get(f"/api/convenios/{convenio_listo.id}/elaboracion").json()
+    contenido = deepcopy(elaboracion["contenido"])
+    contenido["content"].append(
+        {
+            "type": "paragraph",
+            "content": [{"type": "text", "text": "Certificado anexado"}],
+        }
+    )
+    assert client.patch(
+        f"/api/convenios/{convenio_listo.id}/elaboracion",
+        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
     ).status_code == 200
     segunda = client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
@@ -90,6 +111,9 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
     primera, segunda_revision = cuerpo["revisiones"]
     assert primera["estado"] == "RESUELTA"
     assert primera["resultado"] == "DEVUELTA"
+    assert primera["numero_ronda"] == 1
+    assert primera["instancia_juridica"] == 1
+    assert primera["version_resultado"] is not None
     assert len(primera["observaciones"]) == 1
     assert primera["observaciones"][0]["estado"] == "ATENDIDA"
     assert (
@@ -99,6 +123,8 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
 
     assert segunda_revision["estado"] == "PENDIENTE"
     assert segunda_revision["resultado"] is None
+    assert segunda_revision["numero_ronda"] == 2
+    assert segunda_revision["instancia_juridica"] == 1
     assert segunda_revision["observaciones"] == []
 
     # Elaboración -> Jurídica -> Elaboración -> Jurídica otra vez.
