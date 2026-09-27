@@ -24,6 +24,7 @@ from backend.schemas.convenio import (
     ConvenioElaboracionLeer,
     ConvenioLeer,
     ConvenioParaRevisionLeer,
+    ConvenioTableroLeer,
     CrearObservacionRevision,
     DevolverRevision,
     DocumentoConvenioLeer,
@@ -33,6 +34,7 @@ from backend.schemas.convenio import (
     RevisionContenidoGuardar,
     RevisionConvenioLeer,
     RevisionJuridicaPendienteLeer,
+    TableroConveniosLeer,
     ValidacionElaboracionLeer,
     VersionConvenioLeer,
     VersionConvenioResumen,
@@ -161,6 +163,26 @@ def listar_revisiones_juridicas_pendientes(
         )
         for revision in revisiones
     ]
+
+
+@router.get("/tablero", response_model=TableroConveniosLeer)
+def obtener_tablero(db: DatabaseSession, _: PuedeVer) -> TableroConveniosLeer:
+    etapas, convenios = ServicioConvenios(db).listar_tablero()
+    return TableroConveniosLeer(
+        etapas=etapas,
+        convenios=[
+            ConvenioTableroLeer(
+                id=convenio.id,
+                codigo=convenio.codigo,
+                estado=convenio.estado,
+                etapa_actual=convenio.etapa_actual,
+                aliado=convenio.aliado,
+                aliado_propuesto=convenio.solicitud.nombre_aliado_propuesto,
+                responsable=responsable,
+            )
+            for convenio, responsable in convenios
+        ],
+    )
 
 
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
