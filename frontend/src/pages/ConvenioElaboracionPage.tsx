@@ -106,6 +106,12 @@ function erroresServidor(error: unknown): Record<string, string> {
   return {}
 }
 
+function esConflictoVersion(error: unknown): error is ApiError {
+  if (!(error instanceof ApiError) || error.status !== 409 || !error.detail
+    || typeof error.detail !== 'object' || Array.isArray(error.detail)) return false
+  return 'expected_version' in error.detail && 'current_version' in error.detail
+}
+
 export function ConvenioElaboracionPage() {
   const id = Number(useParams().convenioId)
   const elaboracion = useElaboracionConvenio(id)
@@ -154,11 +160,10 @@ export function ConvenioElaboracionPage() {
     },
     onError: (error) => {
       setErrores(erroresServidor(error))
-      const conflicto = error instanceof ApiError && error.status === 409
       notify({
         type: 'error',
-        message: conflicto
-          ? 'Existe una versión más reciente. Recargue la página antes de continuar.'
+        message: esConflictoVersion(error)
+          ? 'El proyecto fue actualizado desde que abriste esta revisión. Recarga la página antes de continuar.'
           : error instanceof Error ? error.message : 'No fue posible guardar el proyecto.',
       })
     },
@@ -195,6 +200,7 @@ export function ConvenioElaboracionPage() {
     .flatMap((revision) => revision.observaciones)
     .filter((observacion) => observacion.origen === 'REVISOR_ORI') ?? []
   const observacionesPendientes = observaciones.filter((item) => item.estado === 'PENDIENTE')
+  const observacionesAtendidas = observaciones.filter((item) => item.estado === 'ATENDIDA')
 
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -229,25 +235,48 @@ export function ConvenioElaboracionPage() {
 
       <form ref={formRef} onSubmit={enviar}>
         <div className="elaboracion-workspace">
-          <main className="elaboracion-documento card">
-            <div className="editor-cabecera">
-              <div>
-                <h2>Documento jurídico</h2>
-                <p className="section-help">Edita libremente el contenido del proyecto de convenio.</p>
+          <main className="elaboracion-principal">
+            <section className="elaboracion-documento card">
+              <div className="editor-cabecera">
+                <div>
+                  <h2>Documento jurídico</h2>
+                  <p className="section-help">Edita libremente el contenido del proyecto de convenio.</p>
+                </div>
+                {contenidoModificado && <span className="badge badge-pendiente">Cambios sin guardar</span>}
               </div>
-              {contenidoModificado && <span className="badge badge-pendiente">Cambios sin guardar</span>}
-            </div>
-            {contenido ? (
-              <ConvenioEditor
-                key={datos.version_actual}
-                contenido={contenido}
-                editable={editable}
-                onChange={(nuevo) => {
-                  setBorrador({ version: datos.version_actual, contenido: nuevo })
-                }}
-              />
-            ) : (
-              <div className="estado-vacio">Este proyecto aún no tiene un documento editable.</div>
+              {contenido ? (
+                <ConvenioEditor
+                  key={datos.version_actual}
+                  contenido={contenido}
+                  editable={editable}
+                  onChange={(nuevo) => {
+                    setBorrador({ version: datos.version_actual, contenido: nuevo })
+                  }}
+                />
+              ) : (
+                <div className="estado-vacio">Este proyecto aún no tiene un documento editable.</div>
+              )}
+            </section>
+
+            {observacionesPendientes.length > 0 && (
+              <section className="card observaciones-elaboracion observaciones-pendientes">
+                <h2>Observaciones jurídicas pendientes</h2>
+                <p className="section-help">Corrige estos puntos antes de volver a enviar el proyecto a revisión jurídica.</p>
+                {observacionesPendientes.map((observacion) => (
+                  <article className="observacion-elaboracion" key={observacion.id}>
+                    <div className="observacion-cabecera">
+                      <h3>{observacion.descripcion}</h3>
+                      <span className="badge badge-pendiente">Pendiente</span>
+                    </div>
+                    {editable && (
+                      <div className="form-group">
+                        <textarea className="form-control" value={respuestas[observacion.id] ?? ''} onChange={(event) => setRespuestas((actual) => ({ ...actual, [observacion.id]: event.target.value }))} />
+                        <button className="btn btn-outline" type="button" disabled={!respuestas[observacion.id]?.trim() || atender.isPending} onClick={() => atender.mutate({ observacionId: observacion.id, respuesta: respuestas[observacion.id].trim() })}>Marcar como atendida</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </section>
             )}
           </main>
 
@@ -351,18 +380,13 @@ export function ConvenioElaboracionPage() {
         </div>
       </form>
 
-      {observaciones.length > 0 && (
+      {observacionesAtendidas.length > 0 && (
         <section className="card observaciones-elaboracion">
           <h2>Observaciones jurídicas</h2>
-          {observaciones.map((observacion) => (
+          {observacionesAtendidas.map((observacion) => (
             <article className="observacion-elaboracion" key={observacion.id}>
               <h3>{observacion.descripcion}</h3>
-              {observacion.estado === 'ATENDIDA' ? <p><strong>Respuesta:</strong> {observacion.respuesta}</p> : editable && (
-                <div className="form-group">
-                  <textarea className="form-control" value={respuestas[observacion.id] ?? ''} onChange={(event) => setRespuestas((actual) => ({ ...actual, [observacion.id]: event.target.value }))} />
-                  <button className="btn btn-outline" type="button" disabled={!respuestas[observacion.id]?.trim() || atender.isPending} onClick={() => atender.mutate({ observacionId: observacion.id, respuesta: respuestas[observacion.id].trim() })}>Marcar como atendida</button>
-                </div>
-              )}
+              <p><strong>Respuesta:</strong> {observacion.respuesta}</p>
             </article>
           ))}
         </section>

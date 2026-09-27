@@ -1,5 +1,6 @@
 """HU-13: consulta de la ronda jurídica y sus documentos."""
 
+from copy import deepcopy
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -20,9 +21,6 @@ def test_usuario_sin_permiso_no_puede_acceder_a_la_revision(
 def test_bandeja_juridica_refleja_solo_revisiones_pendientes(
     client, db, gestor, revisor, entrar_como, convenio_listo
 ) -> None:
-    entrar_como(revisor)
-    assert client.get("/api/convenios/revisiones-juridicas/pendientes").json() == []
-
     entrar_como(gestor)
     assert client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
@@ -36,16 +34,25 @@ def test_bandeja_juridica_refleja_solo_revisiones_pendientes(
     entrar_como(revisor)
     respuesta = client.get("/api/convenios/revisiones-juridicas/pendientes")
     assert respuesta.status_code == 200
-    assert respuesta.json()[0]["revision_id"] == revision.id
-    assert respuesta.json()[0]["convenio_id"] == convenio_listo.id
-    assert respuesta.json()[0]["solicitud_consecutivo"]
-    assert respuesta.json()[0]["responsable"]["id"] == gestor.id
+    pendiente = next(
+        item for item in respuesta.json() if item["convenio_id"] == convenio_listo.id
+    )
+    assert pendiente["revision_id"] == revision.id
+    assert pendiente["solicitud_consecutivo"]
+    assert pendiente["responsable"]["id"] == gestor.id
+    assert pendiente["instancia_juridica"] == 1
+    assert pendiente["numero_ronda"] == 1
+    assert pendiente["version_numero"] == convenio_listo.version_actual
     assert client.get(f"/api/convenios/{convenio_listo.id}/revision").status_code == 200
 
     assert client.post(
-        f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/aprobar"
+        f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/aprobar",
+        json={"expected_version": convenio_listo.version_actual},
     ).status_code == 200
-    assert client.get("/api/convenios/revisiones-juridicas/pendientes").json() == []
+    pendientes = client.get("/api/convenios/revisiones-juridicas/pendientes").json()
+    segunda = next(item for item in pendientes if item["convenio_id"] == convenio_listo.id)
+    assert segunda["instancia_juridica"] == 2
+    assert segunda["numero_ronda"] == 1
 
 
 def test_convenio_inexistente_devuelve_404(client, revisor, entrar_como) -> None:
@@ -91,6 +98,12 @@ def test_revisor_consulta_revision_y_documento_de_solicitud(
     assert "ruta_almacenamiento" not in cuerpo["documentos"][0]
     assert cuerpo["revision_pendiente"]["tipo"] == "JURIDICA"
     assert cuerpo["revision_pendiente"]["estado"] == "PENDIENTE"
+    assert cuerpo["revision_pendiente"]["instancia_juridica"] == 1
+    assert cuerpo["revision_pendiente"]["numero_ronda"] == 1
+    assert cuerpo["version_recibida"]["id"] == cuerpo["revision_pendiente"]["version_convenio_id"]
+    assert cuerpo["version_actual"]["numero"] == convenio_listo.version_actual
+    assert cuerpo["version_actual"]["contenido"]
+    assert cuerpo["version_resultado"] is None
     assert (
         cuerpo["revision_pendiente"]["snapshot_datos"]["objeto"]
         == convenio_listo.objeto
@@ -117,7 +130,10 @@ def test_segunda_ronda_muestra_solo_la_revision_pendiente_vigente(
     entrar_como(revisor)
     devolucion = client.post(
         f"/api/convenios/{convenio_listo.id}/revisiones/{primera.id}/devolver",
-        json={"observaciones": ["Corregir objeto"]},
+        json={
+            "expected_version": convenio_listo.version_actual,
+            "observaciones": ["Corregir objeto"],
+        },
     )
     observacion_id = devolucion.json()["observaciones"][0]["id"]
     entrar_como(gestor)
@@ -129,6 +145,15 @@ def test_segunda_ronda_muestra_solo_la_revision_pendiente_vigente(
         f"/api/convenios/{convenio_listo.id}/observaciones/"
         f"{observacion_id}/atender",
         json={"respuesta": "Se corrigió el objeto"},
+    ).status_code == 200
+    elaboracion = client.get(f"/api/convenios/{convenio_listo.id}/elaboracion").json()
+    contenido = deepcopy(elaboracion["contenido"])
+    contenido["content"].append(
+        {"type": "paragraph", "content": [{"type": "text", "text": "Objeto corregido"}]}
+    )
+    assert client.patch(
+        f"/api/convenios/{convenio_listo.id}/elaboracion",
+        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
     ).status_code == 200
     assert client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
@@ -142,6 +167,8 @@ def test_segunda_ronda_muestra_solo_la_revision_pendiente_vigente(
     assert revision_pendiente["id"] != primera.id
     assert revision_pendiente["estado"] == "PENDIENTE"
     assert revision_pendiente["resultado"] is None
+    assert revision_pendiente["instancia_juridica"] == 1
+    assert revision_pendiente["numero_ronda"] == 2
 
 
 def test_documento_ajeno_no_se_expone_y_solicitante_no_puede_consultarlo(

@@ -244,6 +244,13 @@ class ObservacionRevisionLeer(BaseModel):
     creado_en: datetime
 
 
+class VersionRevisionReferencia(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    numero: int
+
+
 class RevisionConvenioLeer(BaseModel):
     """Un ciclo de revisión (jurídica, de contraparte o final) con su resultado
     y las observaciones que dejó, para CA-06 y CA-07."""
@@ -252,6 +259,11 @@ class RevisionConvenioLeer(BaseModel):
 
     id: int
     version_convenio_id: int | None
+    version_resultado_id: int | None
+    version_convenio: VersionRevisionReferencia | None
+    version_resultado: VersionRevisionReferencia | None
+    instancia_juridica: int | None
+    numero_ronda: int | None
     tipo: TipoRevisionConvenio
     estado: EstadoRevisionConvenio
     resultado: ResultadoRevisionConvenio | None
@@ -272,6 +284,9 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     tipo_convenio: TipoConvenioResumen | None
     responsable: UsuarioResumen
     fecha_recepcion: datetime
+    instancia_juridica: int | None
+    numero_ronda: int | None
+    version_numero: int | None
 
 
 class HistorialEtapaLeer(BaseModel):
@@ -309,6 +324,10 @@ class DocumentoConvenioLeer(BaseModel):
     creado_en: datetime
 
 
+class VersionRevisionActual(VersionRevisionReferencia):
+    contenido: dict[str, Any]
+
+
 class ConvenioParaRevisionLeer(BaseModel):
     """Convenio preparado para la pantalla principal de revisión jurídica:
     su información, documentos y la ronda de revisión pendiente que el
@@ -318,10 +337,43 @@ class ConvenioParaRevisionLeer(BaseModel):
     documentos: list[DocumentoConvenioLeer]
     revision_pendiente: RevisionConvenioLeer
 
+    version_recibida: VersionRevisionReferencia
+    version_actual: VersionRevisionActual
+    version_resultado: VersionRevisionReferencia | None = None
+
+
+class RevisionContenidoGuardar(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contenido: dict[str, Any]
+    expected_version: int = Field(ge=0)
+
+
+class AprobarRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+
+
+class CrearObservacionRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    descripcion: str = Field(min_length=1)
+
+    @field_validator("descripcion")
+    @classmethod
+    def validar_descripcion(cls, valor: str) -> str:
+        normalizada = valor.strip()
+        if not normalizada:
+            raise ValueError("La observación debe tener contenido")
+        return normalizada
+
+
 class DevolverRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    observaciones: list[str] = Field(min_length=1)
+    expected_version: int = Field(ge=0)
+    observaciones: list[str] = Field(default_factory=list)
 
     @field_validator("observaciones")
     @classmethod

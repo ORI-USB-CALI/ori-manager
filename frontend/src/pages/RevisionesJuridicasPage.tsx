@@ -22,6 +22,9 @@ interface RevisionJuridicaPendiente {
   tipo_convenio: { id: number; nombre: string } | null
   responsable: { id: number; nombre_completo: string; correo: string }
   fecha_recepcion: string
+  instancia_juridica: number | null
+  numero_ronda: number | null
+  version_numero: number | null
 }
 
 export function RevisionesJuridicasPage() {
@@ -69,6 +72,9 @@ export function RevisionesJuridicasPage() {
     { id: 'solicitud', header: 'Solicitud origen', render: (item) => item.solicitud_consecutivo },
     { id: 'objeto', header: 'Objeto', className: 'table-cell-wide', render: (item) => item.objeto ?? '—' },
     { id: 'tipo', header: 'Tipo convenio', render: (item) => item.tipo_convenio?.nombre ?? '—' },
+    { id: 'revision', header: 'Revisión', render: (item) => item.instancia_juridica ? `${item.instancia_juridica} de 2` : 'Legacy' },
+    { id: 'ronda', header: 'Ronda', render: (item) => item.numero_ronda ?? '—' },
+    { id: 'version', header: 'Versión', render: (item) => item.version_numero ?? '—' },
     {
       id: 'responsable',
       header: 'Responsable',

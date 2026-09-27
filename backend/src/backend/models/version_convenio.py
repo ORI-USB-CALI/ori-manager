@@ -65,6 +65,11 @@ class VersionConvenio(Base):
     plantilla: Mapped[PlantillaConvenio | None] = relationship(
         back_populates="versiones"
     )
-    revisiones: Mapped[list[RevisionConvenio]] = relationship(
-        back_populates="version_convenio"
+    revisiones_recibidas: Mapped[list[RevisionConvenio]] = relationship(
+        back_populates="version_convenio",
+        foreign_keys="RevisionConvenio.version_convenio_id",
+    )
+    revisiones_resultado: Mapped[list[RevisionConvenio]] = relationship(
+        back_populates="version_resultado",
+        foreign_keys="RevisionConvenio.version_resultado_id",
     )

@@ -31,6 +31,12 @@ interface ObservacionRevision {
 
 interface RevisionConvenio {
   id: number
+  version_convenio_id: number | null
+  version_resultado_id: number | null
+  version_convenio: { id: number; numero: number } | null
+  version_resultado: { id: number; numero: number } | null
+  instancia_juridica: number | null
+  numero_ronda: number | null
   tipo: string
   estado: string
   resultado: string | null
@@ -145,17 +151,23 @@ export function ConvenioHistorialPage() {
       <section className="card">
         <h2>Rondas de revisión</h2>
         {revisiones.length === 0 && <p>Aún no se han registrado rondas de revisión.</p>}
-        {revisiones.map((revision, indice) => {
+        {revisiones.map((revision) => {
           const badge = badgeResultado(revision)
           return (
             <article className="card timeline-revision" key={revision.id}>
               <h3>
-                Ciclo {indice + 1} · {ETIQUETA_TIPO_REVISION[revision.tipo] ?? revision.tipo}{' '}
+                {revision.tipo === 'JURIDICA' && revision.numero_ronda
+                  ? `Ronda ${revision.numero_ronda} · Revisión jurídica ${revision.instancia_juridica} de 2`
+                  : ETIQUETA_TIPO_REVISION[revision.tipo] ?? revision.tipo}{' '}
                 <span className={`badge ${badge.clase}`}>{badge.texto}</span>
               </h3>
               <dl>
                 <dt>Objeto revisado</dt>
                 <dd>{revision.snapshot_datos?.objeto ?? '—'}</dd>
+                <dt>Versión recibida</dt>
+                <dd>{revision.version_convenio?.numero ?? 'Legacy'}</dd>
+                <dt>Versión resultado</dt>
+                <dd>{revision.version_resultado?.numero ?? '—'}</dd>
                 <dt>Entregada a revisión</dt>
                 <dd>{fechaHora(revision.creado_en)}</dd>
                 {revision.resultado && (
