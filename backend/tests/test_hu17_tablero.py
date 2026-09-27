@@ -9,30 +9,28 @@ from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
-    AlcanceConvenio,
     EstadoConvenio,
-    EstadoSolicitud,
+    EstadoRevisionConvenio,
     TipoAliado,
     TipoIdentificacion,
-    TipoSolicitante,
 )
 from backend.models.etapa import Etapa
-from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.revision_convenio import RevisionConvenio
+from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.convenio import ConvenioCrear
 from backend.services.convenios import ServicioConvenios
 
 URL_TABLERO = "/api/convenios/tablero"
 
-ETAPAS_EN_ORDEN = [
-    "SOLICITUD",
-    "ELABORACION",
-    "REVISION_AVAL_JURIDICO",
-    "REVISION_CONTRAPARTE",
-    "REVISION_FINAL",
-    "APROBACION_FIRMAS",
-    "FIRMA_ARCHIVO_SEGUIMIENTO",
-]
+AREAS_POR_ETAPA = {
+    "SOLICITUD": "Solicitante",
+    "ELABORACION": "Gestor ORI",
+    "REVISION_AVAL_JURIDICO": "Oficina Jurídica",
+    "REVISION_CONTRAPARTE": "Contraparte",
+    "REVISION_FINAL": "ORI",
+    "APROBACION_FIRMAS": "ORI",
+    "FIRMA_ARCHIVO_SEGUIMIENTO": "ORI",
+}
 
 
 @pytest.fixture
@@ -65,39 +63,25 @@ def crear_aliado(db: Session) -> Callable[[], Aliado]:
     return _crear
 
 
-@pytest.fixture
-def crear_convenio(db: Session) -> Callable[..., Convenio]:
-    """Crea el convenio por el flujo canónico: queda EN_TRAMITE en Elaboración."""
-
-    def _crear(autor: Usuario, aliado: Aliado | None = None) -> Convenio:
-        solicitud = SolicitudConvenio(
-            consecutivo=f"SOL-{uuid4().hex}",
-            tipo_solicitante=TipoSolicitante.INTERNO.value,
-            solicitante_id=autor.id,
-            objeto="Objeto solicitado para el tablero",
-            estado=EstadoSolicitud.APROBADA.value,
-            aliado_id=aliado.id if aliado else None,
-        )
-        db.add(solicitud)
-        db.commit()
-
-        datos = ConvenioCrear(
-            solicitud_id=solicitud.id,
-            codigo=f"CONV-{uuid4().hex[:8]}",
-            objeto="Convenio visible en el tablero",
-            alcance=AlcanceConvenio.INSTITUCIONAL,
-        )
-        return ServicioConvenios(db).crear(datos, autor)
-
-    return _crear
-
-
 def _mover_a_etapa(db: Session, convenio: Convenio, codigo_etapa: str) -> None:
-    """Simula una transición del flujo (HU-13 a HU-16) sin pasar por sus endpoints."""
+    """Simula una transición del flujo (HU-14 a HU-16) sin pasar por sus endpoints."""
     # Se asigna la relación, no solo el FK, para que la sesión compartida con la
     # app no siga viendo la etapa anterior.
     convenio.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == codigo_etapa))
     db.commit()
+
+
+def _entregar_a_juridica(
+    db: Session, crear_convenio: Callable[..., Convenio], autor: Usuario
+) -> Convenio:
+    tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
+    convenio = crear_convenio(
+        autor,
+        tipo_convenio_id=tipo.id,
+        implicacion_financiera="Sin costo para la Universidad",
+        duracion_meses=24,
+    )
+    return ServicioConvenios(db).finalizar_elaboracion(convenio.id, autor)
 
 
 def _convenios_por_id(cuerpo: dict) -> dict[int, dict]:
@@ -131,34 +115,42 @@ def test_solicitantes_no_acceden_al_tablero(
     "codigo_rol",
     [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI],
 )
-def test_roles_internos_acceden_al_tablero(
-    client, crear_usuario, entrar_como, codigo_rol
+def test_roles_internos_ven_todos_los_convenios_en_tramite(
+    client, crear_usuario, entrar_como, autor, crear_convenio, codigo_rol
 ) -> None:
+    convenio = crear_convenio(autor)
     entrar_como(crear_usuario(codigo_rol, TipoUsuario.INTERNO))
 
     respuesta = client.get(URL_TABLERO)
 
     assert respuesta.status_code == 200
-    assert isinstance(respuesta.json()["convenios"], list)
+    assert convenio.id in _convenios_por_id(respuesta.json())
 
 
-def test_tablero_expone_las_siete_etapas_en_orden(client, administrador) -> None:
+def test_tablero_expone_las_siete_etapas_con_su_area_responsable(
+    client, administrador
+) -> None:
     respuesta = client.get(URL_TABLERO)
 
     assert respuesta.status_code == 200
     etapas = respuesta.json()["etapas"]
-    assert [etapa["codigo"] for etapa in etapas] == ETAPAS_EN_ORDEN
+    assert [etapa["codigo"] for etapa in etapas] == list(AREAS_POR_ETAPA)
     assert [etapa["orden"] for etapa in etapas] == list(range(1, 8))
     assert all(etapa["nombre"] for etapa in etapas)
+    assert {
+        etapa["codigo"]: etapa["area_responsable"] for etapa in etapas
+    } == AREAS_POR_ETAPA
 
 
 def test_muestra_informacion_operativa_de_cada_convenio(
     db, client, administrador, autor, crear_aliado, crear_convenio
 ) -> None:
     aliado = crear_aliado()
-    con_aliado = crear_convenio(autor, aliado)
+    con_aliado = crear_convenio(autor, codigo=f"CONV-{uuid4().hex[:8]}")
+    con_aliado.aliado = aliado
+    db.commit()
     sin_aliado = crear_convenio(autor)
-    _mover_a_etapa(db, sin_aliado, "REVISION_AVAL_JURIDICO")
+    _mover_a_etapa(db, sin_aliado, "REVISION_CONTRAPARTE")
 
     respuesta = client.get(URL_TABLERO)
 
@@ -171,11 +163,61 @@ def test_muestra_informacion_operativa_de_cada_convenio(
     assert primero["etapa_actual"]["codigo"] == "ELABORACION"
     assert primero["aliado"]["id"] == aliado.id
     assert primero["aliado"]["nombre"] == aliado.nombre
-    assert "responsable" in primero
 
     segundo = convenios[sin_aliado.id]
-    assert segundo["etapa_actual"]["codigo"] == "REVISION_AVAL_JURIDICO"
+    assert segundo["etapa_actual"]["codigo"] == "REVISION_CONTRAPARTE"
     assert segundo["aliado"] is None
+    assert segundo["aliado_propuesto"] == sin_aliado.solicitud.nombre_aliado_propuesto
+
+
+def test_en_elaboracion_el_responsable_es_el_gestor(
+    client, administrador, autor, crear_convenio
+) -> None:
+    convenio = crear_convenio(autor)
+
+    respuesta = client.get(URL_TABLERO)
+
+    responsable = _convenios_por_id(respuesta.json())[convenio.id]["responsable"]
+    assert responsable["id"] == autor.id
+    assert responsable["nombre_completo"] == autor.nombre_completo
+
+
+def test_en_revision_juridica_sin_revisor_asignado_se_informa_el_area(
+    db, client, administrador, autor, crear_convenio
+) -> None:
+    convenio = _entregar_a_juridica(db, crear_convenio, autor)
+
+    respuesta = client.get(URL_TABLERO)
+
+    tarjeta = _convenios_por_id(respuesta.json())[convenio.id]
+    assert tarjeta["etapa_actual"]["codigo"] == "REVISION_AVAL_JURIDICO"
+    assert tarjeta["responsable"] is None
+    assert tarjeta["etapa_actual"]["area_responsable"] == "Oficina Jurídica"
+
+
+def test_la_devolucion_de_juridica_devuelve_la_gestion_al_gestor(
+    db, client, administrador, autor, revisor, crear_convenio
+) -> None:
+    convenio = _entregar_a_juridica(db, crear_convenio, autor)
+    revision = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio.id,
+            RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+        )
+    )
+    ServicioConvenios(db).devolver(
+        convenio.id,
+        revision.id,
+        ["Ajustar la cláusula de vigencia"],
+        convenio.version_actual,
+        revisor,
+    )
+
+    respuesta = client.get(URL_TABLERO)
+
+    tarjeta = _convenios_por_id(respuesta.json())[convenio.id]
+    assert tarjeta["etapa_actual"]["codigo"] == "ELABORACION"
+    assert tarjeta["responsable"]["id"] == autor.id
 
 
 def test_excluye_convenios_que_no_estan_en_tramite(
