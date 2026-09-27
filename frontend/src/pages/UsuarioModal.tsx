@@ -115,7 +115,10 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
       errores.nombre_completo = 'El nombre completo es obligatorio.'
     }
     if (!contrasena) errores.contrasena = 'La contraseña es obligatoria.'
-    else errores.contrasena = passwordPolicyError(contrasena) ?? undefined
+    else {
+      const errorContrasena = passwordPolicyError(contrasena)
+      if (errorContrasena) errores.contrasena = errorContrasena
+    }
     if (!rol) errores.rol = 'Seleccione un rol.'
     return errores
   }
