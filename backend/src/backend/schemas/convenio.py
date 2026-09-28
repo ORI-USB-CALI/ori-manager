@@ -1,16 +1,28 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    computed_field,
+    field_validator,
+)
 
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
+    EstadoFirmaConvenio,
     EstadoObservacionRevision,
+    EstadoProcesoFirmasConvenio,
     EstadoRevisionConvenio,
     EstadoSolicitud,
+    ModalidadFirma,
     OrigenObservacionRevision,
+    ParteFirmaConvenio,
     ResultadoRevisionConvenio,
+    RolFirmanteConvenio,
     TipoRevisionConvenio,
     TipoSolicitante,
 )
@@ -432,3 +444,105 @@ class AtenderObservacion(BaseModel):
         if not normalizada:
             raise ValueError("La respuesta debe tener contenido")
         return normalizada
+
+
+class InvitacionFirmaConvenioLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    firma_convenio_id: int
+    generada_por_id: int
+    expira_en: datetime
+    enviado_en: datetime | None
+    utilizado_en: datetime | None
+    revocado_en: datetime | None
+    creado_en: datetime
+
+    @computed_field
+    @property
+    def estado(self) -> str:
+        if self.utilizado_en is not None:
+            return "UTILIZADA"
+        if self.revocado_en is not None:
+            return "REVOCADA"
+        if self.expira_en <= datetime.now(self.expira_en.tzinfo):
+            return "EXPIRADA"
+        if self.enviado_en is None:
+            return "ENTREGA_FALLIDA"
+        return "PENDIENTE"
+
+
+class FirmaConvenioLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    proceso_firmas_id: int
+    orden: int
+    rol_firmante: RolFirmanteConvenio
+    parte: ParteFirmaConvenio
+    usuario_id: int | None
+    nombre_firmante: str | None
+    cargo_firmante: str | None
+    correo_firmante: str | None
+    modalidad: ModalidadFirma | None
+    estado: EstadoFirmaConvenio
+    fecha_firma: datetime | None
+    documento_id: int | None
+    documento: DocumentoConvenioLeer | None
+    creado_en: datetime
+    invitaciones: list[InvitacionFirmaConvenioLeer] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def configurada(self) -> bool:
+        identidad = bool(self.nombre_firmante and self.cargo_firmante)
+        if self.modalidad == ModalidadFirma.ELECTRONICA:
+            return identidad and bool(self.correo_firmante)
+        return identidad and self.modalidad == ModalidadFirma.FISICA
+
+
+class ProcesoFirmasConvenioLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    convenio_id: int
+    version_convenio_id: int
+    version_numero: int
+    revision_final_id: int
+    creado_por_id: int
+    estado: EstadoProcesoFirmasConvenio
+    creado_en: datetime
+    iniciado_en: datetime | None
+    completado_en: datetime | None
+    cancelado_en: datetime | None
+    firmas: list[FirmaConvenioLeer]
+
+
+class RevisionFinalLeer(BaseModel):
+    convenio: ConvenioElaboracionLeer
+    documentos: list[DocumentoConvenioLeer]
+    revision_pendiente: RevisionConvenioLeer
+    version_aprobada_contraparte: VersionConvenioLeer
+    revisiones_juridicas: list[RevisionConvenioLeer]
+    revision_contraparte: RevisionConvenioLeer
+    observaciones_pendientes: list[ObservacionRevisionLeer]
+    revision_final_aprobada: bool
+    proceso_firmas_abierto: bool
+    proceso_firmas: ProcesoFirmasConvenioLeer | None
+
+
+class ConfigurarFirmaConvenio(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(min_length=1, max_length=160)
+    cargo: str = Field(min_length=1, max_length=160)
+    correo: EmailStr | None = None
+    modalidad: ModalidadFirma
+
+    @field_validator("nombre", "cargo")
+    @classmethod
+    def normalizar_texto(cls, valor: str) -> str:
+        normalizado = valor.strip()
+        if not normalizado:
+            raise ValueError("El campo debe tener contenido")
+        return normalizado

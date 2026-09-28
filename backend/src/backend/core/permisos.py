@@ -22,6 +22,7 @@ class Permiso(StrEnum):
     CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE = (
         "convenios.gestionar_revision_contraparte"
     )
+    CONVENIOS_GESTIONAR_FIRMAS = "convenios.gestionar_firmas"
     SOLICITUDES_CREAR = "solicitudes.crear"
     SOLICITUDES_VER_PROPIAS = "solicitudes.ver_propias"
     SOLICITUDES_EDITAR_PROPIAS = "solicitudes.editar_propias"
@@ -62,6 +63,7 @@ _PERMISOS_REVISION_JURIDICA = frozenset({Permiso.CONVENIOS_REVISAR})
 _PERMISOS_GESTION_CONTRAPARTE = frozenset(
     {Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE}
 )
+_PERMISOS_GESTION_FIRMAS = frozenset({Permiso.CONVENIOS_GESTIONAR_FIRMAS})
 _PERMISOS_SOLICITUDES_RECIBIDAS = frozenset(
     {
         Permiso.SOLICITUDES_VER_RECIBIDAS,
@@ -76,11 +78,13 @@ PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
             | _PERMISOS_GESTION_EPICA_02
             | _PERMISOS_SOLICITUDES_RECIBIDAS
             | _PERMISOS_GESTION_CONTRAPARTE
+            | _PERMISOS_GESTION_FIRMAS
         ),
         CodigoRol.GESTOR_ORI: (
             _PERMISOS_GESTION_EPICA_02
             | _PERMISOS_SOLICITUDES_RECIBIDAS
             | _PERMISOS_GESTION_CONTRAPARTE
+            | _PERMISOS_GESTION_FIRMAS
         ),
         CodigoRol.REVISOR_ORI: (
             frozenset({Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER})

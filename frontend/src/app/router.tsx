@@ -7,6 +7,7 @@ import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
 import { ConvenioHistorialPage } from '../pages/ConvenioHistorialPage'
 import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
+import { FirmaConvenioPublicaPage } from '../pages/FirmaConvenioPublicaPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
   { path: '/restablecer-contrasena', element: <RestablecerContrasenaPage /> },
   { path: '/verificar-correo', element: <VerificarCorreoPage /> },
   { path: '/revision-contraparte', element: <RevisionContrapartePublicaPage /> },
+  { path: '/firma-convenio', element: <FirmaConvenioPublicaPage /> },
   {
     element: <AppLayout />,
     children: [

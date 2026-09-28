@@ -5,12 +5,13 @@ interface Props {
   confirmar: string
   procesando: string
   pendiente: boolean
+  confirmarDeshabilitado?: boolean
   children: ReactNode
   onConfirmar: () => void
   onCerrar: () => void
 }
 
-export function ConfirmacionModal({ titulo, confirmar, procesando, pendiente, children, onConfirmar, onCerrar }: Props) {
+export function ConfirmacionModal({ titulo, confirmar, procesando, pendiente, confirmarDeshabilitado = false, children, onConfirmar, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export function ConfirmacionModal({ titulo, confirmar, procesando, pendiente, ch
       <section className="modal-section">{children}</section>
       <div className="modal-acciones">
         <button type="button" className="btn btn-outline" onClick={() => dialogo.current?.close()} disabled={pendiente}>Cancelar</button>
-        <button type="button" className="btn btn-primary" onClick={onConfirmar} disabled={pendiente}>
+        <button type="button" className="btn btn-primary" onClick={onConfirmar} disabled={pendiente || confirmarDeshabilitado}>
           {pendiente ? procesando : confirmar}
         </button>
       </div>
