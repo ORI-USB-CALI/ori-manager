@@ -7,6 +7,7 @@ import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import {
   type Convenio,
@@ -81,6 +82,10 @@ export function ConvenioDetallePage() {
   const cliente = useQueryClient()
   const notify = useNotifications()
   const { puede } = useSesion()
+  const puedeConsultarEtapa = puede('convenios.editar')
+    || puede('convenios.revisar')
+    || puede('convenios.gestionar_revision_contraparte')
+    || puede('convenios.gestionar_firmas')
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
@@ -101,7 +106,7 @@ export function ConvenioDetallePage() {
   const flujoContraparte = useQuery({
     queryKey: ['convenios', id, 'elaboracion'],
     queryFn: () => apiFetch<ElaboracionConvenio>(`/convenios/${id}/elaboracion`),
-    enabled: Number.isInteger(id) && id > 0 && puede('convenios.gestionar_revision_contraparte'),
+    enabled: Number.isInteger(id) && id > 0 && puedeConsultarEtapa,
     retry: false,
   })
   const historialContraparte = useQuery({
@@ -238,6 +243,7 @@ export function ConvenioDetallePage() {
   if (convenio.isError) return <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
   if (!convenio.data) return null
   const datos = convenio.data
+  const etapaActual = flujoContraparte.data?.etapa_actual?.codigo
   const habilitadoParaContraparte = flujoContraparte.data?.etapa_actual?.codigo === 'REVISION_CONTRAPARTE'
   const solicitanteDestino = flujoContraparte.data?.solicitud.solicitante_nombre
     ?? flujoContraparte.data?.solicitud.solicitante_correo
@@ -251,8 +257,7 @@ export function ConvenioDetallePage() {
     && habilitadoParaContraparte
     && !revisionContrapartePendiente
     && datos.version_actual > 0
-  const puedeIrAElaboracion = puede('convenios.editar')
-    && flujoContraparte.data?.etapa_actual?.codigo === 'ELABORACION'
+  const puedeIrAElaboracion = puede('convenios.editar') && etapaActual === 'ELABORACION'
 
   return (
     <>
@@ -322,10 +327,15 @@ export function ConvenioDetallePage() {
         </section>
       )}
 
-      {puede('convenios.gestionar_firmas') && <SeguimientoFirmasConvenio convenioId={id} />}
+      {puede('convenios.gestionar_firmas') && etapaActual === 'REVISION_FINAL' && (
+        <RevisionFinalConvenio convenioId={id} />
+      )}
+      {puede('convenios.gestionar_firmas') && etapaActual === 'APROBACION_FIRMAS' && (
+        <SeguimientoFirmasConvenio convenioId={id} />
+      )}
 
       {puede('convenios.revisar') && consultaRevision.isPending && <p className="estado-pagina">Cargando revisión jurídica…</p>}
-      {puede('convenios.revisar') && consultaRevision.data && revision && contenido ? (
+      {puede('convenios.revisar') && etapaActual === 'REVISION_AVAL_JURIDICO' && consultaRevision.data && revision && contenido ? (
         <div className="revision-workspace">
           <main className="card revision-documento">
             <div className="editor-cabecera">
