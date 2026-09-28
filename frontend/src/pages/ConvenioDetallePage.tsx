@@ -262,7 +262,7 @@ export function ConvenioDetallePage() {
   return (
     <>
       <section className="header-banner">
-        <h1>Elaboración de convenio {datos.codigo ?? `#${datos.id}`}</h1>
+        <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
         <p><span className="badge">{datos.estado}</span></p>
       </section>
 
@@ -330,7 +330,8 @@ export function ConvenioDetallePage() {
       {puede('convenios.gestionar_firmas') && etapaActual === 'REVISION_FINAL' && (
         <RevisionFinalConvenio convenioId={id} />
       )}
-      {puede('convenios.gestionar_firmas') && etapaActual === 'APROBACION_FIRMAS' && (
+      {puede('convenios.gestionar_firmas')
+        && (etapaActual === 'APROBACION_FIRMAS' || etapaActual === 'FIRMA_ARCHIVO_SEGUIMIENTO') && (
         <SeguimientoFirmasConvenio convenioId={id} />
       )}
 

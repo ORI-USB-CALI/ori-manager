@@ -224,6 +224,7 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
   const cliente = useQueryClient()
   const notify = useNotifications()
   const [firmaFisicaSeleccionada, setFirmaFisicaSeleccionada] = useState<number | null>(null)
+  const [confirmarFormalizacion, setConfirmarFormalizacion] = useState(false)
   const proceso = useQuery({
     queryKey: ['convenio', convenioId, 'firmas'],
     queryFn: () => apiFetch<ProcesoFirmas>(`/convenios/${convenioId}/firmas`),
@@ -245,6 +246,23 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
     onSuccess: async () => { notify({ type: 'success', message: 'Se generó y envió un nuevo enlace.' }); await refrescar() },
     onError: async (error) => { notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible reenviar el enlace.' }); await refrescar() },
   })
+  const formalizar = useMutation({
+    mutationFn: () => apiFetch(`/convenios/${convenioId}/firmas/formalizar`, { method: 'POST' }),
+    onSuccess: async () => {
+      setConfirmarFormalizacion(false)
+      notify({ type: 'success', message: 'El convenio fue formalizado y pasó a estado Vigente.' })
+      await Promise.all([
+        cliente.invalidateQueries({ queryKey: ['convenio', convenioId] }),
+        cliente.invalidateQueries({ queryKey: ['convenios', convenioId, 'elaboracion'] }),
+        cliente.invalidateQueries({ queryKey: ['convenio', convenioId, 'historial'] }),
+        cliente.invalidateQueries({ queryKey: ['convenio', convenioId, 'firmas'] }),
+      ])
+    },
+    onError: (error) => notify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'No fue posible formalizar el convenio.',
+    }),
+  })
 
   if (proceso.isPending) return <p className="estado-pagina">Cargando proceso de firmas…</p>
   if (proceso.isError || !proceso.data) return null
@@ -260,7 +278,12 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
   return (
     <section className="card seguimiento-firmas">
       <div className="revision-contraparte-cabecera">
-        <div><h2>Proceso de firmas</h2><p className="section-help">Versión congelada del proceso: {datos.version_numero}</p></div>
+        <div>
+          <h2>Proceso de firmas</h2>
+          <p className="section-help">
+            {datos.estado === 'COMPLETADO' ? 'Versión contractual definitiva' : 'Versión congelada del proceso'}: {datos.version_numero}
+          </p>
+        </div>
         <span className={`badge ${completadas === 7 ? 'badge-success' : 'badge-warning'}`}>{completadas} de 7 firmas completadas</span>
       </div>
       <div className="firmas-lista">
@@ -295,6 +318,17 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
         {datos.estado === 'CONFIGURACION' && <button className="btn btn-primary" type="button" disabled={!todasConfiguradas || iniciar.isPending} onClick={() => iniciar.mutate()}>{iniciar.isPending ? 'Iniciando…' : 'Iniciar proceso de firmas'}</button>}
         {datos.estado === 'EN_CURSO' && electronicas.length > 0 && !algunaInvitacion && <button className="btn btn-primary" type="button" disabled={enviar.isPending} onClick={() => enviar.mutate()}>{enviar.isPending ? 'Enviando…' : 'Enviar invitaciones electrónicas'}</button>}
       </div>
+      {datos.estado === 'EN_CURSO' && completadas === 7 && (
+        <section className="formalizacion-convenio">
+          <div>
+            <h3>Todas las firmas obligatorias han sido registradas.</h3>
+            <p>Al formalizar, esta versión quedará como versión contractual definitiva y el convenio pasará a estado Vigente.</p>
+          </div>
+          <button className="btn btn-primary" type="button" onClick={() => setConfirmarFormalizacion(true)}>
+            Formalizar convenio
+          </button>
+        </section>
+      )}
       {firmaFisicaSeleccionada !== null && fisicasPendientes.some((firma) => firma.id === firmaFisicaSeleccionada) && (
         <RegistroFirmaFisicaModal
           convenioId={convenioId}
@@ -302,6 +336,19 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
           firmasDisponibles={fisicasPendientes}
           onCerrar={() => setFirmaFisicaSeleccionada(null)}
         />
+      )}
+      {confirmarFormalizacion && (
+        <ConfirmacionModal
+          titulo="Formalizar convenio"
+          confirmar="Formalizar convenio"
+          procesando="Formalizando…"
+          pendiente={formalizar.isPending}
+          onConfirmar={() => formalizar.mutate()}
+          onCerrar={() => setConfirmarFormalizacion(false)}
+        >
+          <p>Se cerrará el proceso de firmas de la versión {datos.version_numero}.</p>
+          <p>Esta versión quedará como versión contractual definitiva y el convenio pasará a estado Vigente.</p>
+        </ConfirmacionModal>
       )}
     </section>
   )

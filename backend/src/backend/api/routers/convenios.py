@@ -713,6 +713,22 @@ async def registrar_firmas_fisicas(
 
 
 @router.post(
+    "/{convenio_id}/firmas/formalizar",
+    response_model=ProcesoFirmasConvenioLeer,
+)
+def formalizar_convenio(
+    convenio_id: int,
+    db: DatabaseSession,
+    usuario: PuedeGestionarFirmas,
+) -> ProcesoFirmasConvenioLeer:
+    try:
+        proceso = ServicioFirmas(db).formalizar(convenio_id, usuario)
+        return ProcesoFirmasConvenioLeer.model_validate(proceso)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
     "/{convenio_id}/firmas/iniciar",
     response_model=ProcesoFirmasConvenioLeer,
 )
@@ -735,7 +751,7 @@ def obtener_firmas(
     convenio_id: int, db: DatabaseSession, _: PuedeGestionarFirmas
 ) -> ProcesoFirmasConvenioLeer:
     try:
-        proceso = ServicioFirmaElectronica(db).obtener_seguimiento(convenio_id)
+        proceso = ServicioFirmas(db).obtener_proceso_seguimiento(convenio_id)
         return ProcesoFirmasConvenioLeer.model_validate(proceso)
     except ErrorConvenio as exc:
         _lanzar_http(exc)

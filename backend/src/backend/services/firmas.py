@@ -31,6 +31,7 @@ from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
+from backend.services.aliados import ErrorAliado, resolver_aliado_para_convenio
 from backend.services.convenios import (
     ConfiguracionConvenioInvalida,
     ConflictoVersionConvenio,
@@ -43,6 +44,7 @@ from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocument
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
 CODIGO_ETAPA_APROBACION_FIRMAS = "APROBACION_FIRMAS"
+CODIGO_ETAPA_FIRMA_ARCHIVO_SEGUIMIENTO = "FIRMA_ARCHIVO_SEGUIMIENTO"
 
 ROLES_FIRMANTES = (
     RolFirmanteConvenio.ADMINISTRADOR_ORI,
@@ -82,7 +84,9 @@ class ServicioFirmas:
     def _convenio(self, convenio_id: int, *, bloquear: bool) -> Convenio:
         consulta = select(Convenio).where(Convenio.id == convenio_id)
         if bloquear:
-            consulta = consulta.with_for_update()
+            consulta = consulta.execution_options(
+                populate_existing=True
+            ).with_for_update()
         convenio = self.db.scalar(consulta)
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
@@ -467,6 +471,283 @@ class ServicioFirmas:
         if proceso is None:
             raise RevisionNoDisponible("No existe un proceso de firmas activo")
         return proceso
+
+    def obtener_proceso_seguimiento(
+        self, convenio_id: int
+    ) -> ProcesoFirmasConvenio:
+        self._convenio(convenio_id, bloquear=False)
+        proceso = self.db.scalar(
+            select(ProcesoFirmasConvenio)
+            .options(
+                selectinload(ProcesoFirmasConvenio.version_convenio),
+                selectinload(ProcesoFirmasConvenio.firmas).selectinload(
+                    FirmaConvenio.invitaciones
+                ),
+                selectinload(ProcesoFirmasConvenio.firmas).joinedload(
+                    FirmaConvenio.documento
+                ),
+            )
+            .where(
+                ProcesoFirmasConvenio.convenio_id == convenio_id,
+                ProcesoFirmasConvenio.estado.in_(
+                    (
+                        EstadoProcesoFirmasConvenio.CONFIGURACION.value,
+                        EstadoProcesoFirmasConvenio.EN_CURSO.value,
+                        EstadoProcesoFirmasConvenio.COMPLETADO.value,
+                    )
+                ),
+            )
+            .order_by(ProcesoFirmasConvenio.id.desc())
+            .limit(1)
+        )
+        if proceso is None:
+            raise RevisionNoDisponible("No existe un proceso de firmas disponible")
+        return proceso
+
+    def formalizar(
+        self, convenio_id: int, usuario: Usuario
+    ) -> ProcesoFirmasConvenio:
+        convenio = self._convenio(convenio_id, bloquear=True)
+        if convenio.estado != EstadoConvenio.EN_TRAMITE.value:
+            raise RevisionNoDisponible("El convenio ya no está pendiente de formalización")
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_APROBACION_FIRMAS
+        ):
+            raise RevisionNoDisponible(
+                "El convenio no está en aprobación de firmas"
+            )
+
+        procesos = list(
+            self.db.scalars(
+                select(ProcesoFirmasConvenio)
+                .where(
+                    ProcesoFirmasConvenio.convenio_id == convenio.id,
+                    ProcesoFirmasConvenio.estado.in_(
+                        (
+                            EstadoProcesoFirmasConvenio.CONFIGURACION.value,
+                            EstadoProcesoFirmasConvenio.EN_CURSO.value,
+                        )
+                    ),
+                )
+                .order_by(ProcesoFirmasConvenio.id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        )
+        if len(procesos) != 1:
+            raise RevisionNoDisponible(
+                "Debe existir exactamente un proceso de firmas activo"
+            )
+        proceso = procesos[0]
+        if proceso.estado != EstadoProcesoFirmasConvenio.EN_CURSO.value:
+            raise RevisionNoDisponible("El proceso de firmas no está en curso")
+
+        firmas = list(
+            self.db.scalars(
+                select(FirmaConvenio)
+                .where(FirmaConvenio.proceso_firmas_id == proceso.id)
+                .order_by(FirmaConvenio.orden)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        )
+        esperado = [
+            (orden, rol.value) for orden, rol in enumerate(ROLES_FIRMANTES, start=1)
+        ]
+        if len(firmas) != len(ROLES_FIRMANTES) or [
+            (firma.orden, firma.rol_firmante) for firma in firmas
+        ] != esperado:
+            raise RevisionNoDisponible(
+                "El proceso debe contener los siete roles obligatorios en orden"
+            )
+        if any(
+            firma.estado != EstadoFirmaConvenio.FIRMADA.value
+            or firma.fecha_firma is None
+            for firma in firmas
+        ):
+            raise RevisionNoDisponible(
+                "Las siete firmas deben estar completadas y fechadas"
+            )
+
+        documentos_ids = {
+            firma.documento_id
+            for firma in firmas
+            if firma.modalidad == ModalidadFirma.FISICA.value
+            and firma.documento_id is not None
+        }
+        documentos = {
+            documento.id: documento
+            for documento in self.db.scalars(
+                select(Documento)
+                .where(Documento.id.in_(documentos_ids))
+                .with_for_update()
+            )
+        } if documentos_ids else {}
+        for firma in firmas:
+            if firma.modalidad == ModalidadFirma.ELECTRONICA.value:
+                if firma.firma_png is None or firma.firma_sha256 is None:
+                    raise RevisionNoDisponible(
+                        "Una firma electrónica no tiene evidencia íntegra"
+                    )
+            elif firma.modalidad == ModalidadFirma.FISICA.value:
+                documento = documentos.get(firma.documento_id)
+                if (
+                    documento is None
+                    or documento.convenio_id != convenio.id
+                    or documento.tipo != "CONVENIO_FIRMADO"
+                    or not documento.es_vigente
+                ):
+                    raise RevisionNoDisponible(
+                        "Una firma física no tiene evidencia documental válida"
+                    )
+            else:
+                raise RevisionNoDisponible("Una firma no tiene modalidad válida")
+
+        version = self.db.scalar(
+            select(VersionConvenio)
+            .where(VersionConvenio.id == proceso.version_convenio_id)
+            .with_for_update()
+        )
+        if version is None or version.convenio_id != convenio.id:
+            raise RevisionNoDisponible(
+                "El proceso no referencia una versión válida del convenio"
+            )
+        revision_final = self.db.scalar(
+            select(RevisionConvenio)
+            .where(
+                RevisionConvenio.id == proceso.revision_final_id,
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.FINAL.value,
+            )
+            .with_for_update()
+        )
+        if (
+            revision_final is None
+            or revision_final.estado != EstadoRevisionConvenio.RESUELTA.value
+            or revision_final.resultado != ResultadoRevisionConvenio.APROBADA.value
+            or revision_final.version_convenio_id != version.id
+            or revision_final.version_resultado_id != version.id
+        ):
+            raise RevisionNoDisponible(
+                "La revisión final no aprobó la versión contractual"
+            )
+
+        contraparte = self.db.scalar(
+            select(RevisionConvenio)
+            .where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.CONTRAPARTE.value,
+                RevisionConvenio.estado == EstadoRevisionConvenio.RESUELTA.value,
+                RevisionConvenio.resultado == ResultadoRevisionConvenio.APROBADA.value,
+                RevisionConvenio.version_convenio_id == version.id,
+                RevisionConvenio.version_resultado_id == version.id,
+            )
+            .order_by(RevisionConvenio.id.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        if contraparte is None:
+            raise RevisionNoDisponible(
+                "La contraparte no aprobó la versión contractual"
+            )
+        segunda_juridica = self.db.scalar(
+            select(RevisionConvenio)
+            .where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                RevisionConvenio.instancia_juridica == 2,
+                RevisionConvenio.estado == EstadoRevisionConvenio.RESUELTA.value,
+                RevisionConvenio.resultado == ResultadoRevisionConvenio.APROBADA.value,
+                RevisionConvenio.version_convenio_id == version.id,
+                RevisionConvenio.version_resultado_id == version.id,
+            )
+            .order_by(RevisionConvenio.numero_ronda.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        primera_juridica = None
+        if segunda_juridica is not None and segunda_juridica.numero_ronda is not None:
+            primera_juridica = self.db.scalar(
+                select(RevisionConvenio).where(
+                    RevisionConvenio.convenio_id == convenio.id,
+                    RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                    RevisionConvenio.instancia_juridica == 1,
+                    RevisionConvenio.numero_ronda == segunda_juridica.numero_ronda,
+                    RevisionConvenio.estado == EstadoRevisionConvenio.RESUELTA.value,
+                    RevisionConvenio.resultado
+                    == ResultadoRevisionConvenio.APROBADA.value,
+                    RevisionConvenio.version_convenio_id == version.id,
+                    RevisionConvenio.version_resultado_id == version.id,
+                )
+                .with_for_update()
+            )
+        if primera_juridica is None:
+            raise RevisionNoDisponible(
+                "La versión contractual no tiene los dos avales jurídicos requeridos"
+            )
+        observacion_pendiente = self.db.scalar(
+            select(ObservacionRevision.id)
+            .where(
+                ObservacionRevision.convenio_id == convenio.id,
+                ObservacionRevision.estado == EstadoObservacionRevision.PENDIENTE.value,
+            )
+            .limit(1)
+        )
+        if observacion_pendiente is not None:
+            raise RevisionNoDisponible("Hay observaciones pendientes por atender")
+        revision_pendiente = self.db.scalar(
+            select(RevisionConvenio.id)
+            .where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+            )
+            .limit(1)
+        )
+        if revision_pendiente is not None:
+            raise RevisionNoDisponible("Existe otra revisión incompatible pendiente")
+
+        etapa_seguimiento = self.db.scalar(
+            select(Etapa).where(
+                Etapa.codigo == CODIGO_ETAPA_FIRMA_ARCHIVO_SEGUIMIENTO
+            )
+        )
+        if etapa_seguimiento is None:
+            raise RevisionNoDisponible(
+                "No existe la etapa FIRMA_ARCHIVO_SEGUIMIENTO"
+            )
+        ahora = datetime.now(UTC)
+        historial = HistorialEtapa(
+            convenio_id=convenio.id,
+            etapa_origen_id=convenio.etapa_actual_id,
+            etapa_destino_id=etapa_seguimiento.id,
+            usuario_id=usuario.id,
+            responsable_id=usuario.id,
+            observacion=(
+                "Formalización del convenio tras completar las siete firmas "
+                "obligatorias"
+            ),
+        )
+        self.db.add(historial)
+        proceso.estado = EstadoProcesoFirmasConvenio.COMPLETADO.value
+        proceso.completado_en = ahora
+        convenio.estado = EstadoConvenio.VIGENTE.value
+        convenio.fecha_firma = max(
+            firma.fecha_firma for firma in firmas if firma.fecha_firma is not None
+        ).date()
+        convenio.etapa_actual = etapa_seguimiento
+        try:
+            resolver_aliado_para_convenio(self.db, convenio)
+            self.db.commit()
+        except ErrorAliado as exc:
+            self.db.rollback()
+            raise RevisionNoDisponible(
+                f"No fue posible consolidar el aliado: {exc}"
+            ) from exc
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return self.obtener_proceso_seguimiento(convenio_id)
 
     def registrar_firmas_fisicas(
         self,

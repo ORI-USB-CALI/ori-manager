@@ -237,9 +237,7 @@ def resolver_aliado_para_convenio(db: Session, convenio: Convenio) -> Aliado | N
     if aliado is None:
         aliado = _buscar_por_identificacion(db, solicitud)
     if aliado is not None and not aliado.activo:
-        raise ConflictoAliado(
-            "El aliado está inactivo; debe reactivarse antes de asociarlo"
-        )
+        aliado.activo = True
     if aliado is None:
         nombre = (solicitud.nombre_aliado_propuesto or "").strip()
         identificacion = (solicitud.identificacion_aliado_propuesto or "").strip()

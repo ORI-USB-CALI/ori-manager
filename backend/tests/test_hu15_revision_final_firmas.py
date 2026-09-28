@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import hash_contrasena
 from backend.main import app
+from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
@@ -28,6 +29,8 @@ from backend.models.enums import (
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
     RolFirmanteConvenio,
+    TipoAliado,
+    TipoIdentificacion,
     TipoRevisionConvenio,
     TipoSolicitante,
 )
@@ -126,6 +129,11 @@ def _crear_escenario_concurrente(db_engine) -> dict[str, object]:
             solicitante_id=gestor.id,
             objeto="Solicitud para concurrencia HU-15",
             estado=EstadoSolicitud.APROBADA.value,
+            nombre_aliado_propuesto="Aliado concurrencia HU-15",
+            tipo_identificacion_aliado_propuesto=TipoIdentificacion.NIT.value,
+            identificacion_aliado_propuesto=f"9{identificador[:15]}",
+            tipo_aliado_propuesto=TipoAliado.UNIVERSIDAD.value,
+            correo_aliado_propuesto=f"aliado-{identificador}@example.com",
         )
         sesion.add(solicitud)
         sesion.flush()
@@ -222,6 +230,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
     fabrica = sessionmaker(bind=db_engine)
     convenio_id = int(escenario["convenio_id"])
     with fabrica() as sesion:
+        aliado_id = sesion.scalar(
+            select(Convenio.aliado_id).where(Convenio.id == convenio_id)
+        )
         proceso_ids = select(ProcesoFirmasConvenio.id).where(
             ProcesoFirmasConvenio.convenio_id == convenio_id
         )
@@ -265,6 +276,8 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
                 SolicitudConvenio.id == int(escenario["solicitud_id"])
             )
         )
+        if aliado_id is not None:
+            sesion.execute(delete(Aliado).where(Aliado.id == aliado_id))
         sesion.execute(
             delete(Usuario).where(
                 Usuario.id.in_(
@@ -398,6 +411,38 @@ def _registrar_fisicas(
     )
     return client.post(
         f"/api/convenios/{convenio_id}/firmas/fisicas", files=partes
+    )
+
+
+def _preparar_contraparte_formalizacion(db, escenario, identificacion=None):
+    solicitud = escenario["convenio"].solicitud
+    solicitud.nombre_aliado_propuesto = "Aliado formalización HU-15"
+    solicitud.tipo_identificacion_aliado_propuesto = TipoIdentificacion.NIT.value
+    solicitud.identificacion_aliado_propuesto = identificacion or str(
+        900000000 + uuid4().int % 99999999
+    )
+    solicitud.tipo_aliado_propuesto = TipoAliado.UNIVERSIDAD.value
+    solicitud.correo_aliado_propuesto = "formalizacion@example.com"
+    db.commit()
+
+
+def _proceso_listo_para_formalizar(client, db, escenario, identificacion=None):
+    _preparar_contraparte_formalizacion(db, escenario, identificacion)
+    proceso = _iniciar_proceso(
+        client, escenario, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    respuesta = _registrar_fisicas(
+        client,
+        escenario["convenio"].id,
+        [firma["id"] for firma in proceso["firmas"]],
+    )
+    assert respuesta.status_code == 201
+    return respuesta.json()
+
+
+def _formalizar(client, escenario):
+    return client.post(
+        f"/api/convenios/{escenario['convenio'].id}/firmas/formalizar"
     )
 
 
@@ -979,6 +1024,238 @@ def test_revisor_no_puede_registrar_firmas_fisicas(
     assert respuesta.status_code == 403
 
 
+def test_seis_de_siete_firmas_no_permiten_formalizar(
+    client, db, escenario_final
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    firma = db.get(FirmaConvenio, proceso["firmas"][-1]["id"])
+    assert firma is not None
+    firma.estado = EstadoFirmaConvenio.PENDIENTE.value
+    firma.fecha_firma = None
+    db.commit()
+
+    respuesta = _formalizar(client, escenario_final)
+
+    assert respuesta.status_code == 409
+
+
+def test_formalizar_cierra_proceso_y_activa_convenio_sin_nueva_version(
+    client, db, escenario_final
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    for indice, firma_dato in enumerate(proceso["firmas"]):
+        firma = db.get(FirmaConvenio, firma_dato["id"])
+        assert firma is not None
+        firma.fecha_firma = datetime(2026, 9, 20 + indice, tzinfo=UTC)
+    db.commit()
+    versiones_antes = db.scalar(
+        select(func.count()).select_from(VersionConvenio).where(
+            VersionConvenio.convenio_id == escenario_final["convenio"].id
+        )
+    )
+
+    respuesta = _formalizar(client, escenario_final)
+
+    assert respuesta.status_code == 200
+    datos = respuesta.json()
+    assert datos["estado"] == "COMPLETADO"
+    assert datos["completado_en"] is not None
+    assert datos["version_convenio_id"] == escenario_final["version"].id
+    assert datos["version_numero"] == escenario_final["version"].numero
+    db.expire_all()
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    proceso_persistido = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert convenio is not None and proceso_persistido is not None
+    assert convenio.estado == EstadoConvenio.VIGENTE.value
+    assert convenio.etapa_actual.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO"
+    assert convenio.fecha_firma.isoformat() == "2026-09-26"
+    assert proceso_persistido.estado == EstadoProcesoFirmasConvenio.COMPLETADO.value
+    assert proceso_persistido.completado_en is not None
+    assert proceso_persistido.version_convenio_id == escenario_final["version"].id
+    historial = db.scalar(
+        select(HistorialEtapa)
+        .where(
+            HistorialEtapa.convenio_id == convenio.id,
+            HistorialEtapa.etapa_destino_id == convenio.etapa_actual_id,
+        )
+        .order_by(HistorialEtapa.id.desc())
+    )
+    assert historial is not None
+    assert historial.etapa_origen.codigo == "APROBACION_FIRMAS"
+    assert historial.usuario_id == escenario_final["gestor"].id
+    assert historial.responsable_id == escenario_final["gestor"].id
+    assert historial.observacion == (
+        "Formalización del convenio tras completar las siete firmas obligatorias"
+    )
+    assert db.scalar(
+        select(func.count()).select_from(VersionConvenio).where(
+            VersionConvenio.convenio_id == convenio.id
+        )
+    ) == versiones_antes
+    seguimiento = client.get(f"/api/convenios/{convenio.id}/firmas")
+    assert seguimiento.status_code == 200
+    assert seguimiento.json()["estado"] == "COMPLETADO"
+
+
+def test_electronica_sin_png_hash_bloquea_formalizacion(
+    client, db, escenario_final
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    firma = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    assert firma is not None
+    firma.modalidad = ModalidadFirma.ELECTRONICA.value
+    firma.correo_firmante = "electronica@example.com"
+    firma.documento_id = None
+    firma.firma_png = None
+    firma.firma_sha256 = None
+    db.commit()
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_fisica_sin_documento_bloquea_formalizacion(
+    client, db, escenario_final
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    firma = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    assert firma is not None
+    firma.documento_id = None
+    db.commit()
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_documento_fisico_de_otro_convenio_bloquea_formalizacion(
+    client, db, escenario_final, crear_convenio
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    otro_convenio = crear_convenio(escenario_final["gestor"])
+    documento = Documento(
+        convenio_id=otro_convenio.id,
+        tipo="CONVENIO_FIRMADO",
+        nombre_archivo="ajeno.pdf",
+        ruta_almacenamiento=f"pruebas/{uuid4().hex}.pdf",
+        tipo_mime="application/pdf",
+        tamano_bytes=20,
+        es_vigente=True,
+        cargado_por_id=escenario_final["gestor"].id,
+    )
+    db.add(documento)
+    db.flush()
+    firma = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    assert firma is not None
+    firma.documento_id = documento.id
+    db.commit()
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_documento_fisico_de_tipo_incorrecto_bloquea_formalizacion(
+    client, db, escenario_final
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    firma = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    assert firma is not None and firma.documento_id is not None
+    documento = db.get(Documento, firma.documento_id)
+    assert documento is not None
+    documento.tipo = "SOPORTE"
+    db.commit()
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_observaciones_pendientes_bloquean_formalizacion(
+    client, db, escenario_final
+):
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    db.add(
+        ObservacionRevision(
+            convenio_id=escenario_final["convenio"].id,
+            historial_etapa_id=escenario_final["historial"].id,
+            revision_convenio_id=escenario_final["revision_final"].id,
+            origen=OrigenObservacionRevision.REVISION_FINAL_ORI.value,
+            registrada_por_id=escenario_final["gestor"].id,
+            responsable_id=escenario_final["gestor"].id,
+            descripcion="Pendiente antes de formalizar",
+            estado="PENDIENTE",
+        )
+    )
+    db.commit()
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_revision_final_no_aprobada_bloquea_formalizacion(
+    client, db, escenario_final
+):
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    revision = db.get(RevisionConvenio, escenario_final["revision_final"].id)
+    assert revision is not None
+    revision.resultado = ResultadoRevisionConvenio.DEVUELTA.value
+    db.commit()
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_revisor_no_puede_formalizar(
+    client, db, crear_usuario, entrar_como, escenario_final
+):
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI))
+    assert _formalizar(client, escenario_final).status_code == 403
+
+
+def test_segunda_formalizacion_es_rechazada(client, db, escenario_final):
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    assert _formalizar(client, escenario_final).status_code == 200
+    assert _formalizar(client, escenario_final).status_code == 409
+
+
+def test_formalizacion_crea_y_asocia_aliado(client, db, escenario_final):
+    identificacion = str(900000000 + uuid4().int % 99999999)
+    _proceso_listo_para_formalizar(
+        client, db, escenario_final, identificacion=identificacion
+    )
+    assert _formalizar(client, escenario_final).status_code == 200
+    db.expire_all()
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    aliado = db.scalar(
+        select(Aliado).where(Aliado.identificacion == identificacion)
+    )
+    assert convenio is not None and aliado is not None
+    assert convenio.aliado_id == aliado.id
+    assert convenio.solicitud.aliado_id == aliado.id
+
+
+@pytest.mark.parametrize("activo", [True, False])
+def test_formalizacion_reutiliza_y_reactiva_aliado_si_es_necesario(
+    client, db, escenario_final, activo
+):
+    identificacion = str(900000000 + uuid4().int % 99999999)
+    aliado = Aliado(
+        nombre="Aliado existente HU-15",
+        tipo=TipoAliado.UNIVERSIDAD.value,
+        tipo_identificacion=TipoIdentificacion.NIT.value,
+        identificacion=identificacion,
+        correo="anterior@example.com",
+        activo=activo,
+    )
+    db.add(aliado)
+    db.commit()
+    _proceso_listo_para_formalizar(
+        client, db, escenario_final, identificacion=identificacion
+    )
+
+    assert _formalizar(client, escenario_final).status_code == 200
+    db.expire_all()
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    persistido = db.get(Aliado, aliado.id)
+    assert convenio is not None and persistido is not None
+    assert convenio.aliado_id == aliado.id
+    assert convenio.solicitud.aliado_id == aliado.id
+    assert persistido.activo is True
+    assert db.scalar(
+        select(func.count()).select_from(Aliado).where(
+            Aliado.tipo_identificacion == TipoIdentificacion.NIT.value,
+            Aliado.identificacion == identificacion,
+        )
+    ) == 1
+
+
 @pytest.mark.parametrize(
     "accion",
     [
@@ -1431,5 +1708,89 @@ def test_firmar_vs_reenviar_concurrente_deja_un_resultado_coherente(db_engine):
                 assert activas == 0
             else:
                 assert firma.estado == "PENDIENTE" and activas == 1
+    finally:
+        _limpiar_escenario_concurrente(db_engine, escenario)
+
+
+def test_formalizaciones_concurrentes_producen_un_unico_cierre(db_engine):
+    escenario = _crear_escenario_concurrente(db_engine)
+    fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
+    with fabrica() as sesion:
+        gestor = sesion.get(Usuario, int(escenario["gestor_id"]))
+        assert gestor is not None
+        proceso = ServicioFirmas(sesion).aprobar_revision_final(
+            int(escenario["convenio_id"]),
+            int(escenario["version_numero"]),
+            gestor,
+        )
+        for firma in proceso.firmas:
+            ServicioFirmas(sesion).configurar_firma(
+                int(escenario["convenio_id"]),
+                firma.id,
+                f"Firmante {firma.id}",
+                "Cargo institucional",
+                None,
+                ModalidadFirma.FISICA,
+            )
+        proceso = ServicioFirmas(sesion).iniciar(int(escenario["convenio_id"]))
+        documento = Documento(
+            convenio_id=int(escenario["convenio_id"]),
+            tipo="CONVENIO_FIRMADO",
+            nombre_archivo="concurrente.pdf",
+            ruta_almacenamiento=f"pruebas/{uuid4().hex}.pdf",
+            tipo_mime="application/pdf",
+            tamano_bytes=20,
+            es_vigente=True,
+            cargado_por_id=gestor.id,
+        )
+        sesion.add(documento)
+        sesion.flush()
+        for firma in proceso.firmas:
+            firma.estado = EstadoFirmaConvenio.FIRMADA.value
+            firma.fecha_firma = datetime.now(UTC)
+            firma.documento_id = documento.id
+        sesion.commit()
+        escenario["proceso_id"] = proceso.id
+
+    barrera = Barrier(2)
+
+    def formalizar() -> str:
+        with fabrica() as sesion:
+            gestor = sesion.get(Usuario, int(escenario["gestor_id"]))
+            assert gestor is not None
+            barrera.wait(timeout=10)
+            try:
+                ServicioFirmas(sesion).formalizar(
+                    int(escenario["convenio_id"]), gestor
+                )
+                return "COMPLETADO"
+            except RevisionNoDisponible:
+                return "CONFLICTO"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ejecutor:
+            resultados = list(ejecutor.map(lambda _: formalizar(), range(2)))
+        assert sorted(resultados) == ["COMPLETADO", "CONFLICTO"]
+        with fabrica() as verificacion:
+            convenio = verificacion.get(Convenio, int(escenario["convenio_id"]))
+            proceso = verificacion.get(
+                ProcesoFirmasConvenio, int(escenario["proceso_id"])
+            )
+            assert convenio is not None and proceso is not None
+            assert convenio.estado == EstadoConvenio.VIGENTE.value
+            assert proceso.estado == EstadoProcesoFirmasConvenio.COMPLETADO.value
+            assert verificacion.scalar(
+                select(func.count()).select_from(HistorialEtapa).where(
+                    HistorialEtapa.convenio_id == convenio.id,
+                    HistorialEtapa.observacion
+                    == "Formalización del convenio tras completar las siete firmas obligatorias",
+                )
+            ) == 1
+            assert convenio.aliado_id is not None
+            assert verificacion.scalar(
+                select(func.count()).select_from(Aliado).where(
+                    Aliado.id == convenio.aliado_id
+                )
+            ) == 1
     finally:
         _limpiar_escenario_concurrente(db_engine, escenario)

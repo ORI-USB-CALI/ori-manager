@@ -1014,6 +1014,31 @@ a:hover {
   margin: 0;
 }
 
+.formalizacion-convenio {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
+.formalizacion-convenio h3,
+.formalizacion-convenio p {
+  margin: 0;
+}
+
+.formalizacion-convenio p {
+  margin-top: 5px;
+  color: var(--text-secondary);
+}
+
+.formalizacion-convenio .btn {
+  flex: 0 0 auto;
+}
+
 .devolucion-observaciones {
   display: grid;
   gap: 12px;
@@ -1486,6 +1511,11 @@ a:hover {
   }
 
   .revision-contraparte-cabecera {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .formalizacion-convenio {
     align-items: stretch;
     flex-direction: column;
   }
