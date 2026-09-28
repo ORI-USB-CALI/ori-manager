@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import func, or_, select
+from pydantic import EmailStr, TypeAdapter, ValidationError
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -22,8 +23,14 @@ from backend.models.enums import (
 )
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.invitacion_revision_contraparte import (
+    InvitacionRevisionContraparte,
+)
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.plantilla_convenio import PlantillaConvenio
+from backend.models.respuesta_revision_contraparte import (
+    RespuestaRevisionContraparte,
+)
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
@@ -44,6 +51,11 @@ from backend.services.contenido_convenio import (
     expandir_plantilla,
     validar_contenido,
 )
+from backend.services.contraparte_externa import (
+    crear_invitacion_contraparte,
+    enviar_invitacion_contraparte,
+)
+from backend.services.correo import EnviadorCorreo
 from backend.services.documentos import AlmacenDocumentos
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
@@ -196,10 +208,16 @@ class ConfiguracionConvenioInvalida(RuntimeError):
 
 class ServicioConvenios:
     def __init__(
-        self, db: Session, almacen: AlmacenDocumentos | None = None
+        self,
+        db: Session,
+        almacen: AlmacenDocumentos | None = None,
+        enviador: EnviadorCorreo | None = None,
+        frontend_url: str | None = None,
     ):
         self.db = db
         self.almacen = almacen
+        self.enviador = enviador
+        self.frontend_url = frontend_url
 
     def _almacen_requerido(self) -> AlmacenDocumentos:
         if self.almacen is None:
@@ -487,6 +505,238 @@ class ServicioConvenios:
                 .order_by(RevisionConvenio.creado_en, RevisionConvenio.id)
             )
         )
+
+    @staticmethod
+    def _destinatarios_contraparte(
+        solicitud: SolicitudConvenio,
+    ) -> tuple[str, str | None]:
+        destino = (solicitud.contacto_contraparte_correo or "").strip()
+        cc = (solicitud.solicitante.correo or "").strip()
+        adaptador = TypeAdapter(EmailStr)
+        try:
+            adaptador.validate_python(destino)
+            adaptador.validate_python(cc)
+        except ValidationError as exc:
+            raise RevisionNoDisponible(
+                "La solicitud no tiene correos válidos para la revisión externa"
+            ) from exc
+        return destino, None if destino.casefold() == cc.casefold() else cc
+
+    def _entregar_invitacion(
+        self,
+        invitacion: InvitacionRevisionContraparte,
+        token_plano: str,
+        convenio: Convenio,
+    ) -> None:
+        if self.enviador is None or not self.frontend_url:
+            raise RuntimeError("El servicio requiere correo y URL pública")
+        enviar_invitacion_contraparte(
+            self.db,
+            self.enviador,
+            self.frontend_url,
+            invitacion,
+            token_plano,
+            convenio,
+        )
+
+    def enviar_a_contraparte(
+        self, convenio_id: int, expected_version: int, usuario: Usuario
+    ) -> RevisionConvenio:
+        convenio = self.db.scalar(
+            select(Convenio)
+            .where(Convenio.id == convenio_id)
+            .with_for_update()
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_CONTRAPARTE
+        ):
+            raise RevisionNoDisponible(
+                "El convenio no está habilitado para revisión de contraparte"
+            )
+        if expected_version != convenio.version_actual:
+            raise ConflictoVersionConvenio(expected_version, convenio.version_actual)
+
+        version = self._version_actual(convenio)
+        if version is None:
+            raise RevisionNoDisponible("El convenio no tiene una versión disponible")
+        segunda = self.db.scalar(
+            select(RevisionConvenio)
+            .where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                RevisionConvenio.instancia_juridica == 2,
+                RevisionConvenio.estado == EstadoRevisionConvenio.RESUELTA.value,
+                RevisionConvenio.resultado
+                == ResultadoRevisionConvenio.APROBADA.value,
+                RevisionConvenio.version_resultado_id == version.id,
+            )
+            .order_by(RevisionConvenio.numero_ronda.desc())
+            .limit(1)
+        )
+        if segunda is None or segunda.numero_ronda is None:
+            raise RevisionNoDisponible(
+                "La versión actual no cuenta con la segunda aprobación jurídica"
+            )
+        primera = self.db.scalar(
+            select(RevisionConvenio.id).where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                RevisionConvenio.numero_ronda == segunda.numero_ronda,
+                RevisionConvenio.instancia_juridica == 1,
+                RevisionConvenio.estado == EstadoRevisionConvenio.RESUELTA.value,
+                RevisionConvenio.resultado
+                == ResultadoRevisionConvenio.APROBADA.value,
+            )
+        )
+        if primera is None:
+            raise RevisionNoDisponible(
+                "La ronda jurídica no cuenta con sus dos aprobaciones"
+            )
+        solicitud = self.db.scalar(
+            select(SolicitudConvenio)
+            .options(joinedload(SolicitudConvenio.solicitante))
+            .where(SolicitudConvenio.id == convenio.solicitud_id)
+        )
+        if solicitud is None or solicitud.solicitante_id is None:
+            raise RevisionNoDisponible("El convenio no tiene un Solicitante asociado")
+        correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
+        pendiente = self.db.scalar(
+            select(RevisionConvenio.id).where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo
+                == TipoRevisionConvenio.CONTRAPARTE.value,
+                RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+            )
+        )
+        if pendiente is not None:
+            raise RevisionNoDisponible(
+                "Ya existe una revisión de contraparte pendiente"
+            )
+        historial = self.db.scalar(
+            select(HistorialEtapa)
+            .join(HistorialEtapa.etapa_destino)
+            .where(
+                HistorialEtapa.convenio_id == convenio.id,
+                Etapa.codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE,
+            )
+            .order_by(HistorialEtapa.id.desc())
+            .limit(1)
+        )
+        if historial is None:
+            raise RevisionNoDisponible(
+                "No existe la transición que habilitó la revisión de contraparte"
+            )
+        revision = RevisionConvenio(
+            convenio_id=convenio.id,
+            tipo=TipoRevisionConvenio.CONTRAPARTE.value,
+            historial_etapa_id=historial.id,
+            version_convenio_id=version.id,
+            version_resultado_id=None,
+            responsable_id=None,
+            creada_por_id=usuario.id,
+            estado=EstadoRevisionConvenio.PENDIENTE.value,
+            resultado=None,
+        )
+        self.db.add(revision)
+        invitacion: InvitacionRevisionContraparte | None = None
+        token_plano = ""
+        try:
+            self.db.flush()
+            invitacion, token_plano = crear_invitacion_contraparte(
+                self.db,
+                revision,
+                correo_destino,
+                correo_cc,
+                usuario.id,
+            )
+            self.db.add(
+                Auditoria(
+                    usuario_id=usuario.id,
+                    entidad="revision_convenio",
+                    registro_id=revision.id,
+                    accion=AccionAuditoria.INSERT.value,
+                )
+            )
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            diagnostico = getattr(exc.orig, "diag", None)
+            constraint_name = getattr(diagnostico, "constraint_name", None)
+            if constraint_name == "uq_revision_convenio_contraparte_pendiente":
+                raise RevisionNoDisponible(
+                    "Ya existe una revisión de contraparte pendiente"
+                ) from exc
+            raise
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        assert invitacion is not None
+        self._entregar_invitacion(invitacion, token_plano, convenio)
+        return revision
+
+    def reenviar_invitacion_contraparte(
+        self, convenio_id: int, revision_id: int, usuario: Usuario
+    ) -> InvitacionRevisionContraparte:
+        convenio = self.db.scalar(
+            select(Convenio)
+            .where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        revision = self.db.scalar(
+            select(RevisionConvenio)
+            .where(
+                RevisionConvenio.id == revision_id,
+                RevisionConvenio.convenio_id == convenio_id,
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        if revision is None:
+            raise ConvenioNoEncontrado("Revisión no encontrada para este convenio")
+        if (
+            revision.tipo != TipoRevisionConvenio.CONTRAPARTE.value
+            or revision.estado != EstadoRevisionConvenio.PENDIENTE.value
+            or revision.resultado is not None
+            or convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_CONTRAPARTE
+        ):
+            raise RevisionNoDisponible(
+                "La revisión de contraparte ya no está disponible para reenvío"
+            )
+        solicitud = self.db.scalar(
+            select(SolicitudConvenio)
+            .options(joinedload(SolicitudConvenio.solicitante))
+            .where(SolicitudConvenio.id == convenio.solicitud_id)
+        )
+        if solicitud is None:
+            raise RevisionNoDisponible("El convenio no tiene una solicitud asociada")
+        correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
+        ahora = datetime.now(UTC)
+        self.db.execute(
+            update(InvitacionRevisionContraparte)
+            .where(
+                InvitacionRevisionContraparte.revision_convenio_id == revision.id,
+                InvitacionRevisionContraparte.utilizado_en.is_(None),
+                InvitacionRevisionContraparte.revocado_en.is_(None),
+            )
+            .values(revocado_en=ahora)
+        )
+        invitacion, token_plano = crear_invitacion_contraparte(
+            self.db, revision, correo_destino, correo_cc, usuario.id
+        )
+        try:
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        self._entregar_invitacion(invitacion, token_plano, convenio)
+        return invitacion
 
     def obtener_para_revision(
         self, convenio_id: int
@@ -870,18 +1120,21 @@ class ServicioConvenios:
             )
             .where(
                 ObservacionRevision.convenio_id == convenio.id,
-                ObservacionRevision.origen
-                == OrigenObservacionRevision.REVISOR_ORI.value,
+                ObservacionRevision.origen.in_(
+                    (
+                        OrigenObservacionRevision.REVISOR_ORI.value,
+                        OrigenObservacionRevision.CONTRAPARTE.value,
+                    )
+                ),
                 ObservacionRevision.estado
                 == EstadoObservacionRevision.PENDIENTE.value,
-                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
             )
             .limit(1)
         )
         if pendiente is not None:
             self.db.rollback()
             raise RevisionNoDisponible(
-                "Debe atender todas las observaciones jurídicas pendientes "
+                "Debe atender todas las observaciones pendientes "
                 "antes de reenviar el convenio"
             )
 
@@ -890,7 +1143,12 @@ class ServicioConvenios:
             .options(joinedload(RevisionConvenio.version_resultado))
             .where(
                 RevisionConvenio.convenio_id == convenio.id,
-                RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
+                RevisionConvenio.tipo.in_(
+                    (
+                        TipoRevisionConvenio.JURIDICA.value,
+                        TipoRevisionConvenio.CONTRAPARTE.value,
+                    )
+                ),
                 RevisionConvenio.resultado
                 == ResultadoRevisionConvenio.DEVUELTA.value,
             )
@@ -1235,9 +1493,12 @@ class ServicioConvenios:
             raise ObservacionNoDisponible(
                 "Las observaciones solo pueden atenderse durante la Elaboración"
             )
-        if observacion.origen != OrigenObservacionRevision.REVISOR_ORI.value:
+        if observacion.origen not in {
+            OrigenObservacionRevision.REVISOR_ORI.value,
+            OrigenObservacionRevision.CONTRAPARTE.value,
+        }:
             raise ObservacionNoDisponible(
-                "La observación no corresponde a la revisión jurídica"
+                "La observación no corresponde a una revisión atendible"
             )
         if observacion.estado != EstadoObservacionRevision.PENDIENTE.value:
             raise ObservacionNoDisponible("La observación ya fue atendida")
@@ -1350,6 +1611,9 @@ class ServicioConvenios:
                     RevisionConvenio.responsable
                 ),
                 selectinload(Convenio.revisiones).joinedload(
+                    RevisionConvenio.creada_por
+                ),
+                selectinload(Convenio.revisiones).joinedload(
                     RevisionConvenio.resuelta_por
                 ),
                 selectinload(Convenio.revisiones).joinedload(
@@ -1358,6 +1622,12 @@ class ServicioConvenios:
                 selectinload(Convenio.revisiones).joinedload(
                     RevisionConvenio.version_resultado
                 ),
+                selectinload(Convenio.revisiones).selectinload(
+                    RevisionConvenio.invitaciones_contraparte
+                ).joinedload(InvitacionRevisionContraparte.generada_por),
+                selectinload(Convenio.revisiones)
+                .joinedload(RevisionConvenio.respuesta_contraparte)
+                .defer(RespuestaRevisionContraparte.firma_png),
                 selectinload(Convenio.historial_etapas).joinedload(
                     HistorialEtapa.etapa_origen
                 ),

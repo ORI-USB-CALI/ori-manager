@@ -190,6 +190,7 @@ def test_observaciones_conservan_historial_y_pueden_agruparse_por_revision(
     revision_a = RevisionConvenio(
         convenio_id=convenio.id,
         tipo=TipoRevisionConvenio.CONTRAPARTE.value,
+        estado="RESUELTA",
     )
     revision_b = RevisionConvenio(
         convenio_id=convenio.id,
@@ -248,6 +249,7 @@ def test_politicas_on_delete_de_la_foundation():
         "historial_etapa_id": "RESTRICT",
         "documento_id": "RESTRICT",
         "responsable_id": "RESTRICT",
+        "creada_por_id": "RESTRICT",
         "resuelta_por_id": "RESTRICT",
     }
 

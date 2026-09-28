@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.deps import requiere
+from backend.core.config import settings
 from backend.core.permisos import Permiso
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
@@ -27,6 +28,7 @@ from backend.schemas.convenio import (
     CrearObservacionRevision,
     DevolverRevision,
     DocumentoConvenioLeer,
+    EnviarRevisionContraparte,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     ObservacionRevisionLeer,
@@ -39,6 +41,7 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.revision_contraparte import InvitacionRevisionContraparteLeer
 from backend.services.convenios import (
     ConflictoVersionConvenio,
     ConvenioDuplicado,
@@ -52,6 +55,11 @@ from backend.services.convenios import (
     ServicioConvenios,
     SolicitudNoAprobada,
 )
+from backend.services.correo import (
+    EnviadorCorreo,
+    ErrorEnvioCorreo,
+    get_enviador_correo,
+)
 from backend.services.documentos import (
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
@@ -61,10 +69,14 @@ from backend.services.documentos import (
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
+Correo = Annotated[EnviadorCorreo, Depends(get_enviador_correo)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
+PuedeGestionarContraparte = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE)
+]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -475,3 +487,67 @@ def devolver_revision(
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revision-contraparte/enviar",
+    response_model=RevisionConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def enviar_revision_contraparte(
+    convenio_id: int,
+    datos: EnviarRevisionContraparte,
+    db: DatabaseSession,
+    correo: Correo,
+    usuario: PuedeGestionarContraparte,
+) -> RevisionConvenioLeer:
+    try:
+        revision = ServicioConvenios(
+            db,
+            enviador=correo,
+            frontend_url=settings.public_frontend_url,
+        ).enviar_a_contraparte(
+            convenio_id, datos.expected_version, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(item for item in convenio.revisiones if item.id == revision.id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "La revisión fue creada, pero no fue posible entregar el correo",
+        ) from exc
+
+
+@router.post(
+    "/{convenio_id}/revisiones/{revision_id}/contraparte/reenviar",
+    response_model=InvitacionRevisionContraparteLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def reenviar_revision_contraparte(
+    convenio_id: int,
+    revision_id: int,
+    db: DatabaseSession,
+    correo: Correo,
+    usuario: PuedeGestionarContraparte,
+) -> InvitacionRevisionContraparteLeer:
+    try:
+        return ServicioConvenios(
+            db,
+            enviador=correo,
+            frontend_url=settings.public_frontend_url,
+        ).reenviar_invitacion_contraparte(
+            convenio_id,
+            revision_id,
+            usuario,
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "La invitación fue creada, pero no fue posible entregar el correo",
+        ) from exc

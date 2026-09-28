@@ -49,6 +49,9 @@ PERMISOS_SOLICITUDES_RECIBIDAS = {
 PERMISOS_REVISION_JURIDICA = {
     "convenios.revisar",
 }
+PERMISOS_REVISION_CONTRAPARTE = {
+    "convenios.gestionar_revision_contraparte",
+}
 
 
 def test_codigo_rol_coincide_exactamente_con_el_mer() -> None:
@@ -75,6 +78,7 @@ def test_permisos_coinciden_con_los_alcances_integrados() -> None:
         | PERMISOS_HU_11
         | PERMISOS_SOLICITUDES_RECIBIDAS
         | PERMISOS_REVISION_JURIDICA
+        | PERMISOS_REVISION_CONTRAPARTE
     )
     assert len(valores) == len(set(valores))
 
@@ -103,6 +107,7 @@ def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
         for valor in PERMISOS_GESTION_USUARIOS
         | PERMISOS_EPICA_02
         | PERMISOS_SOLICITUDES_RECIBIDAS
+        | {"convenios.gestionar_revision_contraparte"}
     )
 
 
@@ -113,6 +118,7 @@ def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
         | {
             "solicitudes.ver_recibidas",
             "solicitudes.gestionar_recibidas",
+            "convenios.gestionar_revision_contraparte",
         }
     )
     assert Permiso.ALIADOS_CORREGIR_IDENTIFICACION in permisos_para_rol(

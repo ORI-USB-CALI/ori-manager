@@ -74,7 +74,7 @@ export function SolicitudRecibidaPage() {
 
       <div className="page-toolbar">
         <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
-        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
+        {solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}`}>Ver elaboración de convenio</Link>}
         {['RADICADA', 'EN_ESTUDIO', 'APROBADA'].includes(solicitud.estado) && !solicitud.convenio_id && puede('solicitudes.gestionar_recibidas') && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
       </div>
     </>

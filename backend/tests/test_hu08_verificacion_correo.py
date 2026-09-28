@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 import httpx
+import pytest
 from sqlalchemy import func, select
 
 from backend.core.config import settings
@@ -15,6 +16,7 @@ from backend.services.correo import (
     BREVO_EMAIL_URL,
     CorreoBrevo,
     CorreoLocal,
+    ErrorEnvioCorreo,
     MensajeCorreo,
     get_enviador_correo,
 )
@@ -99,12 +101,72 @@ def test_brevo_envia_sender_destinatario_asunto_y_api_key_solo_header():
     assert str(request.url) == BREVO_EMAIL_URL
     assert request.headers["api-key"] == "clave-controlada-prueba"
     assert payload["to"] == [{"email": "solicitante@example.com"}]
+    assert "cc" not in payload
     assert payload["sender"] == {
         "name": "ORI USB Cali",
         "email": "ori@example.com",
     }
     assert payload["subject"] == ASUNTO_VERIFICACION
     assert "clave-controlada-prueba" not in request.content.decode()
+
+
+def test_brevo_incluye_cc_unicamente_cuando_se_solicita():
+    solicitudes: list[httpx.Request] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        solicitudes.append(request)
+        return httpx.Response(201, request=request)
+
+    brevo = CorreoBrevo(
+        api_key="clave-controlada-prueba",
+        remitente_correo="ori@example.com",
+        remitente_nombre="ORI USB Cali",
+        cliente=httpx.Client(transport=httpx.MockTransport(responder)),
+    )
+    brevo.enviar(
+        MensajeCorreo(
+            destinatario="contraparte@example.com",
+            cc=("solicitante@example.com",),
+            asunto="Revisión",
+            texto="Contenido",
+            html="<p>Contenido</p>",
+        )
+    )
+
+    payload = json.loads(solicitudes[0].content)
+    assert payload["to"] == [{"email": "contraparte@example.com"}]
+    assert payload["cc"] == [{"email": "solicitante@example.com"}]
+
+
+def test_brevo_sanitiza_excepcion_sin_request_ni_token():
+    token = "token-plano-super-secreto"
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, request=request, text="error del proveedor")
+
+    brevo = CorreoBrevo(
+        api_key="clave-controlada-prueba",
+        remitente_correo="ori@example.com",
+        remitente_nombre="ORI USB Cali",
+        cliente=httpx.Client(transport=httpx.MockTransport(responder)),
+    )
+
+    with pytest.raises(ErrorEnvioCorreo) as capturada:
+        brevo.enviar(
+            MensajeCorreo(
+                destinatario="contraparte@example.com",
+                asunto="Revisión",
+                texto=f"https://ori.example/revision#token={token}",
+                html=f'<a href="https://ori.example/revision#token={token}">Abrir</a>',
+            )
+        )
+
+    error = capturada.value
+    assert str(error) == "No fue posible enviar el correo transaccional"
+    assert token not in str(error)
+    assert token not in repr(error)
+    assert error.__cause__ is None
+    assert error.__context__ is None
 
 
 def test_resolucion_correo_fail_closed(monkeypatch):

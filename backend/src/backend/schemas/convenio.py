@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from backend.models.enums import (
     AlcanceConvenio,
@@ -134,6 +134,7 @@ class PlantillaConvenioResumen(BaseModel):
 class VersionConvenioResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     numero: int
     autor: UsuarioResumen
     etapa: EtapaResumen
@@ -237,7 +238,7 @@ class ObservacionRevisionLeer(BaseModel):
     descripcion: str
     respuesta: str | None
     estado: EstadoObservacionRevision
-    registrada_por: UsuarioResumen
+    registrada_por: UsuarioResumen | None
     responsable: UsuarioResumen | None
     atendida_por: UsuarioResumen | None
     fecha_atencion: datetime | None
@@ -249,6 +250,35 @@ class VersionRevisionReferencia(BaseModel):
 
     id: int
     numero: int
+
+
+class InvitacionContraparteTrazabilidad(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    generada_por: UsuarioResumen
+    correo_destino: str
+    correo_cc: str | None
+    expira_en: datetime
+    enviado_en: datetime | None
+    utilizado_en: datetime | None
+    revocado_en: datetime | None
+    creado_en: datetime
+
+
+class RespuestaContraparteTrazabilidad(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    nombre_firmante: str
+    cargo_firmante: str
+    correo_actor: str
+    firma_sha256: str | None
+    creado_en: datetime
+
+    @computed_field
+    @property
+    def tiene_firma(self) -> bool:
+        return self.firma_sha256 is not None
 
 
 class RevisionConvenioLeer(BaseModel):
@@ -268,11 +298,14 @@ class RevisionConvenioLeer(BaseModel):
     estado: EstadoRevisionConvenio
     resultado: ResultadoRevisionConvenio | None
     responsable: UsuarioResumen | None
+    creada_por: UsuarioResumen | None
     resuelta_por: UsuarioResumen | None
     snapshot_datos: dict[str, Any] | None
     creado_en: datetime
     resuelta_en: datetime | None
     observaciones: list[ObservacionRevisionLeer]
+    invitaciones_contraparte: list[InvitacionContraparteTrazabilidad]
+    respuesta_contraparte: RespuestaContraparteTrazabilidad | None
 
 
 class RevisionJuridicaPendienteLeer(BaseModel):
@@ -353,6 +386,10 @@ class AprobarRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_version: int = Field(ge=0)
+
+
+class EnviarRevisionContraparte(AprobarRevision):
+    pass
 
 
 class CrearObservacionRevision(BaseModel):
