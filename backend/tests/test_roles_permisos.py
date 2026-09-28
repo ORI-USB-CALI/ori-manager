@@ -51,7 +51,6 @@ PERMISOS_REVISION_JURIDICA = {
 }
 PERMISOS_REVISION_CONTRAPARTE = {
     "convenios.gestionar_revision_contraparte",
-    "convenios.revisar_contraparte_propia",
 }
 
 
@@ -128,10 +127,7 @@ def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
     assert permisos_para_rol(CodigoRol.REVISOR_ORI) == frozenset(
         {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER, Permiso.CONVENIOS_REVISAR}
     )
-    permisos_solicitante = frozenset(
-        Permiso(valor)
-        for valor in PERMISOS_HU_11 | {"convenios.revisar_contraparte_propia"}
-    )
+    permisos_solicitante = frozenset(Permiso(valor) for valor in PERMISOS_HU_11)
     assert permisos_para_rol(CodigoRol.SOLICITANTE_INTERNO) == permisos_solicitante
     assert permisos_para_rol(CodigoRol.SOLICITANTE_EXTERNO) == permisos_solicitante
 

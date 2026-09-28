@@ -36,6 +36,10 @@ class ObservacionRevision(Base):
         CheckConstraint(
             f"estado IN ({_ESTADOS})", name="ck_observacion_revision_estado"
         ),
+        CheckConstraint(
+            "origen = 'CONTRAPARTE' OR registrada_por_id IS NOT NULL",
+            name="ck_observacion_revision_actor_registrado",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -53,8 +57,8 @@ class ObservacionRevision(Base):
         index=True,
     )
     origen: Mapped[str] = mapped_column(String(30), nullable=False)
-    registrada_por_id: Mapped[int] = mapped_column(
-        ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=False
+    registrada_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
     )
     responsable_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
@@ -83,7 +87,7 @@ class ObservacionRevision(Base):
     revision_convenio: Mapped[RevisionConvenio | None] = relationship(
         back_populates="observaciones"
     )
-    registrada_por: Mapped[Usuario] = relationship(
+    registrada_por: Mapped[Usuario | None] = relationship(
         foreign_keys=[registrada_por_id]
     )
     responsable: Mapped[Usuario | None] = relationship(

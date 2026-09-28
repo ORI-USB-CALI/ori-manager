@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import func, or_, select
+from pydantic import EmailStr, TypeAdapter, ValidationError
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -22,8 +23,14 @@ from backend.models.enums import (
 )
 from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.invitacion_revision_contraparte import (
+    InvitacionRevisionContraparte,
+)
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.plantilla_convenio import PlantillaConvenio
+from backend.models.respuesta_revision_contraparte import (
+    RespuestaRevisionContraparte,
+)
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
@@ -44,12 +51,16 @@ from backend.services.contenido_convenio import (
     expandir_plantilla,
     validar_contenido,
 )
+from backend.services.contraparte_externa import (
+    crear_invitacion_contraparte,
+    enviar_invitacion_contraparte,
+)
+from backend.services.correo import EnviadorCorreo
 from backend.services.documentos import AlmacenDocumentos
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
 CODIGO_ETAPA_REVISION_CONTRAPARTE = "REVISION_CONTRAPARTE"
-CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
 ENTIDAD_CONVENIO = "convenio"
 
 # Campos del proyecto de convenio que se congelan al entregarlo a Jurídica. No se
@@ -185,10 +196,6 @@ class ObservacionNoDisponible(ErrorConvenio):
     pass
 
 
-class AccesoRevisionDenegado(ErrorConvenio):
-    pass
-
-
 class ElaboracionIncompleta(ErrorConvenio):
     def __init__(self, faltantes: list[CampoFaltante]) -> None:
         self.faltantes = faltantes
@@ -201,10 +208,16 @@ class ConfiguracionConvenioInvalida(RuntimeError):
 
 class ServicioConvenios:
     def __init__(
-        self, db: Session, almacen: AlmacenDocumentos | None = None
+        self,
+        db: Session,
+        almacen: AlmacenDocumentos | None = None,
+        enviador: EnviadorCorreo | None = None,
+        frontend_url: str | None = None,
     ):
         self.db = db
         self.almacen = almacen
+        self.enviador = enviador
+        self.frontend_url = frontend_url
 
     def _almacen_requerido(self) -> AlmacenDocumentos:
         if self.almacen is None:
@@ -493,29 +506,37 @@ class ServicioConvenios:
             )
         )
 
-    def listar_revisiones_contraparte_pendientes(
-        self, usuario: Usuario
-    ) -> list[RevisionConvenio]:
-        return list(
-            self.db.scalars(
-                select(RevisionConvenio)
-                .join(RevisionConvenio.convenio)
-                .options(
-                    joinedload(RevisionConvenio.convenio).joinedload(
-                        Convenio.solicitud
-                    ),
-                    joinedload(RevisionConvenio.version_convenio),
-                    joinedload(RevisionConvenio.creada_por),
-                )
-                .where(
-                    RevisionConvenio.tipo
-                    == TipoRevisionConvenio.CONTRAPARTE.value,
-                    RevisionConvenio.estado
-                    == EstadoRevisionConvenio.PENDIENTE.value,
-                    RevisionConvenio.responsable_id == usuario.id,
-                )
-                .order_by(RevisionConvenio.creado_en, RevisionConvenio.id)
-            )
+    @staticmethod
+    def _destinatarios_contraparte(
+        solicitud: SolicitudConvenio,
+    ) -> tuple[str, str | None]:
+        destino = (solicitud.contacto_contraparte_correo or "").strip()
+        cc = (solicitud.solicitante.correo or "").strip()
+        adaptador = TypeAdapter(EmailStr)
+        try:
+            adaptador.validate_python(destino)
+            adaptador.validate_python(cc)
+        except ValidationError as exc:
+            raise RevisionNoDisponible(
+                "La solicitud no tiene correos válidos para la revisión externa"
+            ) from exc
+        return destino, None if destino.casefold() == cc.casefold() else cc
+
+    def _entregar_invitacion(
+        self,
+        invitacion: InvitacionRevisionContraparte,
+        token_plano: str,
+        convenio: Convenio,
+    ) -> None:
+        if self.enviador is None or not self.frontend_url:
+            raise RuntimeError("El servicio requiere correo y URL pública")
+        enviar_invitacion_contraparte(
+            self.db,
+            self.enviador,
+            self.frontend_url,
+            invitacion,
+            token_plano,
+            convenio,
         )
 
     def enviar_a_contraparte(
@@ -574,9 +595,14 @@ class ServicioConvenios:
             raise RevisionNoDisponible(
                 "La ronda jurídica no cuenta con sus dos aprobaciones"
             )
-        solicitud = self.db.get(SolicitudConvenio, convenio.solicitud_id)
+        solicitud = self.db.scalar(
+            select(SolicitudConvenio)
+            .options(joinedload(SolicitudConvenio.solicitante))
+            .where(SolicitudConvenio.id == convenio.solicitud_id)
+        )
         if solicitud is None or solicitud.solicitante_id is None:
             raise RevisionNoDisponible("El convenio no tiene un Solicitante asociado")
+        correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
         pendiente = self.db.scalar(
             select(RevisionConvenio.id).where(
                 RevisionConvenio.convenio_id == convenio.id,
@@ -609,14 +635,23 @@ class ServicioConvenios:
             historial_etapa_id=historial.id,
             version_convenio_id=version.id,
             version_resultado_id=None,
-            responsable_id=solicitud.solicitante_id,
+            responsable_id=None,
             creada_por_id=usuario.id,
             estado=EstadoRevisionConvenio.PENDIENTE.value,
             resultado=None,
         )
         self.db.add(revision)
+        invitacion: InvitacionRevisionContraparte | None = None
+        token_plano = ""
         try:
             self.db.flush()
+            invitacion, token_plano = crear_invitacion_contraparte(
+                self.db,
+                revision,
+                correo_destino,
+                correo_cc,
+                usuario.id,
+            )
             self.db.add(
                 Auditoria(
                     usuario_id=usuario.id,
@@ -638,56 +673,70 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        assert invitacion is not None
+        self._entregar_invitacion(invitacion, token_plano, convenio)
         return revision
 
-    def obtener_revision_contraparte(
+    def reenviar_invitacion_contraparte(
         self, convenio_id: int, revision_id: int, usuario: Usuario
-    ) -> tuple[Convenio, RevisionConvenio, VersionConvenio]:
+    ) -> InvitacionRevisionContraparte:
+        convenio = self.db.scalar(
+            select(Convenio)
+            .where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
         revision = self.db.scalar(
             select(RevisionConvenio)
-            .options(
-                joinedload(RevisionConvenio.creada_por),
-                joinedload(RevisionConvenio.responsable),
-                joinedload(RevisionConvenio.resuelta_por),
-                selectinload(RevisionConvenio.observaciones).joinedload(
-                    ObservacionRevision.registrada_por
-                ),
-                selectinload(RevisionConvenio.observaciones).joinedload(
-                    ObservacionRevision.responsable
-                ),
-                selectinload(RevisionConvenio.observaciones).joinedload(
-                    ObservacionRevision.atendida_por
-                ),
-                joinedload(RevisionConvenio.version_convenio).joinedload(
-                    VersionConvenio.autor
-                ),
-                joinedload(RevisionConvenio.version_convenio).joinedload(
-                    VersionConvenio.etapa
-                ),
-                joinedload(RevisionConvenio.version_convenio).joinedload(
-                    VersionConvenio.plantilla
-                ),
-                joinedload(RevisionConvenio.version_resultado),
-            )
             .where(
                 RevisionConvenio.id == revision_id,
                 RevisionConvenio.convenio_id == convenio_id,
             )
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
         if revision is None:
             raise ConvenioNoEncontrado("Revisión no encontrada para este convenio")
-        if revision.tipo != TipoRevisionConvenio.CONTRAPARTE.value:
-            raise RevisionNoDisponible("La revisión no es de contraparte")
-        if revision.responsable_id != usuario.id:
-            raise AccesoRevisionDenegado(
-                "La revisión de contraparte pertenece a otro Solicitante"
+        if (
+            revision.tipo != TipoRevisionConvenio.CONTRAPARTE.value
+            or revision.estado != EstadoRevisionConvenio.PENDIENTE.value
+            or revision.resultado is not None
+            or convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_CONTRAPARTE
+        ):
+            raise RevisionNoDisponible(
+                "La revisión de contraparte ya no está disponible para reenvío"
             )
-        convenio = self.obtener_para_elaboracion(convenio_id)
-        version = revision.version_convenio
-        if version is None:
-            raise RevisionNoDisponible("La revisión no identifica la versión enviada")
-        convenio.contenido = version.contenido
-        return convenio, revision, version
+        solicitud = self.db.scalar(
+            select(SolicitudConvenio)
+            .options(joinedload(SolicitudConvenio.solicitante))
+            .where(SolicitudConvenio.id == convenio.solicitud_id)
+        )
+        if solicitud is None:
+            raise RevisionNoDisponible("El convenio no tiene una solicitud asociada")
+        correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
+        ahora = datetime.now(UTC)
+        self.db.execute(
+            update(InvitacionRevisionContraparte)
+            .where(
+                InvitacionRevisionContraparte.revision_convenio_id == revision.id,
+                InvitacionRevisionContraparte.utilizado_en.is_(None),
+                InvitacionRevisionContraparte.revocado_en.is_(None),
+            )
+            .values(revocado_en=ahora)
+        )
+        invitacion, token_plano = crear_invitacion_contraparte(
+            self.db, revision, correo_destino, correo_cc, usuario.id
+        )
+        try:
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        self._entregar_invitacion(invitacion, token_plano, convenio)
+        return invitacion
 
     def obtener_para_revision(
         self, convenio_id: int
@@ -1538,175 +1587,6 @@ class ServicioConvenios:
             raise
         return revision
 
-    def _revision_contraparte_pendiente(
-        self, convenio_id: int, revision_id: int, usuario: Usuario
-    ) -> tuple[Convenio, RevisionConvenio, VersionConvenio]:
-        convenio = self.db.scalar(
-            select(Convenio).where(Convenio.id == convenio_id).with_for_update()
-        )
-        if convenio is None:
-            raise ConvenioNoEncontrado("Convenio no encontrado")
-        revision = self.db.scalar(
-            select(RevisionConvenio)
-            .where(
-                RevisionConvenio.id == revision_id,
-                RevisionConvenio.convenio_id == convenio_id,
-            )
-            .with_for_update()
-        )
-        if revision is None:
-            raise ConvenioNoEncontrado("Revisión no encontrada para este convenio")
-        if revision.tipo != TipoRevisionConvenio.CONTRAPARTE.value:
-            raise RevisionNoDisponible("La revisión no es de contraparte")
-        if revision.responsable_id != usuario.id:
-            raise AccesoRevisionDenegado(
-                "La revisión de contraparte pertenece a otro Solicitante"
-            )
-        if (
-            revision.estado != EstadoRevisionConvenio.PENDIENTE.value
-            or revision.resultado is not None
-            or convenio.etapa_actual is None
-            or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_CONTRAPARTE
-        ):
-            raise RevisionNoDisponible(
-                "La revisión de contraparte ya no está pendiente"
-            )
-        version = revision.version_convenio
-        if version is None:
-            raise RevisionNoDisponible("La revisión no identifica la versión enviada")
-        return convenio, revision, version
-
-    def aprobar_contraparte(
-        self,
-        convenio_id: int,
-        revision_id: int,
-        expected_version: int,
-        usuario: Usuario,
-    ) -> RevisionConvenio:
-        convenio, revision, version = self._revision_contraparte_pendiente(
-            convenio_id, revision_id, usuario
-        )
-        actual = self._version_actual_revision(convenio, expected_version)
-        if actual.id != version.id:
-            raise RevisionNoDisponible(
-                "La versión actual no coincide con la enviada a la contraparte"
-            )
-        revision_final = self.db.scalar(
-            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_REVISION_FINAL)
-        )
-        if revision_final is None:
-            raise ConfiguracionConvenioInvalida(
-                "No existe la etapa obligatoria REVISION_FINAL"
-            )
-        revision.estado = EstadoRevisionConvenio.RESUELTA.value
-        revision.resultado = ResultadoRevisionConvenio.APROBADA.value
-        revision.resuelta_por_id = usuario.id
-        revision.resuelta_en = datetime.now(UTC)
-        revision.version_resultado_id = version.id
-        self.db.add(
-            HistorialEtapa(
-                convenio_id=convenio.id,
-                etapa_origen_id=convenio.etapa_actual_id,
-                etapa_destino_id=revision_final.id,
-                usuario_id=usuario.id,
-                responsable_id=revision.creada_por_id,
-                observacion="Aprobación de la contraparte",
-            )
-        )
-        self.db.add(
-            Auditoria(
-                usuario_id=usuario.id,
-                entidad="revision_convenio",
-                registro_id=revision.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="resultado",
-                valor_anterior=None,
-                valor_nuevo=ResultadoRevisionConvenio.APROBADA.value,
-            )
-        )
-        convenio.etapa_actual = revision_final
-        try:
-            self.db.commit()
-        except SQLAlchemyError:
-            self.db.rollback()
-            raise
-        return revision
-
-    def devolver_contraparte(
-        self,
-        convenio_id: int,
-        revision_id: int,
-        observaciones: list[str],
-        expected_version: int,
-        usuario: Usuario,
-    ) -> RevisionConvenio:
-        if not observaciones:
-            raise ReferenciaConvenioInvalida("Debe incluir al menos una observación")
-        if any(not texto.strip() for texto in observaciones):
-            raise ReferenciaConvenioInvalida(
-                "Cada observación debe tener contenido"
-            )
-        convenio, revision, version = self._revision_contraparte_pendiente(
-            convenio_id, revision_id, usuario
-        )
-        actual = self._version_actual_revision(convenio, expected_version)
-        if actual.id != version.id:
-            raise RevisionNoDisponible(
-                "La versión actual no coincide con la enviada a la contraparte"
-            )
-        elaboracion = self.db.scalar(
-            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_ELABORACION)
-        )
-        if elaboracion is None:
-            raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
-        responsable_ori_id = revision.creada_por_id or convenio.creado_por_id
-        historial = HistorialEtapa(
-            convenio_id=convenio.id,
-            etapa_origen_id=convenio.etapa_actual_id,
-            etapa_destino_id=elaboracion.id,
-            usuario_id=usuario.id,
-            responsable_id=responsable_ori_id,
-            observacion="Devolución de revisión de contraparte",
-        )
-        self.db.add(historial)
-        try:
-            self.db.flush()
-            for texto in observaciones:
-                self.db.add(
-                    ObservacionRevision(
-                        convenio_id=convenio.id,
-                        historial_etapa_id=historial.id,
-                        revision_convenio_id=revision.id,
-                        origen=OrigenObservacionRevision.CONTRAPARTE.value,
-                        registrada_por_id=usuario.id,
-                        responsable_id=responsable_ori_id,
-                        descripcion=texto.strip(),
-                        estado=EstadoObservacionRevision.PENDIENTE.value,
-                    )
-                )
-            revision.estado = EstadoRevisionConvenio.RESUELTA.value
-            revision.resultado = ResultadoRevisionConvenio.DEVUELTA.value
-            revision.resuelta_por_id = usuario.id
-            revision.resuelta_en = datetime.now(UTC)
-            revision.version_resultado_id = version.id
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="revision_convenio",
-                    registro_id=revision.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="resultado",
-                    valor_anterior=None,
-                    valor_nuevo=ResultadoRevisionConvenio.DEVUELTA.value,
-                )
-            )
-            convenio.etapa_actual = elaboracion
-            self.db.commit()
-        except SQLAlchemyError:
-            self.db.rollback()
-            raise
-        return revision
-
     def obtener_historial(self, convenio_id: int) -> Convenio:
         """Convenio con sus rondas de revisión, observaciones y cambios de etapa,
         para la vista de historial y trazabilidad (CA-06, CA-07 de HU-13).
@@ -1742,6 +1622,12 @@ class ServicioConvenios:
                 selectinload(Convenio.revisiones).joinedload(
                     RevisionConvenio.version_resultado
                 ),
+                selectinload(Convenio.revisiones).selectinload(
+                    RevisionConvenio.invitaciones_contraparte
+                ).joinedload(InvitacionRevisionContraparte.generada_por),
+                selectinload(Convenio.revisiones)
+                .joinedload(RevisionConvenio.respuesta_contraparte)
+                .defer(RespuestaRevisionContraparte.firma_png),
                 selectinload(Convenio.historial_etapas).joinedload(
                     HistorialEtapa.etapa_origen
                 ),

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from backend.models.enums import (
     AlcanceConvenio,
@@ -238,7 +238,7 @@ class ObservacionRevisionLeer(BaseModel):
     descripcion: str
     respuesta: str | None
     estado: EstadoObservacionRevision
-    registrada_por: UsuarioResumen
+    registrada_por: UsuarioResumen | None
     responsable: UsuarioResumen | None
     atendida_por: UsuarioResumen | None
     fecha_atencion: datetime | None
@@ -250,6 +250,35 @@ class VersionRevisionReferencia(BaseModel):
 
     id: int
     numero: int
+
+
+class InvitacionContraparteTrazabilidad(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    generada_por: UsuarioResumen
+    correo_destino: str
+    correo_cc: str | None
+    expira_en: datetime
+    enviado_en: datetime | None
+    utilizado_en: datetime | None
+    revocado_en: datetime | None
+    creado_en: datetime
+
+
+class RespuestaContraparteTrazabilidad(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    nombre_firmante: str
+    cargo_firmante: str
+    correo_actor: str
+    firma_sha256: str | None
+    creado_en: datetime
+
+    @computed_field
+    @property
+    def tiene_firma(self) -> bool:
+        return self.firma_sha256 is not None
 
 
 class RevisionConvenioLeer(BaseModel):
@@ -275,6 +304,8 @@ class RevisionConvenioLeer(BaseModel):
     creado_en: datetime
     resuelta_en: datetime | None
     observaciones: list[ObservacionRevisionLeer]
+    invitaciones_contraparte: list[InvitacionContraparteTrazabilidad]
+    respuesta_contraparte: RespuestaContraparteTrazabilidad | None
 
 
 class RevisionJuridicaPendienteLeer(BaseModel):
@@ -289,19 +320,6 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     instancia_juridica: int | None
     numero_ronda: int | None
     version_numero: int | None
-
-
-class RevisionContrapartePendienteLeer(BaseModel):
-    revision_id: int
-    convenio_id: int
-    codigo_convenio: str | None
-    solicitud_consecutivo: str
-    objeto: str | None
-    version_id: int
-    version_numero: int
-    fecha_envio: datetime
-    enviada_por: UsuarioResumen
-    estado: EstadoRevisionConvenio
 
 
 class HistorialEtapaLeer(BaseModel):
@@ -372,12 +390,6 @@ class AprobarRevision(BaseModel):
 
 class EnviarRevisionContraparte(AprobarRevision):
     pass
-
-
-class RevisionContraparteDetalleLeer(BaseModel):
-    convenio: ConvenioElaboracionLeer
-    revision: RevisionConvenioLeer
-    version_recibida: VersionConvenioLeer
 
 
 class CrearObservacionRevision(BaseModel):

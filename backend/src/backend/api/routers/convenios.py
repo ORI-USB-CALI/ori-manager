@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.deps import requiere
+from backend.core.config import settings
 from backend.core.permisos import Permiso
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
@@ -32,8 +33,6 @@ from backend.schemas.convenio import (
     HistorialEtapaLeer,
     ObservacionRevisionLeer,
     RevisionContenidoGuardar,
-    RevisionContraparteDetalleLeer,
-    RevisionContrapartePendienteLeer,
     RevisionConvenioLeer,
     RevisionJuridicaPendienteLeer,
     ValidacionElaboracionLeer,
@@ -42,8 +41,8 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.revision_contraparte import InvitacionRevisionContraparteLeer
 from backend.services.convenios import (
-    AccesoRevisionDenegado,
     ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
@@ -56,6 +55,11 @@ from backend.services.convenios import (
     ServicioConvenios,
     SolicitudNoAprobada,
 )
+from backend.services.correo import (
+    EnviadorCorreo,
+    ErrorEnvioCorreo,
+    get_enviador_correo,
+)
 from backend.services.documentos import (
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
@@ -65,6 +69,7 @@ from backend.services.documentos import (
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
+Correo = Annotated[EnviadorCorreo, Depends(get_enviador_correo)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
@@ -72,14 +77,9 @@ PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
 PuedeGestionarContraparte = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE)
 ]
-PuedeRevisarContraparte = Annotated[
-    Usuario, requiere(Permiso.CONVENIOS_REVISAR_CONTRAPARTE_PROPIA)
-]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
-    if isinstance(exc, AccesoRevisionDenegado):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     if isinstance(exc, ConflictoVersionConvenio):
@@ -172,34 +172,6 @@ def listar_revisiones_juridicas_pendientes(
             ),
         )
         for revision in revisiones
-    ]
-
-
-@router.get(
-    "/revisiones-contraparte/pendientes",
-    response_model=list[RevisionContrapartePendienteLeer],
-)
-def listar_revisiones_contraparte_pendientes(
-    db: DatabaseSession, usuario: PuedeRevisarContraparte
-) -> list[RevisionContrapartePendienteLeer]:
-    revisiones = ServicioConvenios(db).listar_revisiones_contraparte_pendientes(
-        usuario
-    )
-    return [
-        RevisionContrapartePendienteLeer(
-            revision_id=revision.id,
-            convenio_id=revision.convenio.id,
-            codigo_convenio=revision.convenio.codigo,
-            solicitud_consecutivo=revision.convenio.solicitud.consecutivo,
-            objeto=revision.convenio.objeto,
-            version_id=revision.version_convenio.id,
-            version_numero=revision.version_convenio.numero,
-            fecha_envio=revision.creado_en,
-            enviada_por=revision.creada_por,
-            estado=revision.estado,
-        )
-        for revision in revisiones
-        if revision.version_convenio is not None and revision.creada_por is not None
     ]
 
 
@@ -526,10 +498,15 @@ def enviar_revision_contraparte(
     convenio_id: int,
     datos: EnviarRevisionContraparte,
     db: DatabaseSession,
+    correo: Correo,
     usuario: PuedeGestionarContraparte,
 ) -> RevisionConvenioLeer:
     try:
-        revision = ServicioConvenios(db).enviar_a_contraparte(
+        revision = ServicioConvenios(
+            db,
+            enviador=correo,
+            frontend_url=settings.public_frontend_url,
+        ).enviar_a_contraparte(
             convenio_id, datos.expected_version, usuario
         )
         convenio = ServicioConvenios(db).obtener_historial(convenio_id)
@@ -538,76 +515,39 @@ def enviar_revision_contraparte(
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
-
-
-@router.get(
-    "/{convenio_id}/revisiones/{revision_id}/contraparte",
-    response_model=RevisionContraparteDetalleLeer,
-)
-def obtener_revision_contraparte(
-    convenio_id: int,
-    revision_id: int,
-    db: DatabaseSession,
-    usuario: PuedeRevisarContraparte,
-) -> RevisionContraparteDetalleLeer:
-    try:
-        convenio, revision, version = ServicioConvenios(
-            db
-        ).obtener_revision_contraparte(convenio_id, revision_id, usuario)
-        return RevisionContraparteDetalleLeer(
-            convenio=ConvenioElaboracionLeer.model_validate(convenio),
-            revision=RevisionConvenioLeer.model_validate(revision),
-            version_recibida=VersionConvenioLeer.model_validate(version),
-        )
-    except ErrorConvenio as exc:
-        _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "La revisión fue creada, pero no fue posible entregar el correo",
+        ) from exc
 
 
 @router.post(
-    "/{convenio_id}/revisiones/{revision_id}/contraparte/aprobar",
-    response_model=RevisionConvenioLeer,
+    "/{convenio_id}/revisiones/{revision_id}/contraparte/reenviar",
+    response_model=InvitacionRevisionContraparteLeer,
+    status_code=status.HTTP_201_CREATED,
 )
-def aprobar_revision_contraparte(
+def reenviar_revision_contraparte(
     convenio_id: int,
     revision_id: int,
-    datos: AprobarRevision,
     db: DatabaseSession,
-    usuario: PuedeRevisarContraparte,
-) -> RevisionConvenioLeer:
+    correo: Correo,
+    usuario: PuedeGestionarContraparte,
+) -> InvitacionRevisionContraparteLeer:
     try:
-        ServicioConvenios(db).aprobar_contraparte(
-            convenio_id, revision_id, datos.expected_version, usuario
-        )
-        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
-        return RevisionConvenioLeer.model_validate(
-            next(item for item in convenio.revisiones if item.id == revision_id)
-        )
-    except ErrorConvenio as exc:
-        _lanzar_http(exc)
-
-
-@router.post(
-    "/{convenio_id}/revisiones/{revision_id}/contraparte/devolver",
-    response_model=RevisionConvenioLeer,
-)
-def devolver_revision_contraparte(
-    convenio_id: int,
-    revision_id: int,
-    datos: DevolverRevision,
-    db: DatabaseSession,
-    usuario: PuedeRevisarContraparte,
-) -> RevisionConvenioLeer:
-    try:
-        ServicioConvenios(db).devolver_contraparte(
+        return ServicioConvenios(
+            db,
+            enviador=correo,
+            frontend_url=settings.public_frontend_url,
+        ).reenviar_invitacion_contraparte(
             convenio_id,
             revision_id,
-            datos.observaciones,
-            datos.expected_version,
             usuario,
-        )
-        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
-        return RevisionConvenioLeer.model_validate(
-            next(item for item in convenio.revisiones if item.id == revision_id)
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "La invitación fue creada, pero no fue posible entregar el correo",
+        ) from exc

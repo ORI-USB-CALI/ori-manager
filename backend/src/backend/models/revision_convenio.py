@@ -29,7 +29,13 @@ if TYPE_CHECKING:
     from backend.models.convenio import Convenio
     from backend.models.documento import Documento
     from backend.models.historial_etapa import HistorialEtapa
+    from backend.models.invitacion_revision_contraparte import (
+        InvitacionRevisionContraparte,
+    )
     from backend.models.observacion_revision import ObservacionRevision
+    from backend.models.respuesta_revision_contraparte import (
+        RespuestaRevisionContraparte,
+    )
     from backend.models.usuario import Usuario
     from backend.models.version_convenio import VersionConvenio
 
@@ -149,4 +155,13 @@ class RevisionConvenio(Base):
     )
     observaciones: Mapped[list[ObservacionRevision]] = relationship(
         back_populates="revision_convenio"
+    )
+    invitaciones_contraparte: Mapped[list[InvitacionRevisionContraparte]] = relationship(
+        back_populates="revision_convenio",
+        cascade="all, delete-orphan",
+    )
+    respuesta_contraparte: Mapped[RespuestaRevisionContraparte | None] = relationship(
+        back_populates="revision_convenio",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
