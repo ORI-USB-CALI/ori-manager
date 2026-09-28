@@ -18,6 +18,7 @@ from backend.schemas.convenio import (
     AprobarRevision,
     AtenderObservacion,
     CatalogosElaboracionLeer,
+    ConfigurarFirmaConvenio,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
@@ -29,11 +30,14 @@ from backend.schemas.convenio import (
     DevolverRevision,
     DocumentoConvenioLeer,
     EnviarRevisionContraparte,
+    FirmaConvenioLeer,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     ObservacionRevisionLeer,
+    ProcesoFirmasConvenioLeer,
     RevisionContenidoGuardar,
     RevisionConvenioLeer,
+    RevisionFinalLeer,
     RevisionJuridicaPendienteLeer,
     ValidacionElaboracionLeer,
     VersionConvenioLeer,
@@ -65,6 +69,7 @@ from backend.services.documentos import (
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
 )
+from backend.services.firmas import ServicioFirmas
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -76,6 +81,9 @@ PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
 PuedeGestionarContraparte = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE)
+]
+PuedeGestionarFirmas = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)
 ]
 
 
@@ -551,3 +559,127 @@ def reenviar_revision_contraparte(
             status.HTTP_502_BAD_GATEWAY,
             "La invitación fue creada, pero no fue posible entregar el correo",
         ) from exc
+
+
+@router.get("/{convenio_id}/revision-final", response_model=RevisionFinalLeer)
+def obtener_revision_final(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarFirmas
+) -> RevisionFinalLeer:
+    try:
+        contexto = ServicioFirmas(db).obtener_revision_final(convenio_id)
+        return RevisionFinalLeer(
+            convenio=ConvenioElaboracionLeer.model_validate(contexto.convenio),
+            documentos=[
+                DocumentoConvenioLeer.model_validate(documento)
+                for documento in contexto.documentos
+            ],
+            revision_pendiente=RevisionConvenioLeer.model_validate(
+                contexto.revision_final
+            ),
+            version_aprobada_contraparte=VersionConvenioLeer.model_validate(
+                contexto.version
+            ),
+            revisiones_juridicas=[
+                RevisionConvenioLeer.model_validate(revision)
+                for revision in contexto.revisiones_juridicas
+            ],
+            revision_contraparte=RevisionConvenioLeer.model_validate(
+                contexto.revision_contraparte
+            ),
+            observaciones_pendientes=[
+                ObservacionRevisionLeer.model_validate(observacion)
+                for observacion in contexto.observaciones_pendientes
+            ],
+            revision_final_aprobada=(
+                contexto.revision_final.resultado == "APROBADA"
+            ),
+            proceso_firmas_abierto=contexto.proceso_activo is not None,
+            proceso_firmas=(
+                ProcesoFirmasConvenioLeer.model_validate(contexto.proceso_activo)
+                if contexto.proceso_activo is not None
+                else None
+            ),
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revision-final/aprobar",
+    response_model=ProcesoFirmasConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def aprobar_revision_final(
+    convenio_id: int,
+    datos: AprobarRevision,
+    db: DatabaseSession,
+    usuario: PuedeGestionarFirmas,
+) -> ProcesoFirmasConvenioLeer:
+    try:
+        proceso = ServicioFirmas(db).aprobar_revision_final(
+            convenio_id, datos.expected_version, usuario
+        )
+        return ProcesoFirmasConvenioLeer.model_validate(proceso)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/revision-final/devolver",
+    response_model=RevisionConvenioLeer,
+)
+def devolver_revision_final(
+    convenio_id: int,
+    datos: DevolverRevision,
+    db: DatabaseSession,
+    usuario: PuedeGestionarFirmas,
+) -> RevisionConvenioLeer:
+    try:
+        revision = ServicioFirmas(db).devolver_revision_final(
+            convenio_id, datos.observaciones, datos.expected_version, usuario
+        )
+        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        return RevisionConvenioLeer.model_validate(
+            next(item for item in convenio.revisiones if item.id == revision.id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.patch(
+    "/{convenio_id}/firmas/{firma_id}", response_model=FirmaConvenioLeer
+)
+def configurar_firma(
+    convenio_id: int,
+    firma_id: int,
+    datos: ConfigurarFirmaConvenio,
+    db: DatabaseSession,
+    _: PuedeGestionarFirmas,
+) -> FirmaConvenioLeer:
+    try:
+        firma = ServicioFirmas(db).configurar_firma(
+            convenio_id,
+            firma_id,
+            datos.nombre,
+            datos.cargo,
+            str(datos.correo) if datos.correo is not None else None,
+            datos.modalidad,
+        )
+        return FirmaConvenioLeer.model_validate(firma)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/firmas/iniciar",
+    response_model=ProcesoFirmasConvenioLeer,
+)
+def iniciar_firmas(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarFirmas
+) -> ProcesoFirmasConvenioLeer:
+    try:
+        return ProcesoFirmasConvenioLeer.model_validate(
+            ServicioFirmas(db).iniciar(convenio_id)
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)

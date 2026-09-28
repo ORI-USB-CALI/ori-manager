@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
     from backend.models.plantilla_convenio import PlantillaConvenio
+    from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
     from backend.models.revision_convenio import RevisionConvenio
     from backend.models.solicitud_convenio import SolicitudConvenio
     from backend.models.tipo_convenio import TipoConvenio
@@ -96,4 +97,7 @@ class Convenio(Base):
     )
     versiones: Mapped[list[VersionConvenio]] = relationship(
         back_populates="convenio", order_by="VersionConvenio.numero"
+    )
+    procesos_firmas: Mapped[list[ProcesoFirmasConvenio]] = relationship(
+        back_populates="convenio", order_by="ProcesoFirmasConvenio.id"
     )

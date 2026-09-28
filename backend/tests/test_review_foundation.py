@@ -122,6 +122,8 @@ def test_revision_convenio_admite_documento_e_historial_opcionales(
     sin_vinculos = RevisionConvenio(
         convenio_id=convenio.id,
         tipo=TipoRevisionConvenio.FINAL.value,
+        estado=EstadoRevisionConvenio.RESUELTA.value,
+        resultado=ResultadoRevisionConvenio.APROBADA.value,
     )
     con_vinculos = RevisionConvenio(
         convenio_id=convenio.id,

@@ -339,18 +339,31 @@ class ServicioContraparteExterna:
             )
         )
         usuario_interno_id = revision.creada_por_id or contexto.convenio.creado_por_id
-        self.db.add(
-            HistorialEtapa(
-                convenio_id=contexto.convenio.id,
-                etapa_origen_id=contexto.convenio.etapa_actual_id,
-                etapa_destino_id=etapa_final.id,
-                usuario_id=usuario_interno_id,
-                responsable_id=usuario_interno_id,
-                observacion="Aprobación externa de la contraparte",
-            )
+        historial = HistorialEtapa(
+            convenio_id=contexto.convenio.id,
+            etapa_origen_id=contexto.convenio.etapa_actual_id,
+            etapa_destino_id=etapa_final.id,
+            usuario_id=usuario_interno_id,
+            responsable_id=usuario_interno_id,
+            observacion="Aprobación externa de la contraparte",
         )
+        self.db.add(historial)
         contexto.convenio.etapa_actual = etapa_final
         try:
+            self.db.flush()
+            self.db.add(
+                RevisionConvenio(
+                    convenio_id=contexto.convenio.id,
+                    tipo=TipoRevisionConvenio.FINAL.value,
+                    historial_etapa_id=historial.id,
+                    version_convenio_id=contexto.version.id,
+                    version_resultado_id=None,
+                    responsable_id=usuario_interno_id,
+                    creada_por_id=usuario_interno_id,
+                    estado=EstadoRevisionConvenio.PENDIENTE.value,
+                    resultado=None,
+                )
+            )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()

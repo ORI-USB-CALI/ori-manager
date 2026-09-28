@@ -1124,6 +1124,7 @@ class ServicioConvenios:
                     (
                         OrigenObservacionRevision.REVISOR_ORI.value,
                         OrigenObservacionRevision.CONTRAPARTE.value,
+                        OrigenObservacionRevision.REVISION_FINAL_ORI.value,
                     )
                 ),
                 ObservacionRevision.estado
@@ -1147,6 +1148,7 @@ class ServicioConvenios:
                     (
                         TipoRevisionConvenio.JURIDICA.value,
                         TipoRevisionConvenio.CONTRAPARTE.value,
+                        TipoRevisionConvenio.FINAL.value,
                     )
                 ),
                 RevisionConvenio.resultado
@@ -1496,6 +1498,7 @@ class ServicioConvenios:
         if observacion.origen not in {
             OrigenObservacionRevision.REVISOR_ORI.value,
             OrigenObservacionRevision.CONTRAPARTE.value,
+            OrigenObservacionRevision.REVISION_FINAL_ORI.value,
         }:
             raise ObservacionNoDisponible(
                 "La observación no corresponde a una revisión atendible"
