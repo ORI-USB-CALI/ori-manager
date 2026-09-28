@@ -109,7 +109,10 @@ class ServicioFirmaElectronica:
                 selectinload(ProcesoFirmasConvenio.version_convenio),
                 selectinload(ProcesoFirmasConvenio.firmas).selectinload(
                     FirmaConvenio.invitaciones
-                )
+                ),
+                selectinload(ProcesoFirmasConvenio.firmas).joinedload(
+                    FirmaConvenio.documento
+                ),
             )
             .where(
                 ProcesoFirmasConvenio.convenio_id == convenio_id,

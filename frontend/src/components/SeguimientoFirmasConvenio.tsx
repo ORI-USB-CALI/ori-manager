@@ -3,6 +3,16 @@ import { useState } from 'react'
 
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
+import { ConfirmacionModal } from './ConfirmacionModal'
+
+interface DocumentoFirma {
+  id: number
+  tipo: string
+  nombre_archivo: string
+  tipo_mime: string
+  tamano_bytes: number
+  creado_en: string
+}
 
 interface InvitacionFirma {
   id: number
@@ -22,8 +32,10 @@ interface FirmaConvenio {
   cargo_firmante: string | null
   correo_firmante: string | null
   modalidad: 'ELECTRONICA' | 'FISICA' | null
-  estado: 'PENDIENTE' | 'FIRMADA'
+  estado: 'PENDIENTE' | 'FIRMADA' | 'RECHAZADA'
   fecha_firma: string | null
+  documento_id: number | null
+  documento: DocumentoFirma | null
   configurada: boolean
   invitaciones: InvitacionFirma[]
 }
@@ -45,11 +57,138 @@ function fecha(valor: string | null): string {
   return valor ? new Date(valor).toLocaleString() : '—'
 }
 
+function fechaFisica(valor: string | null): string {
+  if (!valor) return '—'
+  return new Date(`${valor.slice(0, 10)}T00:00:00Z`).toLocaleDateString('es-CO', {
+    timeZone: 'UTC',
+  })
+}
+
 function invitacionReciente(firma: FirmaConvenio): InvitacionFirma | null {
   return firma.invitaciones.reduce<InvitacionFirma | null>((ultima, invitacion) => {
     if (!ultima) return invitacion
     return invitacion.id > ultima.id ? invitacion : ultima
   }, null)
+}
+
+function claseEstadoFirma(estado: FirmaConvenio['estado']): string {
+  if (estado === 'FIRMADA') return 'badge-success'
+  if (estado === 'RECHAZADA') return 'badge-danger'
+  return 'badge-warning'
+}
+
+function claseEstadoInvitacion(estado: string | null): string {
+  if (estado === 'UTILIZADA') return 'badge-success'
+  if (estado === 'PENDIENTE') return 'badge-warning'
+  if (estado === 'EXPIRADA') return 'badge-danger'
+  return 'badge-neutral'
+}
+
+function RegistroFirmaFisicaModal({
+  convenioId,
+  firmaInicial,
+  firmasDisponibles,
+  onCerrar,
+}: {
+  convenioId: number
+  firmaInicial: FirmaConvenio
+  firmasDisponibles: FirmaConvenio[]
+  onCerrar: () => void
+}) {
+  const cliente = useQueryClient()
+  const notify = useNotifications()
+  const [firmaIds, setFirmaIds] = useState<number[]>([firmaInicial.id])
+  const [fechaFirma, setFechaFirma] = useState('')
+  const [archivo, setArchivo] = useState<File | null>(null)
+
+  const registrar = useMutation({
+    mutationFn: () => {
+      const datos = new FormData()
+      firmaIds.forEach((firmaId) => datos.append('firma_ids', String(firmaId)))
+      datos.append('fecha_firma', fechaFirma)
+      datos.append('archivo', archivo!)
+      return apiFetch(`/convenios/${convenioId}/firmas/fisicas`, {
+        method: 'POST',
+        body: datos,
+      })
+    },
+    onSuccess: async () => {
+      notify({
+        type: 'success',
+        message: firmaIds.length === 1
+          ? 'La firma física fue registrada con su evidencia.'
+          : `Se registraron ${firmaIds.length} firmas físicas con la misma evidencia.`,
+      })
+      onCerrar()
+      await cliente.invalidateQueries({ queryKey: ['convenio', convenioId, 'firmas'] })
+    },
+    onError: (error) => notify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'No fue posible registrar la firma física.',
+    }),
+  })
+
+  function alternarFirma(firmaId: number, seleccionada: boolean) {
+    setFirmaIds((actuales) => seleccionada
+      ? [...actuales, firmaId]
+      : actuales.filter((id) => id !== firmaId))
+  }
+
+  return (
+    <ConfirmacionModal
+      titulo="Registrar firma física"
+      confirmar="Registrar firma física"
+      procesando="Registrando…"
+      pendiente={registrar.isPending}
+      confirmarDeshabilitado={!archivo || !fechaFirma || firmaIds.length === 0}
+      onConfirmar={() => registrar.mutate()}
+      onCerrar={onCerrar}
+    >
+      <div className="firma-fisica-resumen">
+        <p><strong>Firmante:</strong> {firmaInicial.nombre_firmante ?? '—'}</p>
+        <p><strong>Cargo:</strong> {firmaInicial.cargo_firmante ?? '—'}</p>
+        <p><strong>Rol:</strong> {etiqueta(firmaInicial.rol_firmante)}</p>
+      </div>
+      <label className="form-group" htmlFor="evidencia-firma-fisica">
+        <span className="form-label">Documento firmado (PDF) *</span>
+        <input
+          id="evidencia-firma-fisica"
+          className="form-control"
+          type="file"
+          accept="application/pdf,.pdf"
+          required
+          onChange={(event) => setArchivo(event.currentTarget.files?.[0] ?? null)}
+        />
+      </label>
+      <label className="form-group" htmlFor="fecha-firma-fisica">
+        <span className="form-label">Fecha de firma *</span>
+        <input
+          id="fecha-firma-fisica"
+          className="form-control"
+          type="date"
+          value={fechaFirma}
+          required
+          onChange={(event) => setFechaFirma(event.target.value)}
+        />
+      </label>
+      <fieldset className="firmas-fisicas-seleccion">
+        <legend>Firmas físicas incluidas en el mismo documento</legend>
+        {firmasDisponibles.map((firma) => (
+          <label key={firma.id}>
+            <input
+              type="checkbox"
+              checked={firmaIds.includes(firma.id)}
+              onChange={(event) => alternarFirma(firma.id, event.target.checked)}
+            />
+            <span>
+              <strong>{etiqueta(firma.rol_firmante)}</strong>
+              <small>{firma.nombre_firmante} · {firma.cargo_firmante}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    </ConfirmacionModal>
+  )
 }
 
 function ConfiguracionFirma({ convenioId, firma }: { convenioId: number; firma: FirmaConvenio }) {
@@ -84,6 +223,7 @@ function ConfiguracionFirma({ convenioId, firma }: { convenioId: number; firma: 
 export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }) {
   const cliente = useQueryClient()
   const notify = useNotifications()
+  const [firmaFisicaSeleccionada, setFirmaFisicaSeleccionada] = useState<number | null>(null)
   const proceso = useQuery({
     queryKey: ['convenio', convenioId, 'firmas'],
     queryFn: () => apiFetch<ProcesoFirmas>(`/convenios/${convenioId}/firmas`),
@@ -111,6 +251,9 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
   const datos = proceso.data
   const completadas = datos.firmas.filter((firma) => firma.estado === 'FIRMADA').length
   const electronicas = datos.firmas.filter((firma) => firma.modalidad === 'ELECTRONICA')
+  const fisicasPendientes = datos.firmas.filter(
+    (firma) => firma.modalidad === 'FISICA' && firma.estado === 'PENDIENTE',
+  )
   const algunaInvitacion = electronicas.some((firma) => firma.invitaciones.length > 0)
   const todasConfiguradas = datos.firmas.length === 7 && datos.firmas.every((firma) => firma.configurada)
 
@@ -118,23 +261,31 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
     <section className="card seguimiento-firmas">
       <div className="revision-contraparte-cabecera">
         <div><h2>Proceso de firmas</h2><p className="section-help">Versión congelada del proceso: {datos.version_numero}</p></div>
-        <span className="badge badge-pendiente">{completadas} de 7 firmas completadas</span>
+        <span className={`badge ${completadas === 7 ? 'badge-success' : 'badge-warning'}`}>{completadas} de 7 firmas completadas</span>
       </div>
       <div className="firmas-lista">
         {datos.firmas.map((firma) => {
           const invitacion = invitacionReciente(firma)
           return (
             <article className="firma-seguimiento" key={firma.id}>
-              <div className="firma-seguimiento-cabecera"><strong>{firma.orden}. {etiqueta(firma.rol_firmante)}</strong><span className="badge badge-neutral">{etiqueta(firma.estado)}</span></div>
+              <div className="firma-seguimiento-cabecera"><strong>{firma.orden}. {etiqueta(firma.rol_firmante)}</strong><span className={`badge ${claseEstadoFirma(firma.estado)}`}>{etiqueta(firma.estado)}</span></div>
               {datos.estado === 'CONFIGURACION' ? <ConfiguracionFirma convenioId={convenioId} firma={firma} /> : (
                 <dl className="proyecto-datos">
                   <dt>Nombre</dt><dd>{firma.nombre_firmante ?? '—'}</dd><dt>Cargo</dt><dd>{firma.cargo_firmante ?? '—'}</dd>
                   <dt>Correo</dt><dd>{firma.correo_firmante ?? '—'}</dd><dt>Modalidad</dt><dd>{etiqueta(firma.modalidad)}</dd>
-                  <dt>Fecha de firma</dt><dd>{fecha(firma.fecha_firma)}</dd><dt>Invitación</dt><dd>{firma.modalidad === 'FISICA' ? 'Requiere carga posterior del documento firmado' : invitacion ? etiqueta(invitacion.estado) : 'Sin enviar'}</dd>
+                  <dt>Fecha de firma</dt><dd>{firma.modalidad === 'FISICA' ? fechaFisica(firma.fecha_firma) : fecha(firma.fecha_firma)}</dd>
+                  {firma.modalidad === 'FISICA' ? (
+                    <><dt>Evidencia</dt><dd>{firma.documento ? <a href={`/api/convenios/${convenioId}/documentos/${firma.documento.id}/contenido`} target="_blank" rel="noreferrer">Ver/descargar {firma.documento.nombre_archivo}</a> : 'Pendiente de registro'}</dd></>
+                  ) : (
+                    <><dt>Invitación</dt><dd><span className={`badge ${claseEstadoInvitacion(invitacion?.estado ?? null)}`}>{invitacion ? etiqueta(invitacion.estado) : 'No disponible'}</span></dd></>
+                  )}
                 </dl>
               )}
               {datos.estado === 'EN_CURSO' && firma.modalidad === 'ELECTRONICA' && firma.estado === 'PENDIENTE' && invitacion && (
                 <button className="btn btn-outline btn-small" type="button" disabled={reenviar.isPending} onClick={() => reenviar.mutate(firma.id)}>Reenviar enlace</button>
+              )}
+              {datos.estado === 'EN_CURSO' && firma.modalidad === 'FISICA' && firma.estado === 'PENDIENTE' && (
+                <button className="btn btn-outline btn-small" type="button" onClick={() => setFirmaFisicaSeleccionada(firma.id)}>Registrar firma física</button>
               )}
             </article>
           )
@@ -144,6 +295,14 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
         {datos.estado === 'CONFIGURACION' && <button className="btn btn-primary" type="button" disabled={!todasConfiguradas || iniciar.isPending} onClick={() => iniciar.mutate()}>{iniciar.isPending ? 'Iniciando…' : 'Iniciar proceso de firmas'}</button>}
         {datos.estado === 'EN_CURSO' && electronicas.length > 0 && !algunaInvitacion && <button className="btn btn-primary" type="button" disabled={enviar.isPending} onClick={() => enviar.mutate()}>{enviar.isPending ? 'Enviando…' : 'Enviar invitaciones electrónicas'}</button>}
       </div>
+      {firmaFisicaSeleccionada !== null && fisicasPendientes.some((firma) => firma.id === firmaFisicaSeleccionada) && (
+        <RegistroFirmaFisicaModal
+          convenioId={convenioId}
+          firmaInicial={fisicasPendientes.find((firma) => firma.id === firmaFisicaSeleccionada)!}
+          firmasDisponibles={fisicasPendientes}
+          onCerrar={() => setFirmaFisicaSeleccionada(null)}
+        />
+      )}
     </section>
   )
 }

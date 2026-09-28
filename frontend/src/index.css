@@ -925,7 +925,7 @@ a:hover {
 
 .firmas-lista {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -933,6 +933,7 @@ a:hover {
   display: grid;
   align-content: start;
   gap: 14px;
+  min-width: 0;
   padding: 16px;
   border: 1px solid var(--border-color);
   border-radius: 10px;
@@ -944,6 +945,64 @@ a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+}
+
+.firma-seguimiento-cabecera strong,
+.firma-seguimiento .proyecto-datos,
+.firma-seguimiento .proyecto-datos dd,
+.firma-seguimiento a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.firma-seguimiento .proyecto-datos {
+  grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
+}
+
+.firma-fisica-resumen {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  border-radius: 7px;
+  background: #f1f5f9;
+}
+
+.firma-fisica-resumen p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.firmas-fisicas-seleccion {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.firmas-fisicas-seleccion legend {
+  margin-bottom: 8px;
+  font-weight: 650;
+}
+
+.firmas-fisicas-seleccion label {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+}
+
+.firmas-fisicas-seleccion span,
+.firmas-fisicas-seleccion small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .firma-configuracion {
@@ -1431,6 +1490,10 @@ a:hover {
     flex-direction: column;
   }
 
+  .firmas-lista {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .convenio-editor .ProseMirror {
     min-height: 520px;
     margin: 0;
@@ -1449,6 +1512,10 @@ a:hover {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .firmas-lista {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .form-span-2 {

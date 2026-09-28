@@ -16,6 +16,7 @@ from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import hash_contrasena
 from backend.main import app
 from backend.models.convenio import Convenio
+from backend.models.documento import Documento
 from backend.models.enums import (
     ContextoVersionConvenio,
     EstadoConvenio,
@@ -363,6 +364,40 @@ def _configurar(client, convenio_id, firma_id, modalidad="ELECTRONICA"):
         datos["correo"] = f"firmante-{firma_id}@example.com"
     return client.patch(
         f"/api/convenios/{convenio_id}/firmas/{firma_id}", json=datos
+    )
+
+
+def _iniciar_proceso(client, escenario, modalidades):
+    proceso = _aprobar(client, escenario).json()
+    for firma, modalidad in zip(proceso["firmas"], modalidades, strict=True):
+        assert (
+            _configurar(
+                client,
+                escenario["convenio"].id,
+                firma["id"],
+                modalidad=modalidad,
+            ).status_code
+            == 200
+        )
+    respuesta = client.post(
+        f"/api/convenios/{escenario['convenio'].id}/firmas/iniciar"
+    )
+    assert respuesta.status_code == 200
+    return respuesta.json()
+
+
+def _registrar_fisicas(
+    client, convenio_id, firma_ids, fecha="2026-09-28", archivo=b"%PDF-1.4 firmado"
+):
+    partes = [("firma_ids", (None, str(firma_id))) for firma_id in firma_ids]
+    partes.extend(
+        [
+            ("fecha_firma", (None, fecha)),
+            ("archivo", ("convenio-firmado.pdf", archivo, "application/pdf")),
+        ]
+    )
+    return client.post(
+        f"/api/convenios/{convenio_id}/firmas/fisicas", files=partes
     )
 
 
@@ -719,6 +754,229 @@ def test_no_modifica_firmante_despues_de_iniciar(client, escenario_final):
         client, escenario_final["convenio"].id, proceso["firmas"][0]["id"]
     )
     assert respuesta.status_code == 409
+
+
+def test_registra_firma_fisica_con_documento_y_fecha_sin_cerrar_proceso(
+    client, db, escenario_final
+):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    firma_id = proceso["firmas"][0]["id"]
+
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, [firma_id]
+    )
+
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    registrada = next(firma for firma in datos["firmas"] if firma["id"] == firma_id)
+    assert registrada["estado"] == "FIRMADA"
+    assert registrada["fecha_firma"].startswith("2026-09-28")
+    assert registrada["documento_id"] is not None
+    assert registrada["documento"]["tipo"] == "CONVENIO_FIRMADO"
+    assert registrada["documento"]["nombre_archivo"] == "convenio-firmado.pdf"
+    assert datos["estado"] == "EN_CURSO"
+
+    db.expire_all()
+    firma = db.get(FirmaConvenio, firma_id)
+    documento = db.get(Documento, registrada["documento_id"])
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    assert firma is not None and documento is not None and convenio is not None
+    assert firma.documento_id == documento.id
+    assert firma.fecha_firma is not None
+    assert documento.convenio_id == convenio.id
+    assert documento.tipo == "CONVENIO_FIRMADO"
+    assert convenio.estado == EstadoConvenio.EN_TRAMITE.value
+    proceso_persistido = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert proceso_persistido is not None
+    assert proceso_persistido.estado == EstadoProcesoFirmasConvenio.EN_CURSO.value
+    assert proceso_persistido.completado_en is None
+
+
+def test_mismo_documento_acredita_dos_firmas_fisicas(
+    client, db, escenario_final
+):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    firma_ids = [firma["id"] for firma in proceso["firmas"][:2]]
+
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, firma_ids
+    )
+
+    assert respuesta.status_code == 201
+    db.expire_all()
+    firmas = [db.get(FirmaConvenio, firma_id) for firma_id in firma_ids]
+    assert all(firma is not None for firma in firmas)
+    assert firmas[0].documento_id == firmas[1].documento_id
+    assert firmas[0].documento_id is not None
+    assert db.scalar(
+        select(func.count()).select_from(Documento).where(
+            Documento.convenio_id == escenario_final["convenio"].id,
+            Documento.tipo == "CONVENIO_FIRMADO",
+        )
+    ) == 1
+
+
+def test_siete_firmas_fisicas_no_completan_proceso_ni_activan_convenio(
+    client, db, escenario_final
+):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    firma_ids = [firma["id"] for firma in proceso["firmas"]]
+
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, firma_ids
+    )
+
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    assert all(firma["estado"] == "FIRMADA" for firma in datos["firmas"])
+    assert datos["estado"] == "EN_CURSO"
+    db.expire_all()
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    proceso_persistido = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert convenio is not None and proceso_persistido is not None
+    assert convenio.estado == EstadoConvenio.EN_TRAMITE.value
+    assert proceso_persistido.estado == EstadoProcesoFirmasConvenio.EN_CURSO.value
+    assert proceso_persistido.completado_en is None
+
+
+def test_rechaza_ids_de_firma_duplicados(client, escenario_final):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    firma_id = proceso["firmas"][0]["id"]
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, [firma_id, firma_id]
+    )
+    assert respuesta.status_code == 422
+
+
+def test_rechaza_firma_electronica_en_registro_fisico(client, escenario_final):
+    proceso = _iniciar_proceso(
+        client,
+        escenario_final,
+        ["ELECTRONICA", *(["FISICA"] * (len(ROLES_ESPERADOS) - 1))],
+    )
+    respuesta = _registrar_fisicas(
+        client,
+        escenario_final["convenio"].id,
+        [proceso["firmas"][0]["id"]],
+    )
+    assert respuesta.status_code == 422
+
+
+def test_rechaza_sobrescribir_firma_fisica_completada(client, escenario_final):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    firma_id = proceso["firmas"][0]["id"]
+    assert (
+        _registrar_fisicas(
+            client, escenario_final["convenio"].id, [firma_id]
+        ).status_code
+        == 201
+    )
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, [firma_id]
+    )
+    assert respuesta.status_code == 409
+
+
+def test_rechaza_firma_de_otro_proceso(client, db, escenario_final):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    revision_anterior = RevisionConvenio(
+        convenio_id=escenario_final["convenio"].id,
+        tipo=TipoRevisionConvenio.FINAL.value,
+        version_convenio_id=escenario_final["version"].id,
+        version_resultado_id=escenario_final["version"].id,
+        estado=EstadoRevisionConvenio.RESUELTA.value,
+        resultado=ResultadoRevisionConvenio.APROBADA.value,
+    )
+    db.add(revision_anterior)
+    db.flush()
+    proceso_anterior = ProcesoFirmasConvenio(
+        convenio_id=escenario_final["convenio"].id,
+        version_convenio_id=escenario_final["version"].id,
+        revision_final_id=revision_anterior.id,
+        creado_por_id=escenario_final["gestor"].id,
+        estado=EstadoProcesoFirmasConvenio.CANCELADO.value,
+    )
+    db.add(proceso_anterior)
+    db.flush()
+    firma_ajena = FirmaConvenio(
+        proceso_firmas_id=proceso_anterior.id,
+        orden=1,
+        rol_firmante=RolFirmanteConvenio.ADMINISTRADOR_ORI.value,
+        parte="UNIVERSIDAD",
+        nombre_firmante="Firma de proceso anterior",
+        cargo_firmante="Cargo",
+        modalidad=ModalidadFirma.FISICA.value,
+        estado=EstadoFirmaConvenio.PENDIENTE.value,
+    )
+    db.add(firma_ajena)
+    db.commit()
+
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, [firma_ajena.id]
+    )
+
+    assert respuesta.status_code == 422
+    db.expire_all()
+    activa = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert activa is not None and activa.estado == "EN_CURSO"
+
+
+def test_rechaza_registro_fisico_fuera_de_proceso_en_curso(
+    client, escenario_final
+):
+    proceso = _aprobar(client, escenario_final).json()
+    firma_id = proceso["firmas"][0]["id"]
+    assert (
+        _configurar(
+            client,
+            escenario_final["convenio"].id,
+            firma_id,
+            modalidad="FISICA",
+        ).status_code
+        == 200
+    )
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, [firma_id]
+    )
+    assert respuesta.status_code == 409
+
+
+def test_rechaza_registro_fisico_sin_firmas(client, escenario_final):
+    _iniciar_proceso(client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS))
+    respuesta = _registrar_fisicas(
+        client, escenario_final["convenio"].id, []
+    )
+    assert respuesta.status_code == 422
+
+
+def test_revisor_no_puede_registrar_firmas_fisicas(
+    client, crear_usuario, entrar_como, escenario_final
+):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    revisor = crear_usuario(CodigoRol.REVISOR_ORI)
+    entrar_como(revisor)
+
+    respuesta = _registrar_fisicas(
+        client,
+        escenario_final["convenio"].id,
+        [proceso["firmas"][0]["id"]],
+    )
+
+    assert respuesta.status_code == 403
 
 
 @pytest.mark.parametrize(

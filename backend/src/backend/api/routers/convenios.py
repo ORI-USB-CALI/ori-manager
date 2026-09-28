@@ -1,7 +1,8 @@
+from datetime import date
 from typing import Annotated, NoReturn
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -66,6 +67,7 @@ from backend.services.correo import (
     get_enviador_correo,
 )
 from backend.services.documentos import (
+    TAMANO_MAXIMO_DOCUMENTO,
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
@@ -673,6 +675,41 @@ def configurar_firma(
         return FirmaConvenioLeer.model_validate(firma)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/firmas/fisicas",
+    response_model=ProcesoFirmasConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+async def registrar_firmas_fisicas(
+    convenio_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    usuario: PuedeGestionarFirmas,
+    firma_ids: Annotated[list[int], Form()],
+    fecha_firma: Annotated[date, Form()],
+    archivo: Annotated[UploadFile, File()],
+) -> ProcesoFirmasConvenioLeer:
+    contenido = await archivo.read(TAMANO_MAXIMO_DOCUMENTO + 1)
+    try:
+        proceso = ServicioFirmas(db, almacen).registrar_firmas_fisicas(
+            convenio_id=convenio_id,
+            firma_ids=firma_ids,
+            fecha_firma=fecha_firma,
+            nombre_archivo=archivo.filename or "",
+            tipo_mime=archivo.content_type or "application/octet-stream",
+            contenido=contenido,
+            usuario=usuario,
+        )
+        return ProcesoFirmasConvenioLeer.model_validate(proceso)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible almacenar el documento firmado",
+        ) from exc
 
 
 @router.post(

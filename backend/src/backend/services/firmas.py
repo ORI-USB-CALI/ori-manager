@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
+from pathlib import Path
+from secrets import token_hex
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -36,6 +38,7 @@ from backend.services.convenios import (
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
 )
+from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
@@ -65,8 +68,16 @@ class ContextoRevisionFinal:
 
 
 class ServicioFirmas:
-    def __init__(self, db: Session):
+    def __init__(
+        self, db: Session, almacen: AlmacenDocumentos | None = None
+    ) -> None:
         self.db = db
+        self.almacen = almacen
+
+    def _almacen_requerido(self) -> AlmacenDocumentos:
+        if self.almacen is None:
+            raise RuntimeError("Esta operación requiere un almacén documental")
+        return self.almacen
 
     def _convenio(self, convenio_id: int, *, bloquear: bool) -> Convenio:
         consulta = select(Convenio).where(Convenio.id == convenio_id)
@@ -431,7 +442,12 @@ class ServicioFirmas:
             select(ProcesoFirmasConvenio)
             .options(
                 selectinload(ProcesoFirmasConvenio.version_convenio),
-                selectinload(ProcesoFirmasConvenio.firmas),
+                selectinload(ProcesoFirmasConvenio.firmas).selectinload(
+                    FirmaConvenio.invitaciones
+                ),
+                selectinload(ProcesoFirmasConvenio.firmas).joinedload(
+                    FirmaConvenio.documento
+                ),
             )
             .where(
                 ProcesoFirmasConvenio.convenio_id == convenio_id,
@@ -444,11 +460,117 @@ class ServicioFirmas:
             )
         )
         if bloquear:
-            consulta = consulta.with_for_update()
+            consulta = consulta.execution_options(
+                populate_existing=True
+            ).with_for_update()
         proceso = self.db.scalar(consulta)
         if proceso is None:
             raise RevisionNoDisponible("No existe un proceso de firmas activo")
         return proceso
+
+    def registrar_firmas_fisicas(
+        self,
+        convenio_id: int,
+        firma_ids: list[int],
+        fecha_firma: date,
+        nombre_archivo: str,
+        tipo_mime: str,
+        contenido: bytes,
+        usuario: Usuario,
+    ) -> ProcesoFirmasConvenio:
+        if not firma_ids:
+            raise ReferenciaConvenioInvalida(
+                "Debe seleccionar al menos una firma física"
+            )
+        if len(set(firma_ids)) != len(firma_ids):
+            raise ReferenciaConvenioInvalida("No se permiten firmas duplicadas")
+
+        convenio = self._convenio(convenio_id, bloquear=True)
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_APROBACION_FIRMAS
+        ):
+            raise RevisionNoDisponible(
+                "El convenio no está en aprobación de firmas"
+            )
+        proceso = self.obtener_proceso_activo(convenio_id, bloquear=True)
+        if proceso.estado != EstadoProcesoFirmasConvenio.EN_CURSO.value:
+            raise RevisionNoDisponible("El proceso de firmas no está en curso")
+
+        firmas = list(
+            self.db.scalars(
+                select(FirmaConvenio)
+                .where(FirmaConvenio.id.in_(firma_ids))
+                .order_by(FirmaConvenio.orden)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        )
+        if (
+            len(firmas) != len(firma_ids)
+            or any(firma.proceso_firmas_id != proceso.id for firma in firmas)
+        ):
+            raise ReferenciaConvenioInvalida(
+                "Todas las firmas deben pertenecer al proceso activo del convenio"
+            )
+        if any(firma.modalidad != ModalidadFirma.FISICA.value for firma in firmas):
+            raise ReferenciaConvenioInvalida(
+                "Solo pueden registrarse firmas de modalidad física"
+            )
+        if any(
+            firma.estado != EstadoFirmaConvenio.PENDIENTE.value
+            or firma.fecha_firma is not None
+            or firma.documento_id is not None
+            for firma in firmas
+        ):
+            raise RevisionNoDisponible(
+                "Una firma física completada o con evidencia no puede sobrescribirse"
+            )
+
+        nombre_seguro = Path(nombre_archivo.replace("\\", "/")).name.strip()
+        if not nombre_seguro or Path(nombre_seguro).suffix.lower() != ".pdf":
+            raise ReferenciaConvenioInvalida(
+                "La evidencia de firma física debe ser un archivo PDF"
+            )
+        if tipo_mime != "application/pdf":
+            raise ReferenciaConvenioInvalida(
+                "El tipo de contenido de la evidencia debe ser application/pdf"
+            )
+        if not contenido:
+            raise ReferenciaConvenioInvalida("El documento firmado está vacío")
+        if len(contenido) > TAMANO_MAXIMO_DOCUMENTO:
+            raise ReferenciaConvenioInvalida(
+                "El documento firmado supera el límite de 10 MB"
+            )
+
+        clave = f"convenios/{convenio.id}/firmas/{token_hex(20)}.pdf"
+        documento = Documento(
+            solicitud_id=None,
+            convenio_id=convenio.id,
+            tipo="CONVENIO_FIRMADO",
+            nombre_archivo=nombre_seguro[:255],
+            ruta_almacenamiento=clave,
+            tipo_mime=tipo_mime,
+            tamano_bytes=len(contenido),
+            es_vigente=True,
+            cargado_por_id=usuario.id,
+        )
+        almacen = self._almacen_requerido()
+        almacen.guardar(clave, contenido)
+        self.db.add(documento)
+        try:
+            self.db.flush()
+            instante_firma = datetime.combine(fecha_firma, time.min, tzinfo=UTC)
+            for firma in firmas:
+                firma.estado = EstadoFirmaConvenio.FIRMADA.value
+                firma.fecha_firma = instante_firma
+                firma.documento_id = documento.id
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            almacen.eliminar(clave)
+            raise
+        return self.obtener_proceso_activo(convenio_id)
 
     def configurar_firma(
         self,

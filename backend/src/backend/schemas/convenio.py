@@ -488,6 +488,7 @@ class FirmaConvenioLeer(BaseModel):
     estado: EstadoFirmaConvenio
     fecha_firma: datetime | None
     documento_id: int | None
+    documento: DocumentoConvenioLeer | None
     creado_en: datetime
     invitaciones: list[InvitacionFirmaConvenioLeer] = Field(default_factory=list)
 
