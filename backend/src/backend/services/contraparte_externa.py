@@ -96,21 +96,27 @@ def enviar_invitacion_contraparte(
     convenio: Convenio,
 ) -> None:
     enlace = f"{frontend_url.rstrip('/')}/revision-contraparte#token={token_plano}"
-    identificador = convenio.codigo or f"convenio #{convenio.id}"
+    identificador = convenio.codigo or f"#{convenio.id}"
     enviador.enviar(
         MensajeCorreo(
             destinatario=invitacion.correo_destino,
             cc=(invitacion.correo_cc,) if invitacion.correo_cc else (),
-            asunto=f"Revisión de contraparte - {identificador}",
+            asunto=(
+                "Revisión de contraparte - elaboración de convenio "
+                f"{identificador}"
+            ),
             texto=(
-                f"La ORI de la Universidad Santiago de Cali solicita revisar el "
-                f"{identificador}. Acceda mediante este enlace: {enlace}\n"
+                "La ORI de la Universidad Santiago de Cali solicita revisar la "
+                f"elaboración de convenio {identificador}. "
+                f"Acceda mediante este enlace: {enlace}\n"
                 "El enlace vence en 1 hora."
             ),
             html=(
-                "<h1>Revisión de convenio</h1>"
-                f"<p>La ORI solicita revisar el {escape(identificador)}.</p>"
-                f'<p><a href="{escape(enlace)}">Revisar convenio</a></p>'
+                "<h1>Revisión de elaboración de convenio</h1>"
+                "<p>La ORI solicita revisar la elaboración de convenio "
+                f"{escape(identificador)}.</p>"
+                f'<p><a href="{escape(enlace)}">'
+                "Revisar elaboración de convenio</a></p>"
                 "<p>El enlace vence en 1 hora.</p>"
             ),
         )

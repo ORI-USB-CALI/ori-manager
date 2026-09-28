@@ -326,7 +326,22 @@ def test_envio_externo_guarda_to_cc_hash_expiracion_y_version(
     assert antes + timedelta(minutes=59) <= invitacion.expira_en
     assert invitacion.expira_en <= antes + timedelta(minutes=61)
     assert invitacion.enviado_en is not None
-    assert f"{FRONTEND_URL}/revision-contraparte#token=" in correo_local.mensajes[-1].texto
+    mensaje = correo_local.mensajes[-1]
+    identificador = f"#{convenio_listo.id}"
+    assert mensaje.asunto == (
+        f"Revisión de contraparte - elaboración de convenio {identificador}"
+    )
+    assert (
+        "La ORI de la Universidad Santiago de Cali solicita revisar la elaboración "
+        f"de convenio {identificador}."
+    ) in mensaje.texto
+    assert "<h1>Revisión de elaboración de convenio</h1>" in mensaje.html
+    assert (
+        f"<p>La ORI solicita revisar la elaboración de convenio {identificador}.</p>"
+        in mensaje.html
+    )
+    assert ">Revisar elaboración de convenio</a>" in mensaje.html
+    assert f"{FRONTEND_URL}/revision-contraparte#token=" in mensaje.texto
 
 
 def test_envio_deduplica_to_cc_case_insensitive(
