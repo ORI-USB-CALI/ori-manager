@@ -106,7 +106,7 @@ def enviar_invitacion_contraparte(
                 f"{identificador}"
             ),
             texto=(
-                "La ORI de la Universidad Santiago de Cali solicita revisar la "
+                "La ORI de la Universidad de San Buenaventura Cali solicita revisar la "
                 f"elaboración de convenio {identificador}. "
                 f"Acceda mediante este enlace: {enlace}\n"
                 "El enlace vence en 1 hora."

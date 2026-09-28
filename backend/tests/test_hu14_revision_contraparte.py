@@ -332,7 +332,7 @@ def test_envio_externo_guarda_to_cc_hash_expiracion_y_version(
         f"Revisión de contraparte - elaboración de convenio {identificador}"
     )
     assert (
-        "La ORI de la Universidad Santiago de Cali solicita revisar la elaboración "
+        "La ORI de la Universidad de San Buenaventura Cali solicita revisar la elaboración "
         f"de convenio {identificador}."
     ) in mensaje.texto
     assert "<h1>Revisión de elaboración de convenio</h1>" in mensaje.html
