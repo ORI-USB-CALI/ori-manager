@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     SmallInteger,
     String,
     UniqueConstraint,
@@ -60,6 +61,11 @@ class FirmaConvenio(Base):
             "modalidad <> 'ELECTRONICA' OR correo_firmante IS NOT NULL",
             name="ck_firma_convenio_electronica_correo",
         ),
+        CheckConstraint(
+            "(firma_png IS NULL AND firma_sha256 IS NULL) OR "
+            "(firma_png IS NOT NULL AND firma_sha256 IS NOT NULL)",
+            name="ck_firma_convenio_evidencia_electronica_completa",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -90,6 +96,8 @@ class FirmaConvenio(Base):
     documento_id: Mapped[int | None] = mapped_column(
         ForeignKey("documento.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    firma_png: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    firma_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

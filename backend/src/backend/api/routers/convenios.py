@@ -33,6 +33,7 @@ from backend.schemas.convenio import (
     FirmaConvenioLeer,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
+    InvitacionFirmaConvenioLeer,
     ObservacionRevisionLeer,
     ProcesoFirmasConvenioLeer,
     RevisionContenidoGuardar,
@@ -68,6 +69,10 @@ from backend.services.documentos import (
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
+)
+from backend.services.firma_electronica import (
+    EntregaInvitacionesFirmaError,
+    ServicioFirmaElectronica,
 )
 from backend.services.firmas import ServicioFirmas
 
@@ -683,3 +688,73 @@ def iniciar_firmas(
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/firmas",
+    response_model=ProcesoFirmasConvenioLeer,
+)
+def obtener_firmas(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarFirmas
+) -> ProcesoFirmasConvenioLeer:
+    try:
+        proceso = ServicioFirmaElectronica(db).obtener_seguimiento(convenio_id)
+        return ProcesoFirmasConvenioLeer.model_validate(proceso)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/firmas/enviar",
+    response_model=ProcesoFirmasConvenioLeer,
+)
+def enviar_invitaciones_firma(
+    convenio_id: int,
+    db: DatabaseSession,
+    correo: Correo,
+    usuario: PuedeGestionarFirmas,
+) -> ProcesoFirmasConvenioLeer:
+    try:
+        proceso = ServicioFirmaElectronica(
+            db,
+            enviador=correo,
+            frontend_url=settings.public_frontend_url,
+        ).enviar_invitaciones(convenio_id, usuario)
+        return ProcesoFirmasConvenioLeer.model_validate(proceso)
+    except EntregaInvitacionesFirmaError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Las invitaciones fueron creadas, pero hubo fallos de entrega",
+                "firmas_fallidas": exc.firmas_fallidas,
+            },
+        ) from exc
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/firmas/{firma_id}/reenviar",
+    response_model=InvitacionFirmaConvenioLeer,
+)
+def reenviar_invitacion_firma(
+    convenio_id: int,
+    firma_id: int,
+    db: DatabaseSession,
+    correo: Correo,
+    usuario: PuedeGestionarFirmas,
+) -> InvitacionFirmaConvenioLeer:
+    try:
+        invitacion = ServicioFirmaElectronica(
+            db,
+            enviador=correo,
+            frontend_url=settings.public_frontend_url,
+        ).reenviar(convenio_id, firma_id, usuario)
+        return InvitacionFirmaConvenioLeer.model_validate(invitacion)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "La invitación fue creada, pero no fue posible entregar el correo",
+        ) from exc

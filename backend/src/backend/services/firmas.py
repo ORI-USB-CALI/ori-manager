@@ -429,7 +429,10 @@ class ServicioFirmas:
     ) -> ProcesoFirmasConvenio:
         consulta = (
             select(ProcesoFirmasConvenio)
-            .options(selectinload(ProcesoFirmasConvenio.firmas))
+            .options(
+                selectinload(ProcesoFirmasConvenio.version_convenio),
+                selectinload(ProcesoFirmasConvenio.firmas),
+            )
             .where(
                 ProcesoFirmasConvenio.convenio_id == convenio_id,
                 ProcesoFirmasConvenio.estado.in_(

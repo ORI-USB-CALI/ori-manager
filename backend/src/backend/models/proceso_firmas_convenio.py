@@ -91,3 +91,7 @@ class ProcesoFirmasConvenio(Base):
         cascade="all, delete-orphan",
         order_by="FirmaConvenio.orden",
     )
+
+    @property
+    def version_numero(self) -> int:
+        return self.version_convenio.numero

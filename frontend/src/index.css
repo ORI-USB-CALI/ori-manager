@@ -918,6 +918,43 @@ a:hover {
   margin-top: 0;
 }
 
+.seguimiento-firmas {
+  display: grid;
+  gap: 20px;
+}
+
+.firmas-lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.firma-seguimiento {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.firma-seguimiento-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.firma-configuracion {
+  display: grid;
+  gap: 10px;
+}
+
+.firma-configuracion .form-group {
+  margin: 0;
+}
+
 .devolucion-observaciones {
   display: grid;
   gap: 12px;

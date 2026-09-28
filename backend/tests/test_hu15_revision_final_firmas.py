@@ -1,5 +1,9 @@
+import base64
+import struct
+import zlib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from threading import Barrier
 from uuid import uuid4
 
@@ -10,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import hash_contrasena
+from backend.main import app
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     ContextoVersionConvenio,
@@ -18,6 +23,7 @@ from backend.models.enums import (
     EstadoProcesoFirmasConvenio,
     EstadoRevisionConvenio,
     EstadoSolicitud,
+    ModalidadFirma,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
     RolFirmanteConvenio,
@@ -36,6 +42,12 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.services.convenios import RevisionNoDisponible
+from backend.services.correo import CorreoLocal, ErrorEnvioCorreo, get_enviador_correo
+from backend.services.firma_electronica import (
+    EnlaceFirmaConvenioError,
+    ServicioFirmaElectronica,
+)
+from backend.services.firma_png import MAX_FIRMA_PNG_BYTES
 from backend.services.firmas import ServicioFirmas
 
 ROLES_ESPERADOS = [
@@ -47,6 +59,33 @@ ROLES_ESPERADOS = [
     "RECTOR",
     "PARTE_SOLICITANTE",
 ]
+FRONTEND_URL = "https://ori.example.com"
+
+
+def _chunk_png(tipo: bytes, datos: bytes) -> bytes:
+    crc = zlib.crc32(tipo)
+    crc = zlib.crc32(datos, crc) & 0xFFFFFFFF
+    return struct.pack(">I", len(datos)) + tipo + datos + struct.pack(">I", crc)
+
+
+def _firma_png() -> str:
+    ihdr = struct.pack(">IIBBBBB", 2, 1, 8, 6, 0, 0, 0)
+    filas = b"\x00" + b"\x00\x00\x00\xff" * 2
+    contenido = (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk_png(b"IHDR", ihdr)
+        + _chunk_png(b"IDAT", zlib.compress(filas))
+        + _chunk_png(b"IEND", b"")
+    )
+    return "data:image/png;base64," + base64.b64encode(contenido).decode()
+
+
+FIRMA_PNG = _firma_png()
+
+
+def _token_mensaje(mensaje) -> str:
+    marcador = "/firma-convenio#token="
+    return mensaje.texto.split(marcador, 1)[1].splitlines()[0]
 
 
 def _crear_escenario_concurrente(db_engine) -> dict[str, object]:
@@ -688,7 +727,10 @@ def test_no_modifica_firmante_despues_de_iniciar(client, escenario_final):
         ("GET", "/revision-final"),
         ("POST", "/revision-final/aprobar"),
         ("POST", "/revision-final/devolver"),
+        ("GET", "/firmas"),
+        ("POST", "/firmas/enviar"),
         ("POST", "/firmas/iniciar"),
+        ("POST", "/firmas/1/reenviar"),
     ],
 )
 def test_revisor_ori_no_puede_gestionar_revision_final_ni_firmas(
@@ -718,3 +760,418 @@ def test_todas_las_firmas_dependen_del_proceso_y_no_del_convenio():
     assert "convenio_id" not in columnas
     assert EstadoFirmaConvenio.PENDIENTE.value == "PENDIENTE"
     assert set(ROLES_ESPERADOS) == {rol.value for rol in RolFirmanteConvenio}
+
+
+def _iniciar_con_invitaciones(
+    client, correo_local, escenario_final, electronicas: int = 2
+):
+    proceso = _aprobar(client, escenario_final).json()
+    for indice, firma in enumerate(proceso["firmas"]):
+        modalidad = "ELECTRONICA" if indice < electronicas else "FISICA"
+        respuesta = _configurar(
+            client,
+            escenario_final["convenio"].id,
+            firma["id"],
+            modalidad=modalidad,
+        )
+        assert respuesta.status_code == 200
+    inicio = client.post(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/iniciar"
+    )
+    assert inicio.status_code == 200
+    envio = client.post(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/enviar"
+    )
+    assert envio.status_code == 200
+    assert len(correo_local.mensajes) == electronicas
+    tokens = [_token_mensaje(mensaje) for mensaje in correo_local.mensajes]
+    return envio.json(), tokens
+
+
+def test_envio_crea_invitaciones_independientes_solo_para_electronicas(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final
+    )
+
+    assert len(tokens) == 2
+    assert tokens[0] != tokens[1]
+    assert all("#token=" in mensaje.texto for mensaje in correo_local.mensajes)
+    assert all(not mensaje.cc for mensaje in correo_local.mensajes)
+    assert all(
+        "firma electrónica" in mensaje.texto.lower()
+        and "elaboración de convenio" in mensaje.texto.lower()
+        for mensaje in correo_local.mensajes
+    )
+    assert all(len(firma["invitaciones"]) == 1 for firma in proceso["firmas"][:2])
+    assert all(not firma["invitaciones"] for firma in proceso["firmas"][2:])
+    hashes = list(db.scalars(select(InvitacionFirmaConvenio.token_hash)))
+    assert sha256(tokens[0].encode()).hexdigest() in hashes
+    assert tokens[0] not in hashes
+
+
+def test_envio_reporta_firmas_con_fallo_de_entrega(
+    client, db, escenario_final
+):
+    proceso = _aprobar(client, escenario_final).json()
+    for indice, firma in enumerate(proceso["firmas"]):
+        modalidad = "ELECTRONICA" if indice == 0 else "FISICA"
+        assert _configurar(
+            client,
+            escenario_final["convenio"].id,
+            firma["id"],
+            modalidad=modalidad,
+        ).status_code == 200
+    assert client.post(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/iniciar"
+    ).status_code == 200
+
+    class CorreoFallido:
+        def enviar(self, mensaje) -> None:
+            raise ErrorEnvioCorreo("fallo controlado")
+
+    app.dependency_overrides[get_enviador_correo] = CorreoFallido
+    respuesta = client.post(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/enviar"
+    )
+
+    assert respuesta.status_code == 502
+    assert respuesta.json()["detail"]["firmas_fallidas"] == [
+        proceso["firmas"][0]["id"]
+    ]
+    invitacion = db.scalar(
+        select(InvitacionFirmaConvenio).where(
+            InvitacionFirmaConvenio.firma_convenio_id
+            == proceso["firmas"][0]["id"]
+        )
+    )
+    assert invitacion is not None and invitacion.enviado_en is None
+
+
+def test_acceso_valido_no_consume_y_no_expone_token_ni_hash(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    respuesta = client.post(
+        "/api/public/firma-convenio/acceso", json={"token": tokens[0]}
+    )
+
+    assert respuesta.status_code == 200
+    datos = respuesta.json()
+    assert datos["nombre_firmante"] == proceso["firmas"][0]["nombre_firmante"]
+    assert datos["contenido"] == escenario_final["version"].contenido
+    assert "token" not in respuesta.text.lower()
+    assert "hash" not in respuesta.text.lower()
+    invitacion = db.scalar(
+        select(InvitacionFirmaConvenio).where(
+            InvitacionFirmaConvenio.token_hash
+            == sha256(tokens[0].encode()).hexdigest()
+        )
+    )
+    assert invitacion is not None and invitacion.utilizado_en is None
+
+
+def test_token_invalido_es_rechazado(client):
+    respuesta = client.post(
+        "/api/public/firma-convenio/acceso", json={"token": "x" * 48}
+    )
+    assert respuesta.status_code == 400
+    assert respuesta.json()["detail"]["codigo"] == "ENLACE_INVALIDO"
+
+
+@pytest.mark.parametrize(
+    ("cambio", "codigo"),
+    [
+        ("expirada", "ENLACE_EXPIRADO"),
+        ("revocada", "ENLACE_NO_DISPONIBLE"),
+        ("utilizada", "FIRMA_YA_REGISTRADA"),
+    ],
+)
+def test_estados_no_disponibles_del_token(
+    client, db, correo_local, escenario_final, cambio, codigo
+):
+    _, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    invitacion = db.scalar(
+        select(InvitacionFirmaConvenio).where(
+            InvitacionFirmaConvenio.token_hash
+            == sha256(tokens[0].encode()).hexdigest()
+        )
+    )
+    assert invitacion is not None
+    if cambio == "expirada":
+        invitacion.expira_en = datetime.now(UTC) - timedelta(seconds=1)
+    elif cambio == "revocada":
+        invitacion.revocado_en = datetime.now(UTC)
+    else:
+        invitacion.utilizado_en = datetime.now(UTC)
+    db.commit()
+
+    respuesta = client.post(
+        "/api/public/firma-convenio/acceso", json={"token": tokens[0]}
+    )
+    assert respuesta.status_code == 400
+    assert respuesta.json()["detail"]["codigo"] == codigo
+
+
+def test_firmar_consumo_atomico_guarda_evidencia_y_rechaza_replay(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    ruta = "/api/public/firma-convenio/firmar"
+    respuesta = client.post(
+        ruta,
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": True},
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "FIRMADA"
+    db.expire_all()
+    firma = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    assert firma is not None
+    assert firma.estado == EstadoFirmaConvenio.FIRMADA.value
+    assert firma.fecha_firma is not None
+    assert firma.firma_png is not None
+    assert firma.firma_sha256 == sha256(firma.firma_png).hexdigest()
+    assert db.get(ProcesoFirmasConvenio, proceso["id"]).estado == "EN_CURSO"
+    assert escenario_final["convenio"].estado == EstadoConvenio.EN_TRAMITE.value
+
+    replay = client.post(
+        ruta,
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": True},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"]["codigo"] == "FIRMA_YA_REGISTRADA"
+
+
+def test_firmar_valida_confirmacion_png_y_tamano(
+    client, correo_local, escenario_final
+):
+    _, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    ruta = "/api/public/firma-convenio/firmar"
+    assert client.post(
+        ruta,
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": False},
+    ).status_code == 422
+    assert client.post(
+        ruta,
+        json={"token": tokens[0], "firma": "data:image/png;base64,%%%", "confirmacion": True},
+    ).status_code == 422
+    grande = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\n" + b"x" * MAX_FIRMA_PNG_BYTES
+    ).decode()
+    assert client.post(
+        ruta,
+        json={"token": tokens[0], "firma": grande, "confirmacion": True},
+    ).status_code == 422
+
+
+def test_reenvio_revoca_token_anterior_sin_crear_otra_firma(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    firma_id = proceso["firmas"][0]["id"]
+    conteo_antes = db.scalar(select(func.count()).select_from(FirmaConvenio))
+    respuesta = client.post(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/{firma_id}/reenviar"
+    )
+    assert respuesta.status_code == 200
+    token_nuevo = _token_mensaje(correo_local.mensajes[-1])
+    assert token_nuevo != tokens[0]
+    assert client.post(
+        "/api/public/firma-convenio/acceso", json={"token": tokens[0]}
+    ).json()["detail"]["codigo"] == "ENLACE_NO_DISPONIBLE"
+    assert client.post(
+        "/api/public/firma-convenio/acceso", json={"token": token_nuevo}
+    ).status_code == 200
+    assert db.scalar(select(func.count()).select_from(FirmaConvenio)) == conteo_antes
+
+
+def test_tokens_independientes_firmar_una_no_afecta_otra(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=2
+    )
+    respuesta = client.post(
+        "/api/public/firma-convenio/firmar",
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": True},
+    )
+    assert respuesta.status_code == 200
+    db.expire_all()
+    primera = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    segunda = db.get(FirmaConvenio, proceso["firmas"][1]["id"])
+    assert primera.estado == "FIRMADA"
+    assert segunda.estado == "PENDIENTE"
+    assert segunda.fecha_firma is None and segunda.firma_png is None
+    assert client.post(
+        "/api/public/firma-convenio/acceso", json={"token": tokens[1]}
+    ).status_code == 200
+
+
+def test_proceso_detenido_y_firma_fisica_bloquean_firma_electronica(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    entidad = db.get(ProcesoFirmasConvenio, proceso["id"])
+    entidad.estado = EstadoProcesoFirmasConvenio.CONFIGURACION.value
+    db.commit()
+    respuesta = client.post(
+        "/api/public/firma-convenio/firmar",
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": True},
+    )
+    assert respuesta.status_code == 400
+    assert respuesta.json()["detail"]["codigo"] == "ENLACE_NO_DISPONIBLE"
+
+    entidad.estado = EstadoProcesoFirmasConvenio.EN_CURSO.value
+    firma = db.get(FirmaConvenio, proceso["firmas"][0]["id"])
+    firma.modalidad = ModalidadFirma.FISICA.value
+    db.commit()
+    respuesta = client.post(
+        "/api/public/firma-convenio/firmar",
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": True},
+    )
+    assert respuesta.status_code == 400
+    assert respuesta.json()["detail"]["codigo"] == "ENLACE_NO_DISPONIBLE"
+
+
+def _crear_invitacion_concurrente(db_engine):
+    escenario = _crear_escenario_concurrente(db_engine)
+    fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
+    correo = CorreoLocal()
+    with fabrica() as sesion:
+        gestor = sesion.get(Usuario, int(escenario["gestor_id"]))
+        proceso = ServicioFirmas(sesion).aprobar_revision_final(
+            int(escenario["convenio_id"]),
+            int(escenario["version_numero"]),
+            gestor,
+        )
+        for indice, firma in enumerate(proceso.firmas):
+            modalidad = (
+                ModalidadFirma.ELECTRONICA
+                if indice == 0
+                else ModalidadFirma.FISICA
+            )
+            ServicioFirmas(sesion).configurar_firma(
+                int(escenario["convenio_id"]),
+                firma.id,
+                f"Firmante {firma.id}",
+                "Cargo institucional",
+                "firma@example.com" if indice == 0 else None,
+                modalidad,
+            )
+        ServicioFirmas(sesion).iniciar(int(escenario["convenio_id"]))
+        proceso = ServicioFirmaElectronica(
+            sesion, correo, FRONTEND_URL
+        ).enviar_invitaciones(int(escenario["convenio_id"]), gestor)
+        escenario["firma_id"] = proceso.firmas[0].id
+    escenario["token"] = _token_mensaje(correo.mensajes[0])
+    return escenario
+
+
+def test_firmas_concurrentes_solo_registran_una_evidencia(db_engine):
+    escenario = _crear_invitacion_concurrente(db_engine)
+    fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
+    barrera = Barrier(2)
+
+    def firmar() -> str:
+        with fabrica() as sesion:
+            barrera.wait(timeout=10)
+            try:
+                ServicioFirmaElectronica(sesion).firmar(
+                    str(escenario["token"]), FIRMA_PNG, True
+                )
+                return "FIRMADA"
+            except EnlaceFirmaConvenioError as exc:
+                return exc.codigo
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ejecutor:
+            resultados = list(ejecutor.map(lambda _: firmar(), range(2)))
+        assert sorted(resultados) == ["FIRMADA", "FIRMA_YA_REGISTRADA"]
+        with fabrica() as verificacion:
+            firma = verificacion.get(FirmaConvenio, int(escenario["firma_id"]))
+            assert firma.estado == "FIRMADA"
+            assert firma.firma_png is not None and firma.firma_sha256 is not None
+            assert verificacion.scalar(
+                select(func.count())
+                .select_from(InvitacionFirmaConvenio)
+                .where(
+                    InvitacionFirmaConvenio.firma_convenio_id == firma.id,
+                    InvitacionFirmaConvenio.utilizado_en.is_not(None),
+                )
+            ) == 1
+    finally:
+        _limpiar_escenario_concurrente(db_engine, escenario)
+
+
+def test_firmar_vs_reenviar_concurrente_deja_un_resultado_coherente(db_engine):
+    escenario = _crear_invitacion_concurrente(db_engine)
+    fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
+    barrera = Barrier(2)
+
+    def firmar() -> str:
+        with fabrica() as sesion:
+            barrera.wait(timeout=10)
+            try:
+                ServicioFirmaElectronica(sesion).firmar(
+                    str(escenario["token"]), FIRMA_PNG, True
+                )
+                return "FIRMADA"
+            except EnlaceFirmaConvenioError:
+                return "RECHAZADA"
+
+    def reenviar() -> str:
+        with fabrica() as sesion:
+            gestor = sesion.get(Usuario, int(escenario["gestor_id"]))
+            barrera.wait(timeout=10)
+            try:
+                ServicioFirmaElectronica(
+                    sesion, CorreoLocal(), FRONTEND_URL
+                ).reenviar(
+                    int(escenario["convenio_id"]),
+                    int(escenario["firma_id"]),
+                    gestor,
+                )
+                return "REENVIADA"
+            except RevisionNoDisponible:
+                return "RECHAZADA"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ejecutor:
+            futuro_firma = ejecutor.submit(firmar)
+            futuro_reenvio = ejecutor.submit(reenviar)
+            resultados = {futuro_firma.result(), futuro_reenvio.result()}
+        assert resultados in (
+            {"FIRMADA", "RECHAZADA"},
+            {"REENVIADA", "RECHAZADA"},
+        )
+        with fabrica() as verificacion:
+            firma = verificacion.get(FirmaConvenio, int(escenario["firma_id"]))
+            activas = verificacion.scalar(
+                select(func.count())
+                .select_from(InvitacionFirmaConvenio)
+                .where(
+                    InvitacionFirmaConvenio.firma_convenio_id == firma.id,
+                    InvitacionFirmaConvenio.utilizado_en.is_(None),
+                    InvitacionFirmaConvenio.revocado_en.is_(None),
+                )
+            )
+            if firma.estado == "FIRMADA":
+                assert activas == 0
+            else:
+                assert firma.estado == "PENDIENTE" and activas == 1
+    finally:
+        _limpiar_escenario_concurrente(db_engine, escenario)

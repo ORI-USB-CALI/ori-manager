@@ -1,8 +1,4 @@
-import base64
-import binascii
 import secrets
-import struct
-import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -32,13 +28,15 @@ from backend.models.respuesta_revision_contraparte import (
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.services.correo import EnviadorCorreo, MensajeCorreo
+from backend.services.firma_png import (
+    MAX_FIRMA_PNG_BYTES,
+    FirmaPngInvalida,
+    decodificar_firma_png,
+)
+
+__all__ = ["MAX_FIRMA_PNG_BYTES", "ServicioContraparteExterna"]
 
 VIGENCIA_INVITACION_CONTRAPARTE = timedelta(hours=1)
-MAX_FIRMA_PNG_BYTES = 1024 * 1024
-MAX_FIRMA_PNG_ANCHO = 8192
-MAX_FIRMA_PNG_ALTO = 4096
-MAX_FIRMA_PNG_PIXELES = 16_000_000
-PREFIJO_FIRMA_PNG = "data:image/png;base64,"
 CODIGO_ETAPA_REVISION_CONTRAPARTE = "REVISION_CONTRAPARTE"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
@@ -206,90 +204,10 @@ class ServicioContraparteExterna:
 
     @staticmethod
     def decodificar_firma(firma: str) -> tuple[bytes, str]:
-        if not firma.startswith(PREFIJO_FIRMA_PNG):
-            raise DecisionContraparteInvalida(
-                "La firma debe ser una imagen PNG válida"
-            )
         try:
-            contenido = base64.b64decode(
-                firma.removeprefix(PREFIJO_FIRMA_PNG), validate=True
-            )
-        except (binascii.Error, ValueError) as exc:
-            raise DecisionContraparteInvalida(
-                "La firma debe ser una imagen PNG válida"
-            ) from exc
-        if len(contenido) > MAX_FIRMA_PNG_BYTES:
-            raise DecisionContraparteInvalida(
-                "La firma PNG está vacía, es inválida o supera el tamaño permitido"
-            )
-        ServicioContraparteExterna._validar_estructura_png(contenido)
-        return contenido, sha256(contenido).hexdigest()
-
-    @staticmethod
-    def _validar_estructura_png(contenido: bytes) -> None:
-        firma_png = b"\x89PNG\r\n\x1a\n"
-        if not contenido.startswith(firma_png):
-            raise DecisionContraparteInvalida("La firma debe ser una imagen PNG válida")
-
-        posicion = len(firma_png)
-        indice = 0
-        tiene_idat = False
-        tiene_iend = False
-        while posicion < len(contenido):
-            if len(contenido) - posicion < 12:
-                raise DecisionContraparteInvalida("La firma PNG está truncada")
-            longitud = struct.unpack(">I", contenido[posicion : posicion + 4])[0]
-            tipo = contenido[posicion + 4 : posicion + 8]
-            inicio_datos = posicion + 8
-            fin_datos = inicio_datos + longitud
-            fin_chunk = fin_datos + 4
-            if fin_chunk > len(contenido):
-                raise DecisionContraparteInvalida("La firma PNG está truncada")
-            datos = contenido[inicio_datos:fin_datos]
-            crc_esperado = struct.unpack(">I", contenido[fin_datos:fin_chunk])[0]
-            crc_real = zlib.crc32(tipo)
-            crc_real = zlib.crc32(datos, crc_real) & 0xFFFFFFFF
-            if crc_real != crc_esperado:
-                raise DecisionContraparteInvalida("La firma PNG tiene un CRC inválido")
-
-            if indice == 0:
-                if tipo != b"IHDR" or longitud != 13:
-                    raise DecisionContraparteInvalida(
-                        "La firma PNG no contiene un IHDR válido"
-                    )
-                ancho, alto = struct.unpack(">II", datos[:8])
-                if (
-                    ancho == 0
-                    or alto == 0
-                    or ancho > MAX_FIRMA_PNG_ANCHO
-                    or alto > MAX_FIRMA_PNG_ALTO
-                    or ancho * alto > MAX_FIRMA_PNG_PIXELES
-                ):
-                    raise DecisionContraparteInvalida(
-                        "Las dimensiones de la firma PNG no son válidas"
-                    )
-            elif tipo == b"IHDR":
-                raise DecisionContraparteInvalida(
-                    "La firma PNG contiene más de un IHDR"
-                )
-
-            if tipo == b"IDAT":
-                tiene_idat = True
-            if tipo == b"IEND":
-                if longitud != 0 or fin_chunk != len(contenido):
-                    raise DecisionContraparteInvalida(
-                        "La firma PNG no termina correctamente"
-                    )
-                tiene_iend = True
-                posicion = fin_chunk
-                break
-            posicion = fin_chunk
-            indice += 1
-
-        if not tiene_idat or not tiene_iend or posicion != len(contenido):
-            raise DecisionContraparteInvalida(
-                "La firma PNG no contiene su estructura completa"
-            )
+            return decodificar_firma_png(firma)
+        except FirmaPngInvalida as exc:
+            raise DecisionContraparteInvalida(str(exc)) from exc
 
     def _revocar_otras(
         self, revision_id: int, invitacion_id: int, ahora: datetime

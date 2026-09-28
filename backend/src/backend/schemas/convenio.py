@@ -446,6 +446,32 @@ class AtenderObservacion(BaseModel):
         return normalizada
 
 
+class InvitacionFirmaConvenioLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    firma_convenio_id: int
+    generada_por_id: int
+    expira_en: datetime
+    enviado_en: datetime | None
+    utilizado_en: datetime | None
+    revocado_en: datetime | None
+    creado_en: datetime
+
+    @computed_field
+    @property
+    def estado(self) -> str:
+        if self.utilizado_en is not None:
+            return "UTILIZADA"
+        if self.revocado_en is not None:
+            return "REVOCADA"
+        if self.expira_en <= datetime.now(self.expira_en.tzinfo):
+            return "EXPIRADA"
+        if self.enviado_en is None:
+            return "ENTREGA_FALLIDA"
+        return "PENDIENTE"
+
+
 class FirmaConvenioLeer(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -463,6 +489,7 @@ class FirmaConvenioLeer(BaseModel):
     fecha_firma: datetime | None
     documento_id: int | None
     creado_en: datetime
+    invitaciones: list[InvitacionFirmaConvenioLeer] = Field(default_factory=list)
 
     @computed_field
     @property
@@ -479,6 +506,7 @@ class ProcesoFirmasConvenioLeer(BaseModel):
     id: int
     convenio_id: int
     version_convenio_id: int
+    version_numero: int
     revision_final_id: int
     creado_por_id: int
     estado: EstadoProcesoFirmasConvenio

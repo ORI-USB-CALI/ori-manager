@@ -7,6 +7,7 @@ import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import {
   type Convenio,
   type ElaboracionConvenio,
@@ -320,6 +321,8 @@ export function ConvenioDetallePage() {
           </div>
         </section>
       )}
+
+      {puede('convenios.gestionar_firmas') && <SeguimientoFirmasConvenio convenioId={id} />}
 
       {puede('convenios.revisar') && consultaRevision.isPending && <p className="estado-pagina">Cargando revisión jurídica…</p>}
       {puede('convenios.revisar') && consultaRevision.data && revision && contenido ? (
