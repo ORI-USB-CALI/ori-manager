@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.documento import Documento
 from backend.models.revision_convenio import RevisionConvenio
 from backend.services.documentos import AlmacenDocumentosLocal
@@ -19,7 +20,7 @@ def test_usuario_sin_permiso_no_puede_acceder_a_la_revision(
 
 
 def test_bandeja_juridica_refleja_solo_revisiones_pendientes(
-    client, db, gestor, revisor, entrar_como, convenio_listo
+    client, db, gestor, revisor, entrar_como, convenio_listo, crear_usuario
 ) -> None:
     entrar_como(gestor)
     assert client.post(
@@ -50,6 +51,11 @@ def test_bandeja_juridica_refleja_solo_revisiones_pendientes(
         json={"expected_version": convenio_listo.version_actual},
     ).status_code == 200
     pendientes = client.get("/api/convenios/revisiones-juridicas/pendientes").json()
+    assert convenio_listo.id not in {item["convenio_id"] for item in pendientes}
+
+    otro_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(otro_revisor)
+    pendientes = client.get("/api/convenios/revisiones-juridicas/pendientes").json()
     segunda = next(item for item in pendientes if item["convenio_id"] == convenio_listo.id)
     assert segunda["instancia_juridica"] == 2
     assert segunda["numero_ronda"] == 1
@@ -60,11 +66,11 @@ def test_convenio_inexistente_devuelve_404(client, revisor, entrar_como) -> None
     assert client.get("/api/convenios/999999999/revision").status_code == 404
 
 
-def test_convenio_que_no_esta_en_revision_juridica_devuelve_409(
+def test_convenio_fuera_del_scope_juridico_no_revela_informacion(
     client, revisor, entrar_como, convenio_listo
 ) -> None:
     entrar_como(revisor)
-    assert client.get(f"/api/convenios/{convenio_listo.id}/revision").status_code == 409
+    assert client.get(f"/api/convenios/{convenio_listo.id}/revision").status_code == 404
 
 
 def test_revisor_consulta_revision_y_documento_de_solicitud(

@@ -22,6 +22,7 @@ import { RestablecerContrasenaPage } from '../pages/RestablecerContrasenaPage'
 import { VerificarCorreoPage } from '../pages/VerificarCorreoPage'
 import { UsuariosRolesPage } from '../pages/UsuariosRolesPage'
 import { SolicitudPage } from '../pages/SolicitudPage'
+import { TableroConveniosPage } from '../pages/TableroConveniosPage'
 import { AppLayout } from './AppLayout'
 
 export const router = createBrowserRouter([
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
         { path: '/ori/solicitudes/:solicitudId', element: <SolicitudRecibidaPage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
+        { path: '/convenios/tablero', element: <TableroConveniosPage /> },
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
         { path: '/convenios/:convenioId/historial', element: <ConvenioHistorialPage /> },
