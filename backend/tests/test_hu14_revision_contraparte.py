@@ -493,6 +493,63 @@ def test_envio_rechaza_correo_ausente_version_y_doble_aval_invalidos(
         )
 
 
+def test_envio_rechaza_avales_juridicos_sobre_versiones_distintas(
+    db,
+    correo_local,
+    gestor,
+    solicitante,
+    revisor,
+    crear_usuario,
+    convenio_listo,
+) -> None:
+    version_v1 = _habilitar_contraparte(
+        db, convenio_listo, gestor, solicitante, revisor, crear_usuario
+    )
+    primera = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.instancia_juridica == 1,
+        )
+    )
+    segunda = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.instancia_juridica == 2,
+        )
+    )
+    version_v2 = VersionConvenio(
+        convenio_id=convenio_listo.id,
+        numero=version_v1.numero + 1,
+        contenido=_contenido_corregido(version_v1.contenido),
+        snapshot_metadata=deepcopy(version_v1.snapshot_metadata),
+        autor_id=segunda.resuelta_por_id,
+        etapa_id=convenio_listo.etapa_actual_id,
+        contexto=ContextoVersionConvenio.CORRECCION_REVISION.value,
+        plantilla_id=version_v1.plantilla_id,
+    )
+    db.add(version_v2)
+    db.flush()
+    convenio_listo.version_actual = version_v2.numero
+    segunda.version_resultado_id = version_v2.id
+    db.commit()
+
+    with pytest.raises(RevisionNoDisponible, match="dos aprobaciones"):
+        _servicio(db, correo_local).enviar_a_contraparte(
+            convenio_listo.id, version_v2.numero, gestor
+        )
+
+    db.refresh(primera)
+    db.refresh(segunda)
+    assert primera.version_resultado_id == version_v1.id
+    assert segunda.version_resultado_id == version_v2.id
+    assert not db.scalars(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.tipo == "CONTRAPARTE",
+        )
+    ).all()
+
+
 def test_acceso_publico_es_minimo_y_no_consume_token(
     client,
     db,
