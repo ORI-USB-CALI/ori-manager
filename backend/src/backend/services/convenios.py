@@ -471,7 +471,49 @@ class ServicioConvenios:
         return convenio
 
     @staticmethod
-    def _filtro_alcance_operativo(usuario: Usuario):
+    def _filtro_revision_juridica_elegible(
+        usuario: Usuario, revision
+    ):
+        """Elegibilidad jurídica canónica para una revisión y un actor."""
+        primera = aliased(RevisionConvenio)
+        ultima = aliased(RevisionConvenio)
+        ultima_ronda = (
+            select(func.max(ultima.numero_ronda))
+            .where(
+                ultima.convenio_id == revision.convenio_id,
+                ultima.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+            .correlate(revision)
+            .scalar_subquery()
+        )
+        primera_aprobada_por_otro = exists(
+            select(primera.id).where(
+                primera.convenio_id == revision.convenio_id,
+                primera.tipo == TipoRevisionConvenio.JURIDICA.value,
+                primera.numero_ronda == revision.numero_ronda,
+                primera.instancia_juridica == 1,
+                primera.estado == EstadoRevisionConvenio.RESUELTA.value,
+                primera.resultado == ResultadoRevisionConvenio.APROBADA.value,
+                primera.resuelta_por_id != usuario.id,
+            )
+        ).correlate(revision)
+        return and_(
+            revision.tipo == TipoRevisionConvenio.JURIDICA.value,
+            revision.estado == EstadoRevisionConvenio.PENDIENTE.value,
+            revision.resultado.is_(None),
+            revision.numero_ronda.is_not(None),
+            revision.numero_ronda == ultima_ronda,
+            or_(
+                revision.instancia_juridica == 1,
+                and_(
+                    revision.instancia_juridica == 2,
+                    primera_aprobada_por_otro,
+                ),
+            ),
+        )
+
+    @classmethod
+    def _filtro_alcance_operativo(cls, usuario: Usuario):
         """Scope SQL del tablero y de su detalle, según el rol autenticado."""
         codigo_rol = usuario.rol.codigo
         if codigo_rol in {
@@ -483,31 +525,14 @@ class ServicioConvenios:
             return false()
 
         revision = aliased(RevisionConvenio)
-        primera = aliased(RevisionConvenio)
-        primera_resuelta_por_actor = exists(
-            select(primera.id).where(
-                primera.convenio_id == revision.convenio_id,
-                primera.tipo == TipoRevisionConvenio.JURIDICA.value,
-                primera.numero_ronda == revision.numero_ronda,
-                primera.instancia_juridica == 1,
-                primera.resuelta_por_id == usuario.id,
-            )
-        ).correlate(revision)
         revision_elegible = exists(
             select(revision.id).where(
                 revision.convenio_id == Convenio.id,
-                revision.tipo == TipoRevisionConvenio.JURIDICA.value,
-                revision.estado == EstadoRevisionConvenio.PENDIENTE.value,
-                or_(
-                    revision.instancia_juridica == 1,
-                    and_(
-                        revision.instancia_juridica == 2,
-                        ~primera_resuelta_por_actor,
-                    ),
-                ),
+                cls._filtro_revision_juridica_elegible(usuario, revision),
             )
         ).correlate(Convenio)
         return and_(
+            Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
             Convenio.etapa_actual.has(
                 Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA
             ),
@@ -518,12 +543,6 @@ class ServicioConvenios:
         self, convenio_id: int, usuario: Usuario
     ) -> Convenio:
         """Protege el detalle operativo según el alcance del rol autenticado."""
-        alcance = self._filtro_alcance_operativo(usuario)
-        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
-            alcance = and_(
-                Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
-                alcance,
-            )
         convenio = self.db.scalar(
             select(Convenio)
             .options(
@@ -533,7 +552,7 @@ class ServicioConvenios:
             )
             .where(
                 Convenio.id == convenio_id,
-                alcance,
+                self._filtro_alcance_operativo(usuario),
             )
         )
         if convenio is None:
@@ -546,7 +565,6 @@ class ServicioConvenios:
         visible = self.db.scalar(
             select(Convenio.id).where(
                 Convenio.id == convenio_id,
-                Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
                 self._filtro_alcance_operativo(usuario),
             )
         )
@@ -1401,7 +1419,7 @@ class ServicioConvenios:
         return self.obtener(convenio.id)
 
     def _revision_juridica_pendiente(
-        self, convenio_id: int, revision_id: int
+        self, convenio_id: int, revision_id: int, usuario: Usuario
     ) -> tuple[Convenio, RevisionConvenio]:
         # Todas las mutaciones jurídicas usan el mismo orden para evitar deadlocks.
         convenio = self.db.scalar(
@@ -1427,6 +1445,18 @@ class ServicioConvenios:
             or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_JURIDICA
         ):
             raise RevisionNoDisponible("La revisión jurídica ya no está pendiente")
+        elegible = self.db.scalar(
+            select(RevisionConvenio.id).where(
+                RevisionConvenio.id == revision.id,
+                self._filtro_revision_juridica_elegible(
+                    usuario, RevisionConvenio
+                ),
+            )
+        )
+        if elegible is None:
+            raise RevisionNoDisponible(
+                "El Revisor ORI no puede atender esta revisión jurídica"
+            )
         return convenio, revision
 
     def _version_actual_revision(
@@ -1446,7 +1476,9 @@ class ServicioConvenios:
         datos: RevisionContenidoGuardar,
         usuario: Usuario,
     ) -> VersionConvenio:
-        convenio, _ = self._revision_juridica_pendiente(convenio_id, revision_id)
+        convenio, _ = self._revision_juridica_pendiente(
+            convenio_id, revision_id, usuario
+        )
         actual = self._version_actual_revision(convenio, datos.expected_version)
         try:
             validar_contenido(datos.contenido)
@@ -1477,7 +1509,7 @@ class ServicioConvenios:
         usuario: Usuario,
     ) -> ObservacionRevision:
         convenio, revision = self._revision_juridica_pendiente(
-            convenio_id, revision_id
+            convenio_id, revision_id, usuario
         )
         texto = descripcion.strip()
         if not texto:
@@ -1512,7 +1544,7 @@ class ServicioConvenios:
         usuario: Usuario,
     ) -> RevisionConvenio:
         convenio, revision = self._revision_juridica_pendiente(
-            convenio_id, revision_id
+            convenio_id, revision_id, usuario
         )
         version_actual = self._version_actual_revision(convenio, expected_version)
         if revision.instancia_juridica not in {1, 2} or revision.numero_ronda is None:
@@ -1687,7 +1719,7 @@ class ServicioConvenios:
                 "Cada observación debe tener contenido"
             )
         convenio, revision = self._revision_juridica_pendiente(
-            convenio_id, revision_id
+            convenio_id, revision_id, usuario
         )
         version_actual = self._version_actual_revision(convenio, expected_version)
         observaciones_existentes = self.db.scalar(
