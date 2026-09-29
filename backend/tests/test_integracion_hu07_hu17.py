@@ -189,17 +189,17 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
     tarjeta_a = _tarjetas(client)[convenio_id]
     assert tarjeta_a["etapa_actual"]["codigo"] == "ELABORACION"
     assert tarjeta_a["responsable"]["id"] == gestor_a.id
-    assert convenio_b.id not in _tarjetas(client)
+    assert convenio_b.id in _tarjetas(client)
     entrar_como(gestor_b)
     tarjetas_b = _tarjetas(client)
-    assert convenio_b.id in tarjetas_b
-    assert convenio_id not in tarjetas_b
+    assert {convenio_id, convenio_b.id} <= set(tarjetas_b)
     entrar_como(administrador)
     tarjetas_admin = _tarjetas(client)
     assert {convenio_id, convenio_b.id} <= set(tarjetas_admin)
     entrar_como(revisor_a)
-    assert convenio_id not in _tarjetas(client)
-    assert convenio_b.id not in _tarjetas(client)
+    tarjetas_revisor = _tarjetas(client)
+    assert tarjetas_revisor[convenio_id]["puede_ver_detalle"] is False
+    assert tarjetas_revisor[convenio_b.id]["puede_ver_detalle"] is False
     entrar_como(solicitante)
     assert client.get(URL_TABLERO).status_code == 403
 
@@ -227,7 +227,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
         "REVISION_AVAL_JURIDICO"
     )
     entrar_como(revisor_a)
-    assert convenio_id in _tarjetas(client)
+    assert _tarjetas(client)[convenio_id]["puede_ver_detalle"] is True
 
     primera = db.scalar(
         select(RevisionConvenio).where(
@@ -247,7 +247,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
         )
     )
     assert segunda.instancia_juridica == 2
-    assert convenio_id not in _tarjetas(client)
+    assert _tarjetas(client)[convenio_id]["puede_ver_detalle"] is False
     assert convenio_id not in {
         item["convenio_id"]
         for item in client.get("/api/convenios/revisiones-juridicas/pendientes").json()
@@ -256,7 +256,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
     assert client.get(f"/api/convenios/{convenio_id}/revision").status_code == 404
 
     entrar_como(revisor_b)
-    assert convenio_id in _tarjetas(client)
+    assert _tarjetas(client)[convenio_id]["puede_ver_detalle"] is True
     assert convenio_id in {
         item["convenio_id"]
         for item in client.get("/api/convenios/revisiones-juridicas/pendientes").json()

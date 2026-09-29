@@ -676,7 +676,7 @@ def test_hu06_patch_parcial_y_campos_inmutables(
     ("rol", "lectura", "escritura"),
     [
         (CodigoRol.REVISOR_ORI, 404, 403),
-        (CodigoRol.GESTOR_ORI, 404, 201),
+        (CodigoRol.GESTOR_ORI, 200, 201),
         (CodigoRol.SOLICITANTE_INTERNO, 403, 403),
         (CodigoRol.SOLICITANTE_EXTERNO, 403, 403),
     ],
