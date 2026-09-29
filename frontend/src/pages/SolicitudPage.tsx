@@ -104,7 +104,7 @@ export function SolicitudPage() {
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [tipoDocumento, setTipoDocumento] = useState<TipoDocumento>('CAMARA_COMERCIO')
   const solicitud = consulta.data
-  const editable = !solicitud || solicitud.estado === 'BORRADOR'
+  const editable = !solicitud || ['BORRADOR', 'DEVUELTA'].includes(solicitud.estado)
 
   useEffect(() => {
     solicitudIdRef.current = id
@@ -281,6 +281,12 @@ export function SolicitudPage() {
   return (
     <>
       <section className="header-banner"><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></section>
+      {solicitud?.observaciones_devolucion && ['DEVUELTA', 'RADICADA', 'EN_ESTUDIO'].includes(solicitud.estado) && (
+        <section className="card"><h2>Observaciones de devolución ORI</h2>
+          <p>{solicitud.observaciones_devolucion}</p>
+          {solicitud.estado === 'DEVUELTA' && <p className="section-help">Corrija la información y los documentos indicados. Luego vuelva a radicar la solicitud.</p>}
+        </section>
+      )}
       <form ref={formRef} className="solicitud-form" onSubmit={enviar}>
         <section className="card"><h2>1. Información del solicitante {perfilVisible?.tipo_usuario === 'INTERNO' ? 'interno' : 'externo'}</h2><p className="section-help">Los datos se precargan desde su perfil y se conservarán como snapshot de esta solicitud.</p><div className="form-grid">
           {campo('solicitante_nombre', 'Responsable y/o solicitante', false, perfilVisible?.nombre ?? null)}
@@ -316,7 +322,7 @@ export function SolicitudPage() {
 
         <section className="card"><h2>8. Observaciones adicionales</h2><label className="form-group" htmlFor="solicitud-observaciones"><span className="form-label">Observaciones</span><textarea id="solicitud-observaciones" className="form-control" name="observaciones" defaultValue={solicitud?.observaciones ?? ''} disabled={!editable} placeholder="Agregue información complementaria que no haya sido incluida anteriormente." /></label></section>
 
-        <div className="page-toolbar"><Link className="btn btn-outline" to="/solicitudes">Volver</Link>{editable && <><button className="btn btn-outline" type="submit" disabled={operacionEnCurso}>{guardar.isPending ? 'Guardando…' : 'Guardar borrador'}</button><button className="btn btn-primary" type="button" disabled={operacionEnCurso} onClick={() => radicar.mutate()}>{radicar.isPending ? 'Radicando…' : 'Radicar solicitud'}</button></>}</div>
+        <div className="page-toolbar"><Link className="btn btn-outline" to="/solicitudes">Volver</Link>{editable && <><button className="btn btn-outline" type="submit" disabled={operacionEnCurso}>{guardar.isPending ? 'Guardando…' : solicitud?.estado === 'DEVUELTA' ? 'Guardar cambios' : 'Guardar borrador'}</button><button className="btn btn-primary" type="button" disabled={operacionEnCurso} onClick={() => radicar.mutate()}>{radicar.isPending ? 'Radicando…' : solicitud?.estado === 'DEVUELTA' ? 'Volver a radicar' : 'Radicar solicitud'}</button></>}</div>
       </form>
     </>
   )

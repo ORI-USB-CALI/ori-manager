@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
+    AccionAuditoria,
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
@@ -54,6 +56,15 @@ class DocumentoInvalido(ErrorSolicitud):
 
 class ReferenciaSolicitudInvalida(ErrorSolicitud):
     pass
+
+
+class SolicitudNoRevisable(ErrorSolicitud):
+    pass
+
+
+ESTADOS_PENDIENTES_REVISION = frozenset(
+    {EstadoSolicitud.RADICADA.value, EstadoSolicitud.EN_ESTUDIO.value}
+)
 
 
 class ServicioSolicitudes:
@@ -114,9 +125,12 @@ class ServicioSolicitudes:
         solicitud = self._cargar(solicitud_id, usuario, bloquear=bloquear)
         if solicitud.solicitante_id != usuario.id:
             raise SolicitudNoEncontrada("Solicitud no encontrada")
-        if solicitud.estado != EstadoSolicitud.BORRADOR:
+        if solicitud.estado not in {
+            EstadoSolicitud.BORRADOR.value,
+            EstadoSolicitud.DEVUELTA.value,
+        }:
             raise SolicitudNoEditable(
-                "Solo se pueden modificar solicitudes en BORRADOR"
+                "Solo se pueden modificar solicitudes en BORRADOR o DEVUELTA"
             )
         return solicitud
 
@@ -188,6 +202,7 @@ class ServicioSolicitudes:
                     Convenio.etapa_actual
                 ),
                 selectinload(SolicitudConvenio.tipo_convenio),
+                selectinload(SolicitudConvenio.decidida_por),
             )
         )
 
@@ -213,6 +228,62 @@ class ServicioSolicitudes:
         if solicitud is None:
             raise SolicitudNoEncontrada("Solicitud recibida no encontrada")
         return solicitud
+
+    def _decidir(
+        self, solicitud_id: int, actor: Usuario, estado: EstadoSolicitud
+    ) -> SolicitudConvenio:
+        solicitud = self.obtener_recibida(solicitud_id, bloquear=True)
+        if solicitud.estado not in ESTADOS_PENDIENTES_REVISION:
+            raise SolicitudNoRevisable(
+                f"La solicitud está {solicitud.estado} y ya no admite decisión"
+            )
+        self.db.add(
+            Auditoria(
+                usuario_id=actor.id,
+                entidad="solicitud",
+                registro_id=solicitud.id,
+                accion=AccionAuditoria.UPDATE.value,
+                campo="estado",
+                valor_anterior=solicitud.estado,
+                valor_nuevo=estado.value,
+            )
+        )
+        solicitud.estado = estado.value
+        solicitud.decidida_por = actor
+        solicitud.fecha_decision = datetime.now(UTC)
+        return solicitud
+
+    def aceptar(self, solicitud_id: int, actor: Usuario) -> SolicitudConvenio:
+        self._decidir(solicitud_id, actor, EstadoSolicitud.APROBADA)
+        self.db.commit()
+        return self.obtener_recibida(solicitud_id)
+
+    def rechazar(
+        self, solicitud_id: int, motivo: str, actor: Usuario
+    ) -> SolicitudConvenio:
+        solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.RECHAZADA)
+        solicitud.motivo_rechazo = motivo
+        self.db.commit()
+        return self.obtener_recibida(solicitud_id)
+
+    def devolver(
+        self, solicitud_id: int, observaciones: str, actor: Usuario
+    ) -> SolicitudConvenio:
+        solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.DEVUELTA)
+        self.db.add(
+            Auditoria(
+                usuario_id=actor.id,
+                entidad="solicitud",
+                registro_id=solicitud.id,
+                accion=AccionAuditoria.UPDATE.value,
+                campo="observaciones_devolucion",
+                valor_anterior=solicitud.observaciones_devolucion,
+                valor_nuevo=observaciones,
+            )
+        )
+        solicitud.observaciones_devolucion = observaciones
+        self.db.commit()
+        return self.obtener_recibida(solicitud_id)
 
     def obtener_contenido_documento_recibido(
         self, solicitud_id: int, documento_id: int
@@ -378,5 +449,7 @@ class ServicioSolicitudes:
         instante = datetime.now(UTC)
         solicitud.fecha_radicacion = instante
         solicitud.fecha_recibido_ori = instante
+        solicitud.decidida_por_id = None
+        solicitud.fecha_decision = None
         self.db.commit()
         return self.obtener(solicitud.id, usuario)
