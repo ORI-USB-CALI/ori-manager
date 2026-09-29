@@ -1,12 +1,15 @@
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { type Permiso, useSesion } from '../auth/sesion'
+import { CLAVE_REVISIONES_CONTRAPARTE, obtenerRevisionesContraparte } from './revisionContraparte'
 
 type IconoAcceso =
   | 'aliados'
   | 'convenios'
   | 'mis-solicitudes'
   | 'nueva-solicitud'
+  | 'revision-contraparte'
   | 'revisiones'
   | 'solicitudes-recibidas'
   | 'usuarios'
@@ -22,6 +25,15 @@ interface AccesoRapido {
 }
 
 const ACCESOS_RAPIDOS: AccesoRapido[] = [
+  {
+    permiso: 'convenios.revisar_contraparte_propia',
+    categoria: 'Revisión de convenios',
+    titulo: 'Revisiones de contraparte',
+    descripcion: 'Consulta y decide las elaboraciones de convenio enviadas por la ORI.',
+    ruta: '/revisiones-contraparte',
+    cta: 'Ver revisiones',
+    icono: 'revision-contraparte',
+  },
   {
     permiso: 'solicitudes.ver_recibidas',
     categoria: 'Gestión de solicitudes',
@@ -103,6 +115,8 @@ function IconoTarjeta({ tipo }: { tipo: IconoAcceso }) {
       return <svg {...atributos}><path d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v4H4zM14 15h6v4h-6z" /></svg>
     case 'revisiones':
       return <svg {...atributos}><path d="M6 3h9l3 3v15H6zM15 3v4h4M9 12l2 2 4-4M9 18h6" /></svg>
+    case 'revision-contraparte':
+      return <svg {...atributos}><path d="M5 3h14v18H5zM8 8h8M8 12h5M9 17l2 2 4-5" /></svg>
     case 'aliados':
       return <svg {...atributos}><path d="M4 20v-9h6v9M14 20V4h6v16M2 20h20M7 14h.01M17 8h.01M17 12h.01M17 16h.01" /></svg>
     case 'usuarios':
@@ -116,7 +130,15 @@ function IconoTarjeta({ tipo }: { tipo: IconoAcceso }) {
 
 export function HomePage() {
   const { puede } = useSesion()
+  const puedeRevisarContraparte = puede('convenios.revisar_contraparte_propia')
+  const pendientesContraparte = useQuery({
+    queryKey: CLAVE_REVISIONES_CONTRAPARTE,
+    queryFn: obtenerRevisionesContraparte,
+    enabled: puedeRevisarContraparte,
+    retry: false,
+  })
   const accesosDisponibles = ACCESOS_RAPIDOS.filter(({ permiso }) => puede(permiso))
+  const cantidadPendiente = pendientesContraparte.data?.length ?? 0
 
   return (
     <>
@@ -124,6 +146,13 @@ export function HomePage() {
         <h1>Sistema de Gestión ORI</h1>
         <p>Oficina de Relaciones Internacionales — Universidad de San Buenaventura Cali</p>
       </section>
+
+      {puedeRevisarContraparte && cantidadPendiente > 0 && (
+        <Link className="home-aviso-pendientes" to="/revisiones-contraparte">
+          <strong>Tienes {cantidadPendiente} {cantidadPendiente === 1 ? 'elaboración de convenio pendiente' : 'elaboraciones de convenio pendientes'} de revisión.</strong>
+          <span>Abrir bandeja</span>
+        </Link>
+      )}
 
       <section className="accesos-rapidos" aria-labelledby="accesos-rapidos-titulo">
         <header className="accesos-rapidos-cabecera">
@@ -139,6 +168,9 @@ export function HomePage() {
                 <div className="acceso-rapido-superior">
                   <span className="acceso-rapido-icono"><IconoTarjeta tipo={acceso.icono} /></span>
                   <span className="acceso-rapido-categoria">{acceso.categoria}</span>
+                  {acceso.permiso === 'convenios.revisar_contraparte_propia' && cantidadPendiente > 0 && (
+                    <span className="acceso-rapido-contador" aria-label={`${cantidadPendiente} pendientes`}>{cantidadPendiente}</span>
+                  )}
                 </div>
                 <h3>{acceso.titulo}</h3>
                 <p>{acceso.descripcion}</p>

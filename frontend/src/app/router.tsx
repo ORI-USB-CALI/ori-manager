@@ -11,8 +11,9 @@ import { FirmaConvenioPublicaPage } from '../pages/FirmaConvenioPublicaPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
+import { RevisionContrapartePage } from '../pages/RevisionContrapartePage'
+import { RevisionesContrapartePage } from '../pages/RevisionesContrapartePage'
 import { RevisionesJuridicasPage } from '../pages/RevisionesJuridicasPage'
-import { RevisionContrapartePublicaPage } from '../pages/RevisionContrapartePublicaPage'
 import { SolicitudRecibidaPage } from '../pages/SolicitudRecibidaPage'
 import { SolicitudesRecibidasPage } from '../pages/SolicitudesRecibidasPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
@@ -31,7 +32,6 @@ export const router = createBrowserRouter([
   { path: '/recuperar-contrasena', element: <RecuperarContrasenaPage /> },
   { path: '/restablecer-contrasena', element: <RestablecerContrasenaPage /> },
   { path: '/verificar-correo', element: <VerificarCorreoPage /> },
-  { path: '/revision-contraparte', element: <RevisionContrapartePublicaPage /> },
   { path: '/firma-convenio', element: <FirmaConvenioPublicaPage /> },
   {
     element: <AppLayout />,
@@ -55,6 +55,10 @@ export const router = createBrowserRouter([
       ] },
       { element: <RequierePermiso permiso="convenios.revisar" />, children: [
         { path: '/revisiones-juridicas', element: <RevisionesJuridicasPage /> },
+      ] },
+      { element: <RequierePermiso permiso="convenios.revisar_contraparte_propia" />, children: [
+        { path: '/revisiones-contraparte', element: <RevisionesContrapartePage /> },
+        { path: '/revisiones-contraparte/:revisionId', element: <RevisionContrapartePage /> },
       ] },
       { element: <RequierePermiso permiso="solicitudes.ver_propias" />, children: [
         { path: '/solicitudes', element: <MisSolicitudesPage /> },
