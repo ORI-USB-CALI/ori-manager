@@ -64,6 +64,7 @@ export interface Solicitud {
   fecha_radicacion: string | null
   fecha_recibido_ori: string | null
   motivo_rechazo: string | null
+  observaciones_devolucion: string | null
   decidida_por_id: number | null
   fecha_decision: string | null
   documentos: DocumentoSolicitud[]

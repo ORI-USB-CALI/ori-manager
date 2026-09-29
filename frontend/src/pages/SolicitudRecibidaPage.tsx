@@ -31,7 +31,9 @@ export function SolicitudRecibidaPage() {
 
   const cliente = useQueryClient()
   const [motivo, setMotivo] = useState('')
+  const [observacionesDevolucion, setObservacionesDevolucion] = useState('')
   const [rechazando, setRechazando] = useState(false)
+  const [devolviendo, setDevolviendo] = useState(false)
   const refrescar = () => cliente.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] })
   const aceptar = useMutation({
     mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/aceptar`, { method: 'POST' }),
@@ -50,6 +52,15 @@ export function SolicitudRecibidaPage() {
     },
     onError: (error: Error) => notify({ type: 'error', message: error.message }),
   })
+  const devolver = useMutation({
+    mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/devolver`, { method: 'POST', body: JSON.stringify({ observaciones: observacionesDevolucion }) }),
+    onSuccess: async () => {
+      await refrescar()
+      setDevolviendo(false)
+      notify({ type: 'success', message: 'Solicitud devuelta con observaciones' })
+    },
+    onError: (error: Error) => notify({ type: 'error', message: error.message }),
+  })
 
   if (consulta.isPending) return <p className="estado-pagina">Cargando solicitud…</p>
   if (consulta.isError) return <p className="alert-error">{consulta.error.message}</p>
@@ -57,7 +68,7 @@ export function SolicitudRecibidaPage() {
   if (!solicitud) return null
   const pendiente = ['RADICADA', 'EN_ESTUDIO'].includes(solicitud.estado)
   const gestiona = puede('solicitudes.gestionar_recibidas')
-  const ocupado = aceptar.isPending || rechazar.isPending
+  const ocupado = aceptar.isPending || rechazar.isPending || devolver.isPending
 
   return (
     <>
@@ -100,10 +111,11 @@ export function SolicitudRecibidaPage() {
 
       {solicitud.fecha_decision && (
         <section className="card"><h2>Decisión ORI</h2><dl>
-          <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : 'Aceptada'}</dd>
+          <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : solicitud.estado === 'DEVUELTA' ? 'Devuelta' : 'Aceptada'}</dd>
           <dt>Responsable</dt><dd>{valor(solicitud.decidida_por_nombre)}</dd>
           <dt>Fecha y hora</dt><dd>{new Date(solicitud.fecha_decision).toLocaleString()}</dd>
           {solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
+          {solicitud.observaciones_devolucion && <><dt>Observaciones de devolución</dt><dd>{solicitud.observaciones_devolucion}</dd></>}
         </dl></section>
       )}
 
@@ -118,10 +130,22 @@ export function SolicitudRecibidaPage() {
         </section>
       )}
 
+      {pendiente && gestiona && devolviendo && (
+        <section className="card"><h2>Devolver solicitud</h2>
+          <label className="form-group" htmlFor="observaciones-devolucion"><span className="form-label">Observaciones de devolución *</span>
+            <textarea id="observaciones-devolucion" className="form-control" value={observacionesDevolucion} maxLength={2000} onChange={(evento) => setObservacionesDevolucion(evento.target.value)} required /></label>
+          <div className="page-toolbar">
+            <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setDevolviendo(false)}>Cancelar</button>
+            <button className="btn btn-primary" type="button" disabled={!observacionesDevolucion.trim() || ocupado} onClick={() => devolver.mutate()}>Confirmar devolución</button>
+          </div>
+        </section>
+      )}
+
       <div className="page-toolbar">
         <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
-        {pendiente && gestiona && !rechazando && <>
+        {pendiente && gestiona && !rechazando && !devolviendo && <>
           <button className="btn btn-danger" type="button" disabled={ocupado} onClick={() => setRechazando(true)}>Rechazar</button>
+          <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setDevolviendo(true)}>Devolver</button>
           <button className="btn btn-primary" type="button" disabled={ocupado} onClick={() => window.confirm('¿Confirma que acepta esta solicitud?') && aceptar.mutate()}>Aceptar</button>
         </>}
         {solicitud.estado === 'APROBADA' && solicitud.convenio_id && gestiona && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}

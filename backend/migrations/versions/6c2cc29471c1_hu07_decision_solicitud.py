@@ -21,6 +21,10 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.add_column(
         "solicitud_convenio",
+        sa.Column("observaciones_devolucion", sa.Text(), nullable=True),
+    )
+    op.add_column(
+        "solicitud_convenio",
         sa.Column("decidida_por_id", sa.Integer(), nullable=True),
     )
     op.add_column(
@@ -44,3 +48,4 @@ def downgrade() -> None:
     )
     op.drop_column("solicitud_convenio", "fecha_decision")
     op.drop_column("solicitud_convenio", "decidida_por_id")
+    op.drop_column("solicitud_convenio", "observaciones_devolucion")

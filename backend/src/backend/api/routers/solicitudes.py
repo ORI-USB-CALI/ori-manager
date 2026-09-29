@@ -21,6 +21,7 @@ from backend.schemas.solicitud import (
     PerfilSolicitante,
     SolicitudActualizar,
     SolicitudCrear,
+    SolicitudDevolver,
     SolicitudLeer,
     SolicitudListado,
     SolicitudRechazar,
@@ -250,6 +251,21 @@ def rechazar_solicitud(
     try:
         return _recibida(
             ServicioSolicitudes(db).rechazar(solicitud_id, datos.motivo, usuario)
+        )
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.post("/recibidas/{solicitud_id}/devolver", response_model=SolicitudRecibidaLeer)
+def devolver_solicitud(
+    solicitud_id: int,
+    datos: SolicitudDevolver,
+    db: DatabaseSession,
+    usuario: PuedeGestionarRecibidas,
+) -> SolicitudRecibidaLeer:
+    try:
+        return _recibida(
+            ServicioSolicitudes(db).devolver(solicitud_id, datos.observaciones, usuario)
         )
     except ErrorSolicitud as exc:
         _lanzar_http(exc)

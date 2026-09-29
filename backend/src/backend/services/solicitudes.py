@@ -125,9 +125,12 @@ class ServicioSolicitudes:
         solicitud = self._cargar(solicitud_id, usuario, bloquear=bloquear)
         if solicitud.solicitante_id != usuario.id:
             raise SolicitudNoEncontrada("Solicitud no encontrada")
-        if solicitud.estado != EstadoSolicitud.BORRADOR:
+        if solicitud.estado not in {
+            EstadoSolicitud.BORRADOR.value,
+            EstadoSolicitud.DEVUELTA.value,
+        }:
             raise SolicitudNoEditable(
-                "Solo se pueden modificar solicitudes en BORRADOR"
+                "Solo se pueden modificar solicitudes en BORRADOR o DEVUELTA"
             )
         return solicitud
 
@@ -260,6 +263,25 @@ class ServicioSolicitudes:
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.RECHAZADA)
         solicitud.motivo_rechazo = motivo
+        self.db.commit()
+        return self.obtener_recibida(solicitud_id)
+
+    def devolver(
+        self, solicitud_id: int, observaciones: str, actor: Usuario
+    ) -> SolicitudConvenio:
+        solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.DEVUELTA)
+        self.db.add(
+            Auditoria(
+                usuario_id=actor.id,
+                entidad="solicitud",
+                registro_id=solicitud.id,
+                accion=AccionAuditoria.UPDATE.value,
+                campo="observaciones_devolucion",
+                valor_anterior=solicitud.observaciones_devolucion,
+                valor_nuevo=observaciones,
+            )
+        )
+        solicitud.observaciones_devolucion = observaciones
         self.db.commit()
         return self.obtener_recibida(solicitud_id)
 
@@ -427,5 +449,7 @@ class ServicioSolicitudes:
         instante = datetime.now(UTC)
         solicitud.fecha_radicacion = instante
         solicitud.fecha_recibido_ori = instante
+        solicitud.decidida_por_id = None
+        solicitud.fecha_decision = None
         self.db.commit()
         return self.obtener(solicitud.id, usuario)

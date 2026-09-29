@@ -94,6 +94,7 @@ class SolicitudLeer(SolicitudCampos):
     fecha_radicacion: datetime | None
     fecha_recibido_ori: datetime | None
     motivo_rechazo: str | None
+    observaciones_devolucion: str | None
     decidida_por_id: int | None
     fecha_decision: datetime | None
     documentos: list[DocumentoSolicitudLeer]
@@ -118,6 +119,12 @@ class SolicitudRechazar(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     motivo: str = Field(min_length=1, max_length=2000)
+
+
+class SolicitudDevolver(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    observaciones: str = Field(min_length=1, max_length=2000)
 
 
 class SolicitudRecibidaListado(BaseModel):

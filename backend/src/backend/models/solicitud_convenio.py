@@ -164,6 +164,7 @@ class SolicitudConvenio(Base):
         nullable=False,
     )
     motivo_rechazo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observaciones_devolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
     decidida_por_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
     )
