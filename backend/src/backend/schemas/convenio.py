@@ -346,6 +346,7 @@ class ConvenioTableroLeer(BaseModel):
     aliado: AliadoResumen | None
     aliado_propuesto: str | None
     responsable: UsuarioResumen | None
+    puede_ver_detalle: bool
 
 
 class TableroConveniosLeer(BaseModel):

@@ -23,7 +23,6 @@ from backend.services.convenios import ServicioConvenios
 URL_TABLERO = "/api/convenios/tablero"
 
 AREAS_POR_ETAPA = {
-    "SOLICITUD": "Solicitante",
     "ELABORACION": "Gestor ORI",
     "REVISION_AVAL_JURIDICO": "Oficina Jurídica",
     "REVISION_CONTRAPARTE": "Contraparte",
@@ -121,10 +120,12 @@ def test_administrador_ve_todos_los_convenios_en_tramite(
     respuesta = client.get(URL_TABLERO)
 
     assert respuesta.status_code == 200
-    assert convenios <= set(_convenios_por_id(respuesta.json()))
+    tarjetas = _convenios_por_id(respuesta.json())
+    assert convenios <= set(tarjetas)
+    assert all(tarjetas[convenio_id]["puede_ver_detalle"] for convenio_id in convenios)
 
 
-def test_cada_gestor_ve_unicamente_los_convenios_que_gestiona(
+def test_todos_los_gestores_ven_todos_los_convenios_en_tramite(
     client, crear_usuario, entrar_como, crear_convenio
 ) -> None:
     gestor_a = crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
@@ -133,28 +134,42 @@ def test_cada_gestor_ve_unicamente_los_convenios_que_gestiona(
     convenio_b = crear_convenio(gestor_b)
 
     entrar_como(gestor_a)
-    ids_a = set(_convenios_por_id(client.get(URL_TABLERO).json()))
-    assert convenio_a.id in ids_a
-    assert convenio_b.id not in ids_a
+    tarjetas_a = _convenios_por_id(client.get(URL_TABLERO).json())
+    assert {convenio_a.id, convenio_b.id} <= set(tarjetas_a)
+    assert tarjetas_a[convenio_a.id]["puede_ver_detalle"] is True
+    assert tarjetas_a[convenio_b.id]["puede_ver_detalle"] is True
 
     entrar_como(gestor_b)
-    ids_b = set(_convenios_por_id(client.get(URL_TABLERO).json()))
-    assert convenio_b.id in ids_b
-    assert convenio_a.id not in ids_b
+    tarjetas_b = _convenios_por_id(client.get(URL_TABLERO).json())
+    assert {convenio_a.id, convenio_b.id} <= set(tarjetas_b)
+    assert tarjetas_b[convenio_a.id]["puede_ver_detalle"] is True
+    assert tarjetas_b[convenio_b.id]["puede_ver_detalle"] is True
 
 
-def test_revisor_solo_ve_revision_juridica_pendiente_que_puede_resolver(
+def test_revisor_ve_toda_la_trazabilidad_pero_solo_abre_revision_elegible(
     db, client, crear_usuario, entrar_como, autor, crear_convenio
 ) -> None:
     revisor_primero = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
     otro_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
     elaboracion = crear_convenio(autor)
     juridica = _entregar_a_juridica(db, crear_convenio, autor)
+    contraparte = crear_convenio(autor)
+    _mover_a_etapa(db, contraparte, "REVISION_CONTRAPARTE")
+    vigente = crear_convenio(autor)
+    _mover_a_etapa(db, vigente, "FIRMA_ARCHIVO_SEGUIMIENTO")
+    vigente.estado = EstadoConvenio.VIGENTE.value
+    db.commit()
 
     entrar_como(revisor_primero)
-    primera_consulta = _convenios_por_id(client.get(URL_TABLERO).json())
-    assert juridica.id in primera_consulta
-    assert elaboracion.id not in primera_consulta
+    tarjetas = _convenios_por_id(client.get(URL_TABLERO).json())
+    assert {elaboracion.id, juridica.id, contraparte.id, vigente.id} <= set(tarjetas)
+    assert tarjetas[elaboracion.id]["puede_ver_detalle"] is False
+    assert tarjetas[contraparte.id]["puede_ver_detalle"] is False
+    assert tarjetas[vigente.id]["puede_ver_detalle"] is False
+    assert tarjetas[juridica.id]["puede_ver_detalle"] is True
+    assert client.get(f"/api/convenios/{elaboracion.id}").status_code == 404
+    assert client.get(f"/api/convenios/{contraparte.id}").status_code == 404
+    assert client.get(f"/api/convenios/{vigente.id}").status_code == 404
 
     primera = db.scalar(
         select(RevisionConvenio).where(
@@ -169,9 +184,13 @@ def test_revisor_solo_ve_revision_juridica_pendiente_que_puede_resolver(
         revisor_primero,
     )
 
-    assert juridica.id not in _convenios_por_id(client.get(URL_TABLERO).json())
+    tarjeta_segunda = _convenios_por_id(client.get(URL_TABLERO).json())[juridica.id]
+    assert tarjeta_segunda["puede_ver_detalle"] is False
     entrar_como(otro_revisor)
-    assert juridica.id in _convenios_por_id(client.get(URL_TABLERO).json())
+    tarjeta_otro_revisor = _convenios_por_id(client.get(URL_TABLERO).json())[
+        juridica.id
+    ]
+    assert tarjeta_otro_revisor["puede_ver_detalle"] is True
 
 
 def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
@@ -184,7 +203,10 @@ def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
 
     entrar_como(gestor_a)
     assert client.get(f"/api/convenios/{propio.id}").status_code == 200
-    assert client.get(f"/api/convenios/{ajeno.id}").status_code == 404
+    assert client.get(f"/api/convenios/{ajeno.id}").status_code == 200
+    entrar_como(gestor_b)
+    assert client.get(f"/api/convenios/{propio.id}").status_code == 200
+    assert client.get(f"/api/convenios/{ajeno.id}").status_code == 200
 
     juridica = _entregar_a_juridica(db, crear_convenio, autor)
     primer_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
@@ -208,7 +230,7 @@ def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
     assert client.get(f"/api/convenios/{juridica.id}/revision").status_code == 200
 
 
-def test_tablero_expone_las_siete_etapas_con_su_area_responsable(
+def test_tablero_expone_solo_las_seis_etapas_operativas_en_orden(
     client, administrador
 ) -> None:
     respuesta = client.get(URL_TABLERO)
@@ -216,7 +238,8 @@ def test_tablero_expone_las_siete_etapas_con_su_area_responsable(
     assert respuesta.status_code == 200
     etapas = respuesta.json()["etapas"]
     assert [etapa["codigo"] for etapa in etapas] == list(AREAS_POR_ETAPA)
-    assert [etapa["orden"] for etapa in etapas] == list(range(1, 8))
+    assert [etapa["orden"] for etapa in etapas] == list(range(2, 8))
+    assert "SOLICITUD" not in {etapa["codigo"] for etapa in etapas}
     assert all(etapa["nombre"] for etapa in etapas)
     assert {
         etapa["codigo"]: etapa["area_responsable"] for etapa in etapas
@@ -321,13 +344,17 @@ def test_la_devolucion_de_juridica_devuelve_la_gestion_al_gestor(
     assert tarjeta["responsable"]["id"] == autor.id
 
 
-def test_excluye_convenios_que_no_estan_en_tramite(
+def test_incluye_vigente_solo_en_firma_archivo_y_excluye_estados_historicos(
     db, client, administrador, autor, crear_convenio
 ) -> None:
     en_tramite = crear_convenio(autor)
-    vigente = crear_convenio(autor)
+    vigente_final = crear_convenio(autor)
+    _mover_a_etapa(db, vigente_final, "FIRMA_ARCHIVO_SEGUIMIENTO")
+    vigente_incoherente = crear_convenio(autor)
     cancelado = crear_convenio(autor)
-    vigente.estado = EstadoConvenio.VIGENTE.value
+    _mover_a_etapa(db, cancelado, "FIRMA_ARCHIVO_SEGUIMIENTO")
+    vigente_final.estado = EstadoConvenio.VIGENTE.value
+    vigente_incoherente.estado = EstadoConvenio.VIGENTE.value
     cancelado.estado = EstadoConvenio.CANCELADO.value
     db.commit()
 
@@ -336,7 +363,8 @@ def test_excluye_convenios_que_no_estan_en_tramite(
     assert respuesta.status_code == 200
     ids = set(_convenios_por_id(respuesta.json()))
     assert en_tramite.id in ids
-    assert vigente.id not in ids
+    assert vigente_final.id in ids
+    assert vigente_incoherente.id not in ids
     assert cancelado.id not in ids
 
 
@@ -387,14 +415,10 @@ def test_tablero_no_ofrece_operaciones_de_escritura(
     assert convenio.etapa_actual_id == etapa_inicial
 
 
-def test_sin_convenios_en_tramite_muestra_tablero_vacio(
+def test_sin_convenios_operativos_muestra_tablero_vacio(
     db, client, administrador
 ) -> None:
-    db.execute(
-        update(Convenio)
-        .where(Convenio.estado == EstadoConvenio.EN_TRAMITE.value)
-        .values(estado=EstadoConvenio.CANCELADO.value)
-    )
+    db.execute(update(Convenio).values(estado=EstadoConvenio.CANCELADO.value))
     db.commit()
 
     respuesta = client.get(URL_TABLERO)
@@ -402,4 +426,4 @@ def test_sin_convenios_en_tramite_muestra_tablero_vacio(
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert cuerpo["convenios"] == []
-    assert len(cuerpo["etapas"]) == 7
+    assert len(cuerpo["etapas"]) == 6

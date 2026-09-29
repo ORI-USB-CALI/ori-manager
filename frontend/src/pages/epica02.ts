@@ -158,6 +158,7 @@ export interface ConvenioTablero {
   aliado: { id: number; nombre: string } | null
   aliado_propuesto: string | null
   responsable: UsuarioResumen | null
+  puede_ver_detalle: boolean
 }
 
 export interface TableroConvenios {

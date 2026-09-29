@@ -26,7 +26,7 @@ export function TableroConveniosPage() {
       {consulta.data && consulta.data.convenios.length === 0 && (
         <section className="card estado-vacio">
           <h2>No hay convenios visibles</h2>
-          <p>No tienes convenios en trámite dentro de tu alcance operativo.</p>
+          <p>No hay convenios en el tablero operativo.</p>
         </section>
       )}
 
@@ -61,7 +61,9 @@ export function TableroConveniosPage() {
                         <dt>Responsable</dt>
                         <dd>{convenio.responsable?.nombre_completo ?? etapa.area_responsable ?? 'Por definir'}</dd>
                       </dl>
-                      <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`}>Ver detalle</Link>
+                      {convenio.puede_ver_detalle && (
+                        <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`}>Ver detalle</Link>
+                      )}
                     </article>
                   ))}
                 </div>

@@ -206,8 +206,9 @@ def obtener_tablero(db: DatabaseSession, usuario: PuedeVer) -> TableroConveniosL
                 aliado=convenio.aliado,
                 aliado_propuesto=convenio.solicitud.nombre_aliado_propuesto,
                 responsable=responsable,
+                puede_ver_detalle=puede_ver_detalle,
             )
-            for convenio, responsable in convenios
+            for convenio, responsable, puede_ver_detalle in convenios
         ],
     )
 

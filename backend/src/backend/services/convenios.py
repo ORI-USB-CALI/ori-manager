@@ -62,6 +62,15 @@ from backend.services.documentos import AlmacenDocumentos
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
 CODIGO_ETAPA_REVISION_CONTRAPARTE = "REVISION_CONTRAPARTE"
+CODIGO_ETAPA_FIRMA_ARCHIVO_SEGUIMIENTO = "FIRMA_ARCHIVO_SEGUIMIENTO"
+CODIGOS_ETAPAS_TABLERO = (
+    CODIGO_ETAPA_ELABORACION,
+    CODIGO_ETAPA_REVISION_JURIDICA,
+    CODIGO_ETAPA_REVISION_CONTRAPARTE,
+    "REVISION_FINAL",
+    "APROBACION_FIRMAS",
+    CODIGO_ETAPA_FIRMA_ARCHIVO_SEGUIMIENTO,
+)
 ENTIDAD_CONVENIO = "convenio"
 
 # Campos del proyecto de convenio que se congelan al entregarlo a Jurídica. No se
@@ -465,10 +474,11 @@ class ServicioConvenios:
     def _filtro_alcance_operativo(usuario: Usuario):
         """Scope SQL del tablero y de su detalle, según el rol autenticado."""
         codigo_rol = usuario.rol.codigo
-        if codigo_rol == CodigoRol.ADMINISTRADOR_ORI.value:
+        if codigo_rol in {
+            CodigoRol.ADMINISTRADOR_ORI.value,
+            CodigoRol.GESTOR_ORI.value,
+        }:
             return Convenio.id.is_not(None)
-        if codigo_rol == CodigoRol.GESTOR_ORI.value:
-            return Convenio.creado_por_id == usuario.id
         if codigo_rol != CodigoRol.REVISOR_ORI.value:
             return false()
 
@@ -507,8 +517,13 @@ class ServicioConvenios:
     def obtener_en_alcance_operativo(
         self, convenio_id: int, usuario: Usuario
     ) -> Convenio:
-        """Protege el detalle operativo sin alterar la consulta histórica de
-        convenios que ya salieron de EN_TRAMITE."""
+        """Protege el detalle operativo según el alcance del rol autenticado."""
+        alcance = self._filtro_alcance_operativo(usuario)
+        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
+            alcance = and_(
+                Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
+                alcance,
+            )
         convenio = self.db.scalar(
             select(Convenio)
             .options(
@@ -518,13 +533,7 @@ class ServicioConvenios:
             )
             .where(
                 Convenio.id == convenio_id,
-                or_(
-                    Convenio.estado != EstadoConvenio.EN_TRAMITE.value,
-                    and_(
-                        Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
-                        self._filtro_alcance_operativo(usuario),
-                    ),
-                ),
+                alcance,
             )
         )
         if convenio is None:
@@ -578,17 +587,28 @@ class ServicioConvenios:
 
     def listar_tablero(
         self, usuario: Usuario
-    ) -> tuple[list[Etapa], list[tuple[Convenio, Usuario | None]]]:
-        """Etapas y convenios en trámite dentro del alcance operativo del actor."""
+    ) -> tuple[list[Etapa], list[tuple[Convenio, Usuario | None, bool]]]:
+        """Etapas operativas y convenios visibles en la trazabilidad global."""
         etapas = list(
             self.db.scalars(
-                select(Etapa).where(Etapa.activa.is_(True)).order_by(Etapa.orden)
+                select(Etapa)
+                .where(
+                    Etapa.activa.is_(True),
+                    Etapa.codigo.in_(CODIGOS_ETAPAS_TABLERO),
+                )
+                .order_by(Etapa.orden)
             )
         )
         revision_juridica = aliased(RevisionConvenio)
         responsable = aliased(Usuario)
         filas = self.db.execute(
-            select(Convenio, responsable)
+            select(
+                Convenio,
+                responsable,
+                self._filtro_alcance_operativo(usuario).label(
+                    "puede_ver_detalle"
+                ),
+            )
             .outerjoin(Convenio.etapa_actual)
             .outerjoin(
                 revision_juridica,
@@ -612,13 +632,20 @@ class ServicioConvenios:
                 joinedload(Convenio.solicitud),
             )
             .where(
-                Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
-                self._filtro_alcance_operativo(usuario),
+                Etapa.codigo.in_(CODIGOS_ETAPAS_TABLERO),
+                or_(
+                    Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
+                    and_(
+                        Convenio.estado == EstadoConvenio.VIGENTE.value,
+                        Etapa.codigo
+                        == CODIGO_ETAPA_FIRMA_ARCHIVO_SEGUIMIENTO,
+                    ),
+                ),
             )
             .order_by(Etapa.orden, Convenio.creado_en, Convenio.id)
         ).all()
         resultado = []
-        for convenio, revisor_asignado in filas:
+        for convenio, revisor_asignado, puede_ver_detalle in filas:
             responsable_operativo = None
             if (
                 convenio.etapa_actual is not None
@@ -631,7 +658,9 @@ class ServicioConvenios:
                 == CODIGO_ETAPA_REVISION_JURIDICA
             ):
                 responsable_operativo = revisor_asignado
-            resultado.append((convenio, responsable_operativo))
+            resultado.append(
+                (convenio, responsable_operativo, bool(puede_ver_detalle))
+            )
         return etapas, resultado
 
     @staticmethod
