@@ -208,6 +208,183 @@ def test_rj2_exige_otro_revisor_y_solo_entonces_habilita_contraparte(
     ).all()
 
 
+def test_rj2_no_puede_aprobar_una_version_distinta_a_la_avalada_por_rj1(
+    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
+) -> None:
+    primera = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{primera.id}/aprobar",
+        json={"expected_version": convenio_listo.version_actual},
+    ).status_code == 200
+    segunda = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    version_avalada_rj1 = primera.version_resultado_id
+    otro_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(otro_revisor)
+    contenido_v1 = db.get(VersionConvenio, version_avalada_rj1).contenido
+    edicion = client.patch(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{segunda.id}/contenido",
+        json={
+            "contenido": _contenido_editado(contenido_v1, "Cambio realizado en RJ2"),
+            "expected_version": convenio_listo.version_actual,
+        },
+    )
+    assert edicion.status_code == 200
+    version_v2 = edicion.json()["id"]
+    db.refresh(convenio_listo)
+    db.refresh(primera)
+    db.refresh(segunda)
+    assert convenio_listo.version_actual == edicion.json()["numero"]
+    assert primera.version_resultado_id == version_avalada_rj1
+    assert primera.version_resultado_id != version_v2
+    assert segunda.estado == "PENDIENTE"
+    assert segunda.resultado is None
+    assert segunda.version_resultado_id is None
+
+    historial_antes = db.scalar(
+        select(func.count()).select_from(HistorialEtapa).where(
+            HistorialEtapa.convenio_id == convenio_listo.id
+        )
+    )
+    auditorias_antes = db.scalar(
+        select(func.count()).select_from(Auditoria).where(
+            Auditoria.entidad == "revision_convenio",
+            Auditoria.registro_id == segunda.id,
+        )
+    )
+    respuesta = client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{segunda.id}/aprobar",
+        json={"expected_version": convenio_listo.version_actual},
+    )
+
+    assert respuesta.status_code == 409
+    assert "requiere reiniciar la revisión jurídica" in respuesta.json()["detail"]
+    db.expire_all()
+    convenio = db.get(type(convenio_listo), convenio_listo.id)
+    segunda = db.get(RevisionConvenio, segunda.id)
+    assert segunda.estado == "PENDIENTE"
+    assert segunda.resultado is None
+    assert segunda.resuelta_por_id is None
+    assert segunda.resuelta_en is None
+    assert segunda.version_resultado_id is None
+    assert convenio.etapa_actual.codigo == "REVISION_AVAL_JURIDICO"
+    assert db.scalar(
+        select(func.count()).select_from(HistorialEtapa).where(
+            HistorialEtapa.convenio_id == convenio.id
+        )
+    ) == historial_antes
+    assert db.scalar(
+        select(func.count()).select_from(Auditoria).where(
+            Auditoria.entidad == "revision_convenio",
+            Auditoria.registro_id == segunda.id,
+        )
+    ) == auditorias_antes
+
+
+def test_rj2_editada_devuelta_reenvia_v2_y_nueva_ronda_avala_la_misma_version(
+    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
+) -> None:
+    primera_ronda_rj1 = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/"
+        f"{primera_ronda_rj1.id}/aprobar",
+        json={"expected_version": convenio_listo.version_actual},
+    ).status_code == 200
+    primera_ronda_rj2 = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    segundo_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(segundo_revisor)
+    version_v1 = db.get(
+        VersionConvenio, primera_ronda_rj1.version_resultado_id
+    )
+    edicion = client.patch(
+        f"/api/convenios/{convenio_listo.id}/revisiones/"
+        f"{primera_ronda_rj2.id}/contenido",
+        json={
+            "contenido": _contenido_editado(
+                version_v1.contenido, "Corrección creada durante RJ2"
+            ),
+            "expected_version": convenio_listo.version_actual,
+        },
+    )
+    assert edicion.status_code == 200
+    version_v2_id = edicion.json()["id"]
+    numero_v2 = edicion.json()["numero"]
+    devolucion = client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/"
+        f"{primera_ronda_rj2.id}/devolver",
+        json={
+            "expected_version": numero_v2,
+            "observaciones": ["Validar la corrección incorporada en V2"],
+        },
+    )
+    assert devolucion.status_code == 200
+    assert devolucion.json()["version_resultado_id"] == version_v2_id
+    observacion_id = devolucion.json()["observaciones"][0]["id"]
+
+    entrar_como(gestor)
+    assert client.patch(
+        f"/api/convenios/{convenio_listo.id}/observaciones/"
+        f"{observacion_id}/atender",
+        json={"respuesta": "La corrección V2 fue verificada"},
+    ).status_code == 200
+    reenvio = client.post(
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+    )
+    assert reenvio.status_code == 200
+    db.refresh(convenio_listo)
+    assert convenio_listo.version_actual == numero_v2
+    nueva_rj1 = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    assert (nueva_rj1.numero_ronda, nueva_rj1.instancia_juridica) == (2, 1)
+    assert nueva_rj1.version_convenio_id == version_v2_id
+
+    entrar_como(revisor)
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{nueva_rj1.id}/aprobar",
+        json={"expected_version": numero_v2},
+    ).status_code == 200
+    nueva_rj2 = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    tercer_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(tercer_revisor)
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{nueva_rj2.id}/aprobar",
+        json={"expected_version": numero_v2},
+    ).status_code == 200
+
+    db.refresh(nueva_rj1)
+    db.refresh(nueva_rj2)
+    db.refresh(convenio_listo)
+    assert nueva_rj1.version_resultado_id == version_v2_id
+    assert nueva_rj2.version_resultado_id == version_v2_id
+    assert convenio_listo.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+    assert db.scalar(
+        select(func.count()).select_from(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.tipo == "JURIDICA",
+        )
+    ) == 4
+
+
 def test_revisor_de_rj1_no_puede_consultar_ni_mutar_rj2(
     client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
 ) -> None:

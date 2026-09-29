@@ -764,6 +764,8 @@ class ServicioConvenios:
                 RevisionConvenio.estado == EstadoRevisionConvenio.RESUELTA.value,
                 RevisionConvenio.resultado
                 == ResultadoRevisionConvenio.APROBADA.value,
+                RevisionConvenio.version_resultado_id == version.id,
+                RevisionConvenio.resuelta_por_id != segunda.resuelta_por_id,
             )
         )
         if primera is None:
@@ -1316,7 +1318,10 @@ class ServicioConvenios:
 
         ultima_devuelta = self.db.scalar(
             select(RevisionConvenio)
-            .options(joinedload(RevisionConvenio.version_resultado))
+            .options(
+                joinedload(RevisionConvenio.version_convenio),
+                joinedload(RevisionConvenio.version_resultado),
+            )
             .where(
                 RevisionConvenio.convenio_id == convenio.id,
                 RevisionConvenio.tipo.in_(
@@ -1368,13 +1373,17 @@ class ServicioConvenios:
                 ]
             )
         if ultima_devuelta is not None:
-            version_devuelta = ultima_devuelta.version_resultado
-            if version_devuelta is None:
+            version_base = (
+                ultima_devuelta.version_convenio
+                if ultima_devuelta.tipo == TipoRevisionConvenio.JURIDICA.value
+                else ultima_devuelta.version_resultado
+            )
+            if version_base is None:
                 self.db.rollback()
                 raise RevisionNoDisponible(
                     "La revisión devuelta no identifica la versión que debe corregirse"
                 )
-            if version_final.numero <= version_devuelta.numero:
+            if version_final.numero <= version_base.numero:
                 self.db.rollback()
                 raise RevisionNoDisponible(
                     "Debe crear una nueva versión del proyecto antes de reenviarlo"
@@ -1582,6 +1591,11 @@ class ServicioConvenios:
             if primera.resuelta_por_id == usuario.id:
                 raise RevisionNoDisponible(
                     "La segunda revisión debe ser aprobada por otro Revisor ORI"
+                )
+            if primera.version_resultado_id != version_actual.id:
+                raise RevisionNoDisponible(
+                    "La versión actual fue modificada después del primer aval "
+                    "jurídico y requiere reiniciar la revisión jurídica"
                 )
             etapa_destino = self.db.scalar(
                 select(Etapa).where(
