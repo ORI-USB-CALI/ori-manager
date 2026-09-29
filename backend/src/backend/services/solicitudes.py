@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -20,6 +20,7 @@ from backend.models.enums import (
     TipoDocumentoSolicitud,
 )
 from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
@@ -101,7 +102,15 @@ class ServicioSolicitudes:
 
     def _consulta_visible(self, usuario: Usuario):
         return select(SolicitudConvenio).where(
-            SolicitudConvenio.solicitante_id == usuario.id
+            or_(
+                SolicitudConvenio.solicitante_id == usuario.id,
+                exists(
+                    select(SolicitudUsuario.id).where(
+                        SolicitudUsuario.solicitud_id == SolicitudConvenio.id,
+                        SolicitudUsuario.usuario_id == usuario.id,
+                    )
+                ),
+            )
         )
 
     def _cargar(
