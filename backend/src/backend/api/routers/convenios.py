@@ -227,10 +227,12 @@ def obtener_convenio(
 
 @router.get("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)
 def obtener_elaboracion(
-    convenio_id: int, db: DatabaseSession, _: PuedeVer
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).obtener_para_elaboracion(convenio_id)
+        servicio = ServicioConvenios(db)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        return servicio.obtener_para_elaboracion(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -239,10 +241,12 @@ def obtener_elaboracion(
     "/{convenio_id}/elaboracion/validacion", response_model=ValidacionElaboracionLeer
 )
 def validar_elaboracion(
-    convenio_id: int, db: DatabaseSession, _: PuedeVer
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> ValidacionElaboracionLeer:
     try:
-        faltantes = ServicioConvenios(db).validar_elaboracion(convenio_id)
+        servicio = ServicioConvenios(db)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        faltantes = servicio.validar_elaboracion(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     return ValidacionElaboracionLeer(completo=not faltantes, faltantes=faltantes)
@@ -269,10 +273,12 @@ def guardar_elaboracion(
     "/{convenio_id}/versiones", response_model=list[VersionConvenioResumen]
 )
 def listar_versiones(
-    convenio_id: int, db: DatabaseSession, _: PuedeVer
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> list[VersionConvenioResumen]:
     try:
-        return ServicioConvenios(db).listar_versiones(convenio_id)
+        servicio = ServicioConvenios(db)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        return servicio.listar_versiones(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -281,10 +287,12 @@ def listar_versiones(
     "/{convenio_id}/versiones/{numero}", response_model=VersionConvenioLeer
 )
 def obtener_version(
-    convenio_id: int, numero: int, db: DatabaseSession, _: PuedeVer
+    convenio_id: int, numero: int, db: DatabaseSession, usuario: PuedeVer
 ) -> VersionConvenioLeer:
     try:
-        return ServicioConvenios(db).obtener_version(convenio_id, numero)
+        servicio = ServicioConvenios(db)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        return servicio.obtener_version(convenio_id, numero)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -319,7 +327,7 @@ def actualizar_convenio(
 
 @router.get("/{convenio_id}/revisiones", response_model=HistorialConvenioLeer)
 def obtener_historial_convenio(
-    convenio_id: int, db: DatabaseSession, _: PuedeVer
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> HistorialConvenioLeer:
     """CA-06/CA-07 de HU-13: historial de rondas de revisión y cambios de
     etapa del convenio, ordenados cronológicamente.
@@ -330,7 +338,9 @@ def obtener_historial_convenio(
     pueden empatar entre sí y no garantizan el orden real de inserción.
     """
     try:
-        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        servicio = ServicioConvenios(db)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        convenio = servicio.obtener_historial(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     revisiones = sorted(convenio.revisiones, key=lambda revision: revision.id)
@@ -433,12 +443,14 @@ def obtener_contenido_documento(
     documento_id: int,
     db: DatabaseSession,
     almacen: Storage,
-    _: PuedeVer,
+    usuario: PuedeVer,
 ) -> Response:
     try:
-        documento, contenido = ServicioConvenios(
-            db, almacen
-        ).obtener_contenido_documento(convenio_id, documento_id)
+        servicio = ServicioConvenios(db, almacen)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        documento, contenido = servicio.obtener_contenido_documento(
+            convenio_id, documento_id
+        )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     except ErrorAlmacenDocumentos as exc:

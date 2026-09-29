@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
+from backend.models.documento import Documento
 from backend.models.enums import (
     EstadoConvenio,
     EstadoRevisionConvenio,
@@ -19,6 +20,7 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.services.convenios import ServicioConvenios
+from backend.services.documentos import AlmacenDocumentosLocal
 
 URL_TABLERO = "/api/convenios/tablero"
 
@@ -85,6 +87,24 @@ def _entregar_a_juridica(
 
 def _convenios_por_id(cuerpo: dict) -> dict[int, dict]:
     return {convenio["id"]: convenio for convenio in cuerpo["convenios"]}
+
+
+def _agregar_documento(db: Session, convenio: Convenio, tmp_path) -> Documento:
+    contenido = b"documento protegido"
+    clave = f"solicitudes/{convenio.solicitud_id}/{uuid4().hex}.pdf"
+    AlmacenDocumentosLocal(tmp_path / "documentos").guardar(clave, contenido)
+    documento = Documento(
+        solicitud_id=convenio.solicitud_id,
+        tipo="RUT",
+        nombre_archivo="documento-protegido.pdf",
+        ruta_almacenamiento=clave,
+        tipo_mime="application/pdf",
+        tamano_bytes=len(contenido),
+        es_vigente=True,
+    )
+    db.add(documento)
+    db.commit()
+    return documento
 
 
 def test_sin_sesion_no_accede_al_tablero(client) -> None:
@@ -194,7 +214,7 @@ def test_revisor_ve_toda_la_trazabilidad_pero_solo_abre_revision_elegible(
 
 
 def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
-    db, client, crear_usuario, entrar_como, autor, crear_convenio
+    db, client, crear_usuario, entrar_como, autor, crear_convenio, tmp_path
 ) -> None:
     gestor_a = crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
     gestor_b = crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
@@ -209,6 +229,7 @@ def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
     assert client.get(f"/api/convenios/{ajeno.id}").status_code == 200
 
     juridica = _entregar_a_juridica(db, crear_convenio, autor)
+    documento = _agregar_documento(db, juridica, tmp_path)
     primer_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
     segundo_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
     entrar_como(primer_revisor)
@@ -225,9 +246,79 @@ def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
     )
     assert client.get(f"/api/convenios/{juridica.id}").status_code == 404
     assert client.get(f"/api/convenios/{juridica.id}/revision").status_code == 404
+    subrutas = (
+        f"/api/convenios/{juridica.id}/elaboracion",
+        f"/api/convenios/{juridica.id}/elaboracion/validacion",
+        f"/api/convenios/{juridica.id}/versiones",
+        f"/api/convenios/{juridica.id}/versiones/{juridica.version_actual}",
+        f"/api/convenios/{juridica.id}/revisiones",
+        f"/api/convenios/{juridica.id}/documentos/{documento.id}/contenido",
+    )
+    assert all(client.get(ruta).status_code == 404 for ruta in subrutas)
+
     entrar_como(segundo_revisor)
     assert client.get(f"/api/convenios/{juridica.id}").status_code == 200
     assert client.get(f"/api/convenios/{juridica.id}/revision").status_code == 200
+    assert all(client.get(ruta).status_code == 200 for ruta in subrutas)
+
+
+def test_revisor_fuera_de_etapa_juridica_no_accede_a_subrecursos_por_url(
+    db, client, crear_usuario, entrar_como, autor, crear_convenio, tmp_path
+) -> None:
+    convenio = crear_convenio(autor)
+    documento = _agregar_documento(db, convenio, tmp_path)
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO))
+
+    rutas = (
+        f"/api/convenios/{convenio.id}/elaboracion",
+        f"/api/convenios/{convenio.id}/elaboracion/validacion",
+        f"/api/convenios/{convenio.id}/versiones",
+        f"/api/convenios/{convenio.id}/versiones/{convenio.version_actual}",
+        f"/api/convenios/{convenio.id}/revisiones",
+        f"/api/convenios/{convenio.id}/documentos/{documento.id}/contenido",
+    )
+
+    assert all(client.get(ruta).status_code == 404 for ruta in rutas)
+
+
+def test_revisor_rj1_elegible_accede_a_subrecursos_protegidos(
+    db, client, crear_usuario, entrar_como, autor, crear_convenio, tmp_path
+) -> None:
+    convenio = _entregar_a_juridica(db, crear_convenio, autor)
+    documento = _agregar_documento(db, convenio, tmp_path)
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO))
+
+    rutas = (
+        f"/api/convenios/{convenio.id}/elaboracion",
+        f"/api/convenios/{convenio.id}/elaboracion/validacion",
+        f"/api/convenios/{convenio.id}/versiones",
+        f"/api/convenios/{convenio.id}/versiones/{convenio.version_actual}",
+        f"/api/convenios/{convenio.id}/revisiones",
+        f"/api/convenios/{convenio.id}/documentos/{documento.id}/contenido",
+    )
+
+    assert all(client.get(ruta).status_code == 200 for ruta in rutas)
+
+
+def test_gestor_y_administrador_conservan_acceso_amplio_incluso_a_vigente(
+    db, client, crear_usuario, entrar_como, crear_convenio
+) -> None:
+    gestor_a = crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
+    gestor_b = crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
+    administrador = crear_usuario(CodigoRol.ADMINISTRADOR_ORI, TipoUsuario.INTERNO)
+    convenio = crear_convenio(gestor_b)
+    _mover_a_etapa(db, convenio, "FIRMA_ARCHIVO_SEGUIMIENTO")
+    convenio.estado = EstadoConvenio.VIGENTE.value
+    db.commit()
+
+    for usuario in (gestor_a, administrador):
+        entrar_como(usuario)
+        assert client.get(f"/api/convenios/{convenio.id}").status_code == 200
+        assert (
+            client.get(f"/api/convenios/{convenio.id}/elaboracion").status_code
+            == 200
+        )
+        assert client.get(f"/api/convenios/{convenio.id}/versiones").status_code == 200
 
 
 def test_tablero_expone_solo_las_seis_etapas_operativas_en_orden(

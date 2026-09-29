@@ -785,7 +785,7 @@ def test_ca08_no_se_puede_finalizar_dos_veces(client, db, convenio_listo) -> Non
     assert len(_historiales_de(db, convenio_listo.id)) == 2
 
 
-def test_revisor_puede_consultar_pero_no_editar_ni_finalizar(
+def test_revisor_fuera_de_etapa_juridica_no_consulta_edita_ni_finaliza(
     client,
     gestor,
     crear_convenio,
@@ -796,7 +796,7 @@ def test_revisor_puede_consultar_pero_no_editar_ni_finalizar(
     revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
     entrar_como(revisor)
 
-    assert client.get(f"/api/convenios/{convenio.id}/elaboracion").status_code == 200
+    assert client.get(f"/api/convenios/{convenio.id}/elaboracion").status_code == 404
     assert (
         client.get("/api/convenios/catalogos/elaboracion").status_code == 200
     )

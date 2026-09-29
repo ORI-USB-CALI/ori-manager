@@ -3,12 +3,14 @@
 from copy import deepcopy
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.auditoria import Auditoria
 from backend.models.enums import ContextoVersionConvenio
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.version_convenio import VersionConvenio
@@ -204,6 +206,121 @@ def test_rj2_exige_otro_revisor_y_solo_entonces_habilita_contraparte(
             RevisionConvenio.tipo == "CONTRAPARTE",
         )
     ).all()
+
+
+def test_revisor_de_rj1_no_puede_consultar_ni_mutar_rj2(
+    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
+) -> None:
+    primera = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    assert client.post(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{primera.id}/aprobar",
+        json={"expected_version": convenio_listo.version_actual},
+    ).status_code == 200
+    segunda = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    tarjeta = next(
+        item
+        for item in client.get("/api/convenios/tablero").json()["convenios"]
+        if item["id"] == convenio_listo.id
+    )
+    assert tarjeta["puede_ver_detalle"] is False
+
+    contenido_actual = db.scalar(
+        select(VersionConvenio.contenido).where(
+            VersionConvenio.convenio_id == convenio_listo.id,
+            VersionConvenio.numero == convenio_listo.version_actual,
+        )
+    )
+    contenido_editado = _contenido_editado(
+        contenido_actual, "Intento no autorizado en RJ2"
+    )
+
+    def contar(model) -> int:
+        return db.scalar(
+            select(func.count()).select_from(model).where(
+                model.convenio_id == convenio_listo.id
+            )
+        )
+
+    estado_antes = (
+        contar(VersionConvenio),
+        contar(ObservacionRevision),
+        contar(HistorialEtapa),
+        db.scalar(
+            select(func.count()).select_from(Auditoria).where(
+                Auditoria.entidad == "revision_convenio",
+                Auditoria.registro_id == segunda.id,
+            )
+        ),
+        segunda.estado,
+        segunda.resultado,
+        convenio_listo.etapa_actual_id,
+    )
+    base = f"/api/convenios/{convenio_listo.id}/revisiones/{segunda.id}"
+    respuestas = (
+        client.patch(
+            f"{base}/contenido",
+            json={
+                "contenido": contenido_editado,
+                "expected_version": convenio_listo.version_actual,
+            },
+        ),
+        client.post(
+            f"{base}/observaciones",
+            json={"descripcion": "Intento no autorizado"},
+        ),
+        client.post(
+            f"{base}/devolver",
+            json={
+                "expected_version": convenio_listo.version_actual,
+                "observaciones": ["Intento no autorizado"],
+            },
+        ),
+        client.post(
+            f"{base}/aprobar",
+            json={"expected_version": convenio_listo.version_actual},
+        ),
+    )
+    assert all(respuesta.status_code == 409 for respuesta in respuestas)
+
+    db.expire_all()
+    segunda = db.get(RevisionConvenio, segunda.id)
+    convenio = db.get(type(convenio_listo), convenio_listo.id)
+    estado_despues = (
+        contar(VersionConvenio),
+        contar(ObservacionRevision),
+        contar(HistorialEtapa),
+        db.scalar(
+            select(func.count()).select_from(Auditoria).where(
+                Auditoria.entidad == "revision_convenio",
+                Auditoria.registro_id == segunda.id,
+            )
+        ),
+        segunda.estado,
+        segunda.resultado,
+        convenio.etapa_actual_id,
+    )
+    assert estado_despues == estado_antes
+
+    otro_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(otro_revisor)
+    assert client.get(f"/api/convenios/{convenio.id}/revision").status_code == 200
+    assert client.patch(
+        f"{base}/contenido",
+        json={
+            "contenido": contenido_editado,
+            "expected_version": convenio.version_actual,
+        },
+    ).status_code == 200
+    assert client.post(
+        f"{base}/observaciones",
+        json={"descripcion": "Observación válida de otro Revisor"},
+    ).status_code == 201
 
 
 def test_devolucion_exige_nueva_version_y_reinicia_desde_rj1_ronda_siguiente(
