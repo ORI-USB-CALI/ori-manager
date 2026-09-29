@@ -2,7 +2,8 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
@@ -121,6 +122,8 @@ def test_revision_convenio_admite_documento_e_historial_opcionales(
     sin_vinculos = RevisionConvenio(
         convenio_id=convenio.id,
         tipo=TipoRevisionConvenio.FINAL.value,
+        estado=EstadoRevisionConvenio.RESUELTA.value,
+        resultado=ResultadoRevisionConvenio.APROBADA.value,
     )
     con_vinculos = RevisionConvenio(
         convenio_id=convenio.id,
@@ -140,46 +143,45 @@ def test_revision_convenio_admite_documento_e_historial_opcionales(
     assert con_vinculos in documento.revisiones
 
 
-def test_varias_rondas_no_requieren_ciclo_ni_nuevo_historial(
+def test_revisiones_legacy_siguen_sin_coordenadas_y_solo_una_puede_estar_pendiente(
     db, crear_usuario
 ):
     usuario = crear_usuario()
     convenio, _ = _crear_contexto(db, usuario)
-    documento_v1 = _crear_documento(convenio, version=1)
-    documento_v2 = _crear_documento(convenio, version=2)
-    db.add_all([documento_v1, documento_v2])
-    db.flush()
-    revisiones = [
+    historicas = [
         RevisionConvenio(
             convenio_id=convenio.id,
             tipo=TipoRevisionConvenio.JURIDICA.value,
-            documento_id=documento_v1.id,
+            estado=EstadoRevisionConvenio.RESUELTA.value,
+            resultado=ResultadoRevisionConvenio.APROBADA.value,
         ),
         RevisionConvenio(
             convenio_id=convenio.id,
             tipo=TipoRevisionConvenio.JURIDICA.value,
-            documento_id=documento_v1.id,
-        ),
-        RevisionConvenio(
-            convenio_id=convenio.id,
-            tipo=TipoRevisionConvenio.JURIDICA.value,
-            documento_id=documento_v2.id,
+            estado=EstadoRevisionConvenio.RESUELTA.value,
+            resultado=ResultadoRevisionConvenio.DEVUELTA.value,
         ),
     ]
-
-    db.add_all(revisiones)
+    db.add_all(historicas)
     db.flush()
+    assert all(item.instancia_juridica is None for item in historicas)
+    assert all(item.numero_ronda is None for item in historicas)
+    assert all(item.version_resultado_id is None for item in historicas)
 
-    assert len({revision.id for revision in revisiones}) == 3
-    assert all(revision.historial_etapa_id is None for revision in revisiones)
-    assert revisiones[0].documento is revisiones[1].documento
-    assert revisiones[2].documento is documento_v2
-    assert db.scalar(
-        select(func.count())
-        .select_from(HistorialEtapa)
-        .where(HistorialEtapa.convenio_id == convenio.id)
-    ) == 1
-    assert "numero_ciclo" not in HistorialEtapa.__table__.columns
+    primera_pendiente = RevisionConvenio(
+        convenio_id=convenio.id,
+        tipo=TipoRevisionConvenio.JURIDICA.value,
+    )
+    db.add(primera_pendiente)
+    db.flush()
+    db.add(
+        RevisionConvenio(
+            convenio_id=convenio.id,
+            tipo=TipoRevisionConvenio.JURIDICA.value,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.flush()
 
 
 def test_observaciones_conservan_historial_y_pueden_agruparse_por_revision(
@@ -190,6 +192,7 @@ def test_observaciones_conservan_historial_y_pueden_agruparse_por_revision(
     revision_a = RevisionConvenio(
         convenio_id=convenio.id,
         tipo=TipoRevisionConvenio.CONTRAPARTE.value,
+        estado="RESUELTA",
     )
     revision_b = RevisionConvenio(
         convenio_id=convenio.id,
@@ -248,6 +251,7 @@ def test_politicas_on_delete_de_la_foundation():
         "historial_etapa_id": "RESTRICT",
         "documento_id": "RESTRICT",
         "responsable_id": "RESTRICT",
+        "creada_por_id": "RESTRICT",
         "resuelta_por_id": "RESTRICT",
     }
 

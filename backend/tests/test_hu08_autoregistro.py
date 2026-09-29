@@ -288,14 +288,23 @@ def test_admin_crea_usuario_operativo_verificado(
 
 
 def test_catalogo_publico_solo_expone_unidades_activas_y_campos_permitidos(
-    client, unidades_registro
+    client, db, unidades_registro
 ):
-    activas, inactiva = unidades_registro
+    _, inactiva = unidades_registro
 
     respuesta = client.get("/api/auth/registro/unidades")
 
     assert respuesta.status_code == 200
-    assert {item["id"] for item in respuesta.json()} == {item.id for item in activas}
+
+    ids_esperados = set(
+        db.scalars(
+            select(UnidadOrganizacional.id).where(
+                UnidadOrganizacional.activa.is_(True)
+            )
+        ).all()
+    )
+
+    assert {item["id"] for item in respuesta.json()} == ids_esperados
     assert all(set(item) == {"id", "nombre", "tipo"} for item in respuesta.json())
     assert inactiva.id not in {item["id"] for item in respuesta.json()}
 

@@ -416,14 +416,14 @@ def test_ca01_ca02_vista_expone_antecedente_y_conserva_aliado(
     assert cuerpo["solicitud"]["supervisor_contraparte_nombre"] == "María Salas"
 
 
-def test_ca02_la_vista_de_elaboracion_es_de_solo_lectura(
+def test_ca02_get_es_consulta_y_patch_exige_contrato_de_versionado(
     client, gestor, crear_convenio
 ) -> None:
     convenio = crear_convenio(gestor)
     ruta = f"/api/convenios/{convenio.id}/elaboracion"
 
     assert client.post(ruta, json={"objeto": "X"}).status_code == 405
-    assert client.patch(ruta, json={"objeto": "X"}).status_code == 405
+    assert client.patch(ruta, json={"objeto": "X"}).status_code == 422
 
 
 def test_vista_de_elaboracion_inexistente_responde_404(client, gestor) -> None:

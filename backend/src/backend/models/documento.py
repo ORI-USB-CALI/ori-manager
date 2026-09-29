@@ -21,6 +21,7 @@ from backend.db.base import Base
 
 if TYPE_CHECKING:
     from backend.models.convenio import Convenio
+    from backend.models.firma_convenio import FirmaConvenio
     from backend.models.revision_convenio import RevisionConvenio
     from backend.models.solicitud_convenio import SolicitudConvenio
     from backend.models.usuario import Usuario
@@ -97,3 +98,4 @@ class Documento(Base):
     revisiones: Mapped[list[RevisionConvenio]] = relationship(
         back_populates="documento"
     )
+    firmas: Mapped[list[FirmaConvenio]] = relationship(back_populates="documento")

@@ -1,7 +1,7 @@
 """HU-07 decision de solicitud
 
 Revision ID: 6c2cc29471c1
-Revises: 3c946dc86ec5
+Revises: c6f9b2e4d8a1
 Create Date: 2026-09-26 10:17:35.736162
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '6c2cc29471c1'
-down_revision: str | Sequence[str] | None = '3c946dc86ec5'
+down_revision: str | Sequence[str] | None = 'c6f9b2e4d8a1'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

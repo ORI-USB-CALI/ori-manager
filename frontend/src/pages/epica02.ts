@@ -57,6 +57,8 @@ export interface Convenio {
   aliado: Pick<Aliado, 'id' | 'nombre' | 'identificacion' | 'activo'> | null
   tipo_convenio_id: number | null
   etapa_actual_id: number | null
+  plantilla_origen_id: number | null
+  version_actual: number
   estado: EstadoConvenio
   objeto: string | null
   alcance: 'PROGRAMA' | 'INSTITUCIONAL' | null
@@ -167,6 +169,108 @@ export interface ElaboracionConvenio extends Convenio {
   etapa_actual: EtapaResumen | null
   tipo_convenio: TipoConvenioResumen | null
   unidad_organizacional: UnidadOrganizacionalResumen | null
+  plantilla_origen: PlantillaConvenioResumen | null
+  contenido: Record<string, unknown> | null
+}
+
+export interface PlantillaConvenioResumen {
+  id: number
+  codigo: string
+  nombre: string
+}
+
+export interface VersionConvenioResumen {
+  id: number
+  numero: number
+  autor: { id: number; nombre_completo: string; correo: string }
+  etapa: EtapaResumen
+  contexto: string
+  creado_en: string
+  plantilla: PlantillaConvenioResumen | null
+}
+
+export interface UsuarioResumen {
+  id: number
+  nombre_completo: string
+  correo: string
+}
+
+export interface ObservacionRevision {
+  id: number
+  origen: 'REVISOR_ORI' | 'CONTRAPARTE'
+  descripcion: string
+  respuesta: string | null
+  estado: 'PENDIENTE' | 'ATENDIDA'
+  registrada_por: UsuarioResumen | null
+  responsable: UsuarioResumen | null
+  atendida_por: UsuarioResumen | null
+  fecha_atencion: string | null
+  creado_en: string
+}
+
+export interface InvitacionContraparteTrazabilidad {
+  id: number
+  generada_por: UsuarioResumen
+  correo_destino: string
+  correo_cc: string | null
+  expira_en: string
+  enviado_en: string | null
+  utilizado_en: string | null
+  revocado_en: string | null
+  creado_en: string
+}
+
+export interface RespuestaContraparteTrazabilidad {
+  nombre_firmante: string
+  cargo_firmante: string
+  correo_actor: string
+  firma_sha256: string | null
+  creado_en: string
+  tiene_firma: boolean
+}
+
+export interface RevisionConvenioTrazabilidad {
+  id: number
+  version_convenio_id: number | null
+  version_resultado_id: number | null
+  version_convenio: { id: number; numero: number } | null
+  version_resultado: { id: number; numero: number } | null
+  instancia_juridica: number | null
+  numero_ronda: number | null
+  tipo: 'JURIDICA' | 'CONTRAPARTE' | 'FINAL'
+  estado: 'PENDIENTE' | 'RESUELTA'
+  resultado: 'APROBADA' | 'DEVUELTA' | null
+  responsable: UsuarioResumen | null
+  creada_por: UsuarioResumen | null
+  resuelta_por: UsuarioResumen | null
+  snapshot_datos: { objeto?: string | null } | null
+  creado_en: string
+  resuelta_en: string | null
+  observaciones: ObservacionRevision[]
+  invitaciones_contraparte: InvitacionContraparteTrazabilidad[]
+  respuesta_contraparte: RespuestaContraparteTrazabilidad | null
+}
+
+export interface HistorialConvenio {
+  revisiones: RevisionConvenioTrazabilidad[]
+  cambios_etapa: Array<{
+    id: number
+    etapa_origen: EtapaResumen | null
+    etapa_destino: EtapaResumen
+    usuario: UsuarioResumen
+    responsable: UsuarioResumen | null
+    observacion: string | null
+    fecha_cambio: string
+  }>
+}
+
+export function useVersionesConvenio(convenioId: number) {
+  return useQuery({
+    queryKey: ['convenios', convenioId, 'versiones'],
+    queryFn: () => apiFetch<VersionConvenioResumen[]>(`/convenios/${convenioId}/versiones`),
+    enabled: Number.isInteger(convenioId),
+    retry: false,
+  })
 }
 
 export function useElaboracionConvenio(convenioId: number) {
