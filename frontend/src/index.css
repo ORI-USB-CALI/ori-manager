@@ -586,6 +586,101 @@ a:hover {
   margin-top: 16px;
 }
 
+.tablero-convenios {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 2px 2px 16px;
+  overflow-x: auto;
+}
+
+.tablero-columna {
+  min-height: 280px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.tablero-columna-header,
+.tablero-tarjeta-titulo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tablero-columna-header {
+  min-height: 72px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tablero-columna-header h2 {
+  font-size: 1rem;
+}
+
+.tablero-columna-header p,
+.tablero-etapa-vacia {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.tablero-contador {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgb(243 108 33 / 12%);
+  color: var(--color-naranja);
+  font-weight: 750;
+}
+
+.tablero-tarjetas {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.tablero-tarjeta {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  box-shadow: 0 2px 8px rgb(26 29 32 / 5%);
+}
+
+.tablero-tarjeta-titulo h3 {
+  overflow-wrap: anywhere;
+}
+
+.tablero-tarjeta dl {
+  display: grid;
+  grid-template-columns: minmax(82px, auto) minmax(0, 1fr);
+  gap: 7px 10px;
+}
+
+.tablero-tarjeta dt {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.tablero-tarjeta dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tablero-tarjeta .btn {
+  width: 100%;
+}
+
 .modal {
   width: min(720px, calc(100% - 32px));
   max-height: calc(100vh - 32px);
@@ -1532,6 +1627,15 @@ a:hover {
 }
 
 @media (max-width: 640px) {
+  .tablero-convenios {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: visible;
+  }
+
+  .tablero-columna {
+    min-height: auto;
+  }
+
   .navbar-brand-extra {
     display: none;
   }

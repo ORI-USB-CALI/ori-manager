@@ -1,10 +1,11 @@
 from datetime import UTC, date, datetime
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, exists, false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
+from backend.core.roles import CodigoRol
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
@@ -460,7 +461,92 @@ class ServicioConvenios:
             raise ConvenioNoEncontrado("Convenio no encontrado")
         return convenio
 
-    def listar_revisiones_juridicas_pendientes(self) -> list[RevisionConvenio]:
+    @staticmethod
+    def _filtro_alcance_operativo(usuario: Usuario):
+        """Scope SQL del tablero y de su detalle, según el rol autenticado."""
+        codigo_rol = usuario.rol.codigo
+        if codigo_rol == CodigoRol.ADMINISTRADOR_ORI.value:
+            return Convenio.id.is_not(None)
+        if codigo_rol == CodigoRol.GESTOR_ORI.value:
+            return Convenio.creado_por_id == usuario.id
+        if codigo_rol != CodigoRol.REVISOR_ORI.value:
+            return false()
+
+        revision = aliased(RevisionConvenio)
+        primera = aliased(RevisionConvenio)
+        primera_resuelta_por_actor = exists(
+            select(primera.id).where(
+                primera.convenio_id == revision.convenio_id,
+                primera.tipo == TipoRevisionConvenio.JURIDICA.value,
+                primera.numero_ronda == revision.numero_ronda,
+                primera.instancia_juridica == 1,
+                primera.resuelta_por_id == usuario.id,
+            )
+        ).correlate(revision)
+        revision_elegible = exists(
+            select(revision.id).where(
+                revision.convenio_id == Convenio.id,
+                revision.tipo == TipoRevisionConvenio.JURIDICA.value,
+                revision.estado == EstadoRevisionConvenio.PENDIENTE.value,
+                or_(
+                    revision.instancia_juridica == 1,
+                    and_(
+                        revision.instancia_juridica == 2,
+                        ~primera_resuelta_por_actor,
+                    ),
+                ),
+            )
+        ).correlate(Convenio)
+        return and_(
+            Convenio.etapa_actual.has(
+                Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA
+            ),
+            revision_elegible,
+        )
+
+    def obtener_en_alcance_operativo(
+        self, convenio_id: int, usuario: Usuario
+    ) -> Convenio:
+        """Protege el detalle operativo sin alterar la consulta histórica de
+        convenios que ya salieron de EN_TRAMITE."""
+        convenio = self.db.scalar(
+            select(Convenio)
+            .options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.creado_por),
+                joinedload(Convenio.etapa_actual),
+            )
+            .where(
+                Convenio.id == convenio_id,
+                or_(
+                    Convenio.estado != EstadoConvenio.EN_TRAMITE.value,
+                    and_(
+                        Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
+                        self._filtro_alcance_operativo(usuario),
+                    ),
+                ),
+            )
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        return convenio
+
+    def verificar_alcance_operativo(
+        self, convenio_id: int, usuario: Usuario
+    ) -> None:
+        visible = self.db.scalar(
+            select(Convenio.id).where(
+                Convenio.id == convenio_id,
+                Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
+                self._filtro_alcance_operativo(usuario),
+            )
+        )
+        if visible is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+
+    def listar_revisiones_juridicas_pendientes(
+        self, usuario: Usuario
+    ) -> list[RevisionConvenio]:
         return list(
             self.db.scalars(
                 select(RevisionConvenio)
@@ -483,10 +569,70 @@ class ServicioConvenios:
                     RevisionConvenio.estado
                     == EstadoRevisionConvenio.PENDIENTE.value,
                     Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA,
+                    Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
+                    self._filtro_alcance_operativo(usuario),
                 )
                 .order_by(RevisionConvenio.creado_en, RevisionConvenio.id)
             )
         )
+
+    def listar_tablero(
+        self, usuario: Usuario
+    ) -> tuple[list[Etapa], list[tuple[Convenio, Usuario | None]]]:
+        """Etapas y convenios en trámite dentro del alcance operativo del actor."""
+        etapas = list(
+            self.db.scalars(
+                select(Etapa).where(Etapa.activa.is_(True)).order_by(Etapa.orden)
+            )
+        )
+        revision_juridica = aliased(RevisionConvenio)
+        responsable = aliased(Usuario)
+        filas = self.db.execute(
+            select(Convenio, responsable)
+            .outerjoin(Convenio.etapa_actual)
+            .outerjoin(
+                revision_juridica,
+                and_(
+                    revision_juridica.convenio_id == Convenio.id,
+                    revision_juridica.tipo
+                    == TipoRevisionConvenio.JURIDICA.value,
+                    revision_juridica.estado
+                    == EstadoRevisionConvenio.PENDIENTE.value,
+                    Etapa.codigo == CODIGO_ETAPA_REVISION_JURIDICA,
+                ),
+            )
+            .outerjoin(
+                responsable,
+                responsable.id == revision_juridica.responsable_id,
+            )
+            .options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.creado_por),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.solicitud),
+            )
+            .where(
+                Convenio.estado == EstadoConvenio.EN_TRAMITE.value,
+                self._filtro_alcance_operativo(usuario),
+            )
+            .order_by(Etapa.orden, Convenio.creado_en, Convenio.id)
+        ).all()
+        resultado = []
+        for convenio, revisor_asignado in filas:
+            responsable_operativo = None
+            if (
+                convenio.etapa_actual is not None
+                and convenio.etapa_actual.codigo == CODIGO_ETAPA_ELABORACION
+            ):
+                responsable_operativo = convenio.creado_por
+            elif (
+                convenio.etapa_actual is not None
+                and convenio.etapa_actual.codigo
+                == CODIGO_ETAPA_REVISION_JURIDICA
+            ):
+                responsable_operativo = revisor_asignado
+            resultado.append((convenio, responsable_operativo))
+        return etapas, resultado
 
     @staticmethod
     def _destinatarios_contraparte(

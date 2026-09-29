@@ -27,6 +27,7 @@ from backend.schemas.convenio import (
     ConvenioElaboracionLeer,
     ConvenioLeer,
     ConvenioParaRevisionLeer,
+    ConvenioTableroLeer,
     CrearObservacionRevision,
     DevolverRevision,
     DocumentoConvenioLeer,
@@ -41,6 +42,7 @@ from backend.schemas.convenio import (
     RevisionConvenioLeer,
     RevisionFinalLeer,
     RevisionJuridicaPendienteLeer,
+    TableroConveniosLeer,
     ValidacionElaboracionLeer,
     VersionConvenioLeer,
     VersionConvenioResumen,
@@ -165,9 +167,9 @@ def obtener_catalogos_elaboracion(
     response_model=list[RevisionJuridicaPendienteLeer],
 )
 def listar_revisiones_juridicas_pendientes(
-    db: DatabaseSession, _: PuedeRevisar
+    db: DatabaseSession, usuario: PuedeRevisar
 ) -> list[RevisionJuridicaPendienteLeer]:
-    revisiones = ServicioConvenios(db).listar_revisiones_juridicas_pendientes()
+    revisiones = ServicioConvenios(db).listar_revisiones_juridicas_pendientes(usuario)
     return [
         RevisionJuridicaPendienteLeer(
             revision_id=revision.id,
@@ -190,12 +192,34 @@ def listar_revisiones_juridicas_pendientes(
     ]
 
 
+@router.get("/tablero", response_model=TableroConveniosLeer)
+def obtener_tablero(db: DatabaseSession, usuario: PuedeVer) -> TableroConveniosLeer:
+    etapas, convenios = ServicioConvenios(db).listar_tablero(usuario)
+    return TableroConveniosLeer(
+        etapas=etapas,
+        convenios=[
+            ConvenioTableroLeer(
+                id=convenio.id,
+                codigo=convenio.codigo,
+                estado=convenio.estado,
+                etapa_actual=convenio.etapa_actual,
+                aliado=convenio.aliado,
+                aliado_propuesto=convenio.solicitud.nombre_aliado_propuesto,
+                responsable=responsable,
+            )
+            for convenio, responsable in convenios
+        ],
+    )
+
+
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
 def obtener_convenio(
-    convenio_id: int, db: DatabaseSession, _: PuedeVer
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).obtener(convenio_id)
+        return ServicioConvenios(db).obtener_en_alcance_operativo(
+            convenio_id, usuario
+        )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -318,19 +342,21 @@ def obtener_historial_convenio(
 
 @router.get("/{convenio_id}/revision", response_model=ConvenioParaRevisionLeer)
 def obtener_revision_pendiente(
-    convenio_id: int, db: DatabaseSession, _: PuedeRevisar
+    convenio_id: int, db: DatabaseSession, usuario: PuedeRevisar
 ) -> ConvenioParaRevisionLeer:
     """CA-01/CA-02 de HU-13: pantalla principal de revisión jurídica — el
     convenio preparado para revisión, sus documentos y la ronda de revisión
     pendiente que el Revisor ORI debe resolver."""
     try:
+        servicio = ServicioConvenios(db)
+        servicio.verificar_alcance_operativo(convenio_id, usuario)
         (
             convenio,
             revision_pendiente,
             documentos,
             version_recibida,
             version_actual,
-        ) = ServicioConvenios(db).obtener_para_revision(convenio_id)
+        ) = servicio.obtener_para_revision(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     return ConvenioParaRevisionLeer(

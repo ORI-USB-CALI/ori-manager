@@ -334,6 +334,25 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     version_numero: int | None
 
 
+class EtapaTableroLeer(EtapaResumen):
+    area_responsable: str | None
+
+
+class ConvenioTableroLeer(BaseModel):
+    id: int
+    codigo: str | None
+    estado: EstadoConvenio
+    etapa_actual: EtapaTableroLeer | None
+    aliado: AliadoResumen | None
+    aliado_propuesto: str | None
+    responsable: UsuarioResumen | None
+
+
+class TableroConveniosLeer(BaseModel):
+    etapas: list[EtapaTableroLeer]
+    convenios: list[ConvenioTableroLeer]
+
+
 class HistorialEtapaLeer(BaseModel):
     """Un cambio de etapa del convenio, para la trazabilidad de CA-07."""
 

@@ -146,6 +146,33 @@ export interface EtapaResumen {
   nombre: string
 }
 
+export interface EtapaTablero extends EtapaResumen {
+  area_responsable: string | null
+}
+
+export interface ConvenioTablero {
+  id: number
+  codigo: string | null
+  estado: EstadoConvenio
+  etapa_actual: EtapaTablero | null
+  aliado: { id: number; nombre: string } | null
+  aliado_propuesto: string | null
+  responsable: UsuarioResumen | null
+}
+
+export interface TableroConvenios {
+  etapas: EtapaTablero[]
+  convenios: ConvenioTablero[]
+}
+
+export function useTableroConvenios() {
+  return useQuery({
+    queryKey: ['convenios', 'tablero'],
+    queryFn: () => apiFetch<TableroConvenios>('/convenios/tablero'),
+    retry: false,
+  })
+}
+
 export interface TipoConvenioResumen {
   id: number
   codigo: string
