@@ -619,7 +619,7 @@ def test_endpoints_de_metadata_no_resuelven_storage(
     )
 
 
-def test_ca08_solo_propias_incluso_si_existe_asociacion(
+def test_ca08_propias_y_asociadas_son_visibles_sin_transferir_propiedad(
     db, client, crear_usuario, entrar_como, unidad
 ):
     primero = _autenticar(
@@ -644,20 +644,56 @@ def test_ca08_solo_propias_incluso_si_existe_asociacion(
     )
     db.commit()
     ajena = client.post("/api/solicitudes", json={}).json()["id"]
+    documento_ajeno = _subir_documentos(client, ajena)
     entrar_como(primero)
+
     assert client.get(f"/api/solicitudes/{propia}").status_code == 200
     assert client.get(f"/api/solicitudes/{ajena}").status_code == 404
     ids = {item["id"] for item in client.get("/api/solicitudes/mias").json()["items"]}
     assert propia in ids and ajena not in ids
+
     db.add(SolicitudUsuario(solicitud_id=ajena, usuario_id=primero.id))
+    db.add(SolicitudUsuario(solicitud_id=propia, usuario_id=primero.id))
     db.commit()
-    assert client.get(f"/api/solicitudes/{ajena}").status_code == 404
-    ids = {item["id"] for item in client.get("/api/solicitudes/mias").json()["items"]}
-    assert propia in ids and ajena not in ids
-    assert (
-        client.patch(
-            f"/api/solicitudes/{ajena}", json={"objeto": "No permitido"}
-        ).status_code
-        == 404
+
+    assert client.get(f"/api/solicitudes/{ajena}").status_code == 200
+    items = client.get("/api/solicitudes/mias").json()["items"]
+    ids = [item["id"] for item in items]
+    assert propia in ids and ajena in ids
+    assert ids.count(propia) == 1
+
+    persistida = db.get(SolicitudConvenio, ajena)
+    objeto_original = persistida.objeto
+    assert client.patch(
+        f"/api/solicitudes/{ajena}", json={"objeto": "No permitido"}
+    ).status_code == 404
+    db.refresh(persistida)
+    assert persistida.objeto == objeto_original
+
+    assert client.post(f"/api/solicitudes/{ajena}/radicar").status_code == 404
+    db.refresh(persistida)
+    assert persistida.estado == EstadoSolicitud.BORRADOR
+    assert persistida.fecha_radicacion is None
+
+    documentos_antes = db.scalar(
+        select(func.count()).select_from(Documento).where(
+            Documento.solicitud_id == ajena
+        )
     )
+    carga = client.post(
+        f"/api/solicitudes/{ajena}/documentos",
+        data={"tipo_documento": "OTRO_SOPORTE"},
+        files={"archivo": ("no-permitido.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert carga.status_code == 404
+    assert db.scalar(
+        select(func.count()).select_from(Documento).where(
+            Documento.solicitud_id == ajena
+        )
+    ) == documentos_antes
+
+    assert client.delete(
+        f"/api/solicitudes/{ajena}/documentos/{documento_ajeno['id']}"
+    ).status_code == 404
+    assert db.get(Documento, documento_ajeno["id"]) is not None
     assert segundo.id != primero.id
