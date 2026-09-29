@@ -1,7 +1,7 @@
 """HU-17 area responsable por etapa
 
 Revision ID: 68abde7e23b2
-Revises: 9d4e7a1c2b63
+Revises: c6f9b2e4d8a1
 Create Date: 2026-09-26 17:32:26.517622
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '68abde7e23b2'
-down_revision: str | Sequence[str] | None = '9d4e7a1c2b63'
+down_revision: str | Sequence[str] | None = 'c6f9b2e4d8a1'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
