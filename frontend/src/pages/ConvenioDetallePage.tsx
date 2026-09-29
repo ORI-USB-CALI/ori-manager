@@ -13,7 +13,6 @@ import {
   type Convenio,
   type ElaboracionConvenio,
   type HistorialConvenio,
-  type InvitacionContraparteTrazabilidad,
 } from './epica02'
 
 interface UsuarioResumen { id: number; nombre_completo: string }
@@ -49,22 +48,6 @@ function fecha(valor: string | null | undefined) {
   return valor ? new Date(valor).toLocaleString() : '—'
 }
 
-function invitacionMasReciente(invitaciones: InvitacionContraparteTrazabilidad[]) {
-  return invitaciones.reduce<InvitacionContraparteTrazabilidad | null>((reciente, item) => {
-    if (!reciente) return item
-    const diferencia = new Date(item.creado_en).getTime() - new Date(reciente.creado_en).getTime()
-    return diferencia > 0 || (diferencia === 0 && item.id > reciente.id) ? item : reciente
-  }, null)
-}
-
-function estadoInvitacion(invitacion: InvitacionContraparteTrazabilidad | null) {
-  if (!invitacion || !invitacion.enviado_en) return 'Entrega fallida'
-  if (invitacion.revocado_en) return 'Revocada'
-  if (invitacion.utilizado_en) return 'Utilizada'
-  if (new Date(invitacion.expira_en).getTime() <= Date.now()) return 'Expirada'
-  return 'Pendiente'
-}
-
 function tamanoLegible(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -89,7 +72,6 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
-  const [confirmarReenvio, setConfirmarReenvio] = useState(false)
 
   const convenio = useQuery({
     queryKey: ['convenio', id],
@@ -125,9 +107,6 @@ export function ConvenioDetallePage() {
   const revisionContrapartePendiente = historialContraparte.data?.revisiones.find(
     (item) => item.tipo === 'CONTRAPARTE' && item.estado === 'PENDIENTE',
   )
-  const ultimaInvitacion = revisionContrapartePendiente
-    ? invitacionMasReciente(revisionContrapartePendiente.invitaciones_contraparte)
-    : null
 
   async function refrescarRevision(limpiarBorrador = true) {
     if (limpiarBorrador) setBorrador(null)
@@ -217,36 +196,12 @@ export function ConvenioDetallePage() {
       }
     },
   })
-  const reenviarContraparte = useMutation({
-    mutationFn: () => apiFetch(
-      `/convenios/${id}/revisiones/${revisionContrapartePendiente?.id}/contraparte/reenviar`,
-      { method: 'POST' },
-    ),
-    onSuccess: async () => {
-      setConfirmarReenvio(false)
-      notify({ type: 'success', message: 'Se generó y envió un nuevo enlace a la contraparte.' })
-      await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'], exact: true })
-    },
-    onError: async (error) => {
-      notify({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'No fue posible reenviar el enlace.',
-      })
-      if (error instanceof ApiError && (error.status === 409 || error.status === 502)) {
-        setConfirmarReenvio(false)
-        await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'], exact: true })
-      }
-    },
-  })
-
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
   if (convenio.isError) return <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
   if (!convenio.data) return null
   const datos = convenio.data
   const etapaActual = flujoContraparte.data?.etapa_actual?.codigo
   const habilitadoParaContraparte = flujoContraparte.data?.etapa_actual?.codigo === 'REVISION_CONTRAPARTE'
-  const solicitanteDestino = flujoContraparte.data?.solicitud.solicitante_nombre
-    ?? flujoContraparte.data?.solicitud.solicitante_correo
   const puedeEnviarContraparte = puede('convenios.gestionar_revision_contraparte')
     && convenio.isSuccess
     && !convenio.isFetching
@@ -279,19 +234,18 @@ export function ConvenioDetallePage() {
           <div className="revision-contraparte-cabecera">
             <div>
               <h2>Revisión de contraparte</h2>
-              <p className="section-help">La versión {datos.version_actual} cuenta con aval jurídico y se enviará al contacto externo mediante un enlace válido por una hora.</p>
+              <p className="section-help">La versión {datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.</p>
             </div>
             <span className="badge badge-neutral">Lista para envío</span>
           </div>
           <dl className="proyecto-datos revision-contraparte-datos">
             <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
-            <dt>Contacto</dt><dd>{flujoContraparte.data?.solicitud.contacto_contraparte_nombre ?? '—'}</dd>
-            <dt>Enviar a</dt><dd>{flujoContraparte.data?.solicitud.contacto_contraparte_correo ?? '—'}</dd>
-            <dt>CC informativa</dt><dd>{flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</dd>
+            <dt>Solicitante responsable</dt><dd>{flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'}</dd>
+            <dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</dd>
           </dl>
           <div className="page-toolbar">
-            <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending || reenviarContraparte.isPending}>
-              Enviar a contraparte
+            <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending}>
+              Enviar a revisión de contraparte
             </button>
           </div>
         </section>
@@ -301,29 +255,17 @@ export function ConvenioDetallePage() {
           <div className="revision-contraparte-cabecera">
             <div>
               <h2>Revisión de contraparte en curso</h2>
-              <p className="section-help">La contraparte externa puede aprobar o devolver la versión recibida mediante su enlace temporal.</p>
+              <p className="section-help">El Solicitante responsable puede aprobar o devolver la versión desde su sesión en ORI Manager.</p>
             </div>
-            <span className={`badge ${ultimaInvitacion?.enviado_en ? 'badge-pendiente' : 'badge-inactivo'}`}>
-              {estadoInvitacion(ultimaInvitacion)}
-            </span>
+            <span className="badge badge-pendiente">Pendiente</span>
           </div>
-          {!ultimaInvitacion?.enviado_en && (
-            <p className="alert-error" role="alert">La revisión fue creada, pero no fue posible entregar el correo.</p>
-          )}
           <dl className="proyecto-datos revision-contraparte-datos">
             <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
-            <dt>Enviado a</dt><dd>{ultimaInvitacion?.correo_destino ?? '—'}</dd>
-            <dt>CC</dt><dd>{ultimaInvitacion?.correo_cc ?? 'Sin copia'}</dd>
-            <dt>Generado por</dt><dd>{ultimaInvitacion?.generada_por.nombre_completo ?? revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</dd>
-            <dt>Generado</dt><dd>{fecha(ultimaInvitacion?.creado_en ?? revisionContrapartePendiente.creado_en)}</dd>
-            <dt>Enviado</dt><dd>{ultimaInvitacion?.enviado_en ? fecha(ultimaInvitacion.enviado_en) : 'Entrega pendiente'}</dd>
-            <dt>Expira</dt><dd>{fecha(ultimaInvitacion?.expira_en)}</dd>
+            <dt>Solicitante responsable</dt><dd>{revisionContrapartePendiente.responsable?.nombre_completo ?? '—'}</dd>
+            <dt>Correo</dt><dd>{revisionContrapartePendiente.responsable?.correo ?? '—'}</dd>
+            <dt>Enviado por</dt><dd>{revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</dd>
+            <dt>Fecha de envío</dt><dd>{fecha(revisionContrapartePendiente.creado_en)}</dd>
           </dl>
-          <div className="page-toolbar">
-            <button className="btn btn-outline" type="button" onClick={() => setConfirmarReenvio(true)} disabled={reenviarContraparte.isPending || enviarContraparte.isPending}>
-              Reenviar enlace
-            </button>
-          </div>
         </section>
       )}
 
@@ -405,24 +347,8 @@ export function ConvenioDetallePage() {
           onCerrar={() => setConfirmarEnvio(false)}
         >
           <p>Se enviará la versión {datos.version_actual}, aprobada jurídicamente.</p>
-          <p><strong>Destinatario:</strong> {flujoContraparte.data?.solicitud.contacto_contraparte_nombre ?? 'Contacto de contraparte'} · {flujoContraparte.data?.solicitud.contacto_contraparte_correo ?? '—'}</p>
-          <p><strong>CC:</strong> {flujoContraparte.data?.solicitud.solicitante_correo ?? solicitanteDestino ?? '—'}</p>
-          <p className="texto-secundario">El contacto externo recibirá un enlace temporal para aprobar la versión recibida o devolverla a la ORI con observaciones. El Solicitante recibirá únicamente una copia informativa.</p>
-        </ConfirmacionModal>
-      )}
-
-      {confirmarReenvio && revisionContrapartePendiente && (
-        <ConfirmacionModal
-          titulo="Reenviar enlace de revisión"
-          confirmar="Generar y reenviar enlace"
-          procesando="Reenviando…"
-          pendiente={reenviarContraparte.isPending}
-          onConfirmar={() => reenviarContraparte.mutate()}
-          onCerrar={() => setConfirmarReenvio(false)}
-        >
-          <p>Se revocará el enlace anterior y se generará uno nuevo para la misma revisión y la misma versión {revisionContrapartePendiente.version_convenio?.numero ?? '—'}.</p>
-          <p><strong>Destinatario:</strong> {ultimaInvitacion?.correo_destino ?? '—'}</p>
-          <p><strong>CC:</strong> {ultimaInvitacion?.correo_cc ?? 'Sin copia'}</p>
+          <p><strong>Solicitante responsable:</strong> {flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'} · {flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</p>
+          <p className="texto-secundario">La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.</p>
         </ConfirmacionModal>
       )}
     </>

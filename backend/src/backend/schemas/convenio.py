@@ -334,6 +334,26 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     version_numero: int | None
 
 
+class RevisionContrapartePendienteLeer(BaseModel):
+    revision_id: int
+    convenio_id: int
+    codigo_convenio: str | None
+    objeto: str | None
+    version_numero: int
+    fecha_envio: datetime
+    enviada_por: UsuarioResumen
+
+
+class RevisionContraparteDetalleLeer(BaseModel):
+    convenio_id: int
+    codigo_convenio: str | None
+    objeto: str | None
+    revision: RevisionConvenioLeer
+    version_recibida: VersionConvenioLeer
+    enviada_por: UsuarioResumen
+    fecha_envio: datetime
+
+
 class EtapaTableroLeer(EtapaResumen):
     area_responsable: str | None
 
