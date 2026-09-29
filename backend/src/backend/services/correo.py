@@ -15,6 +15,7 @@ class MensajeCorreo:
     asunto: str
     texto: str
     html: str
+    cc: tuple[str, ...] = ()
 
 
 class EnviadorCorreo(Protocol):
@@ -49,6 +50,7 @@ class CorreoBrevo:
         self._cliente = cliente or httpx.Client(timeout=15.0)
 
     def enviar(self, mensaje: MensajeCorreo) -> None:
+        fallo_proveedor = False
         try:
             respuesta = self._cliente.post(
                 BREVO_EMAIL_URL,
@@ -62,16 +64,24 @@ class CorreoBrevo:
                         "email": self._remitente_correo,
                     },
                     "to": [{"email": mensaje.destinatario}],
+                    **(
+                        {"cc": [{"email": correo} for correo in mensaje.cc]}
+                        if mensaje.cc
+                        else {}
+                    ),
                     "subject": mensaje.asunto,
                     "htmlContent": mensaje.html,
                     "textContent": mensaje.texto,
                 },
             )
             respuesta.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise ErrorEnvioCorreo(
-                "No fue posible enviar el correo transaccional"
-            ) from exc
+        except httpx.HTTPError:
+            # Se sale del bloque except antes de crear la excepción de dominio:
+            # así no queda encadenado el request de httpx, cuyo body contiene el
+            # enlace temporal y su token plano.
+            fallo_proveedor = True
+        if fallo_proveedor:
+            raise ErrorEnvioCorreo("No fue posible enviar el correo transaccional")
 
 
 @lru_cache

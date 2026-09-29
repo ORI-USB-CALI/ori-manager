@@ -890,6 +890,418 @@ a:hover {
   gap: 10px;
 }
 
+.revision-contraparte-gestion {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 24px;
+  border-left: 4px solid var(--color-magenta);
+}
+
+.revision-contraparte-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.revision-contraparte-cabecera h2 {
+  margin-bottom: 6px;
+}
+
+.revision-contraparte-cabecera .section-help,
+.revision-contraparte-gestion .page-toolbar {
+  margin-bottom: 0;
+}
+
+.revision-contraparte-datos {
+  max-width: 720px;
+  margin-top: 0;
+}
+
+.seguimiento-firmas {
+  display: grid;
+  gap: 20px;
+}
+
+.firmas-lista {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.firma-seguimiento {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.firma-seguimiento-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.firma-seguimiento-cabecera strong,
+.firma-seguimiento .proyecto-datos,
+.firma-seguimiento .proyecto-datos dd,
+.firma-seguimiento a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.firma-seguimiento .proyecto-datos {
+  grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
+}
+
+.firma-fisica-resumen {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  border-radius: 7px;
+  background: #f1f5f9;
+}
+
+.firma-fisica-resumen p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.firmas-fisicas-seleccion {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.firmas-fisicas-seleccion legend {
+  margin-bottom: 8px;
+  font-weight: 650;
+}
+
+.firmas-fisicas-seleccion label {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+}
+
+.firmas-fisicas-seleccion span,
+.firmas-fisicas-seleccion small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.firma-configuracion {
+  display: grid;
+  gap: 10px;
+}
+
+.firma-configuracion .form-group {
+  margin: 0;
+}
+
+.formalizacion-convenio {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
+.formalizacion-convenio h3,
+.formalizacion-convenio p {
+  margin: 0;
+}
+
+.formalizacion-convenio p {
+  margin-top: 5px;
+  color: var(--text-secondary);
+}
+
+.formalizacion-convenio .btn {
+  flex: 0 0 auto;
+}
+
+.devolucion-observaciones {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.devolucion-observaciones h3,
+.devolucion-observaciones p,
+.observacion-borrador .form-group {
+  margin-bottom: 0;
+}
+
+.observacion-borrador {
+  display: grid;
+  gap: 8px;
+}
+
+.observacion-borrador .btn {
+  justify-self: start;
+}
+
+.revision-publica-shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background:
+    linear-gradient(135deg, rgb(196 20 37 / 7%), transparent 42%),
+    var(--bg-main);
+}
+
+.revision-publica-header {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px max(24px, calc((100vw - 1120px) / 2));
+  border-bottom: 1px solid var(--border-color);
+  background: white;
+}
+
+.revision-publica-header > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.revision-publica-header strong {
+  display: inline-grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-rojo);
+  color: white;
+  letter-spacing: .04em;
+}
+
+.revision-publica-header span {
+  color: var(--text-secondary);
+}
+
+.revision-publica-main {
+  display: grid;
+  width: min(1120px, calc(100% - 32px));
+  flex: 1;
+  gap: 24px;
+  align-content: start;
+  margin: 0 auto;
+  padding: 36px 0 48px;
+}
+
+.revision-publica-presentacion {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.revision-publica-presentacion p,
+.revision-publica-resumen > p,
+.revision-publica-acciones > p {
+  color: var(--text-secondary);
+}
+
+.revision-publica-resumen h3 {
+  margin: 22px 0 8px;
+}
+
+.revision-publica-documento {
+  min-width: 0;
+  border-top: 4px solid var(--color-naranja);
+}
+
+.revision-publica-documento .convenio-editor .ProseMirror {
+  min-height: 480px;
+}
+
+.revision-publica-acciones {
+  display: grid;
+  gap: 10px;
+  border-left: 4px solid var(--color-magenta);
+}
+
+.revision-publica-acciones .page-toolbar {
+  margin: 8px 0 0;
+}
+
+.revision-publica-estado {
+  display: grid;
+  max-width: 680px;
+  justify-self: center;
+  gap: 12px;
+  padding: 48px;
+}
+
+.revision-publica-marca,
+.revision-publica-exito {
+  display: inline-grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  justify-self: center;
+  border-radius: 50%;
+  background: var(--color-rojo);
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.revision-publica-exito {
+  background: #166534;
+  font-size: 28px;
+}
+
+.revision-publica-footer {
+  padding: 18px 24px;
+  border-top: 1px solid var(--border-color);
+  background: white;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.modal-decision-contraparte {
+  width: min(760px, calc(100% - 32px));
+}
+
+.conformidad-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  margin-top: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.conformidad-check input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.firma-control {
+  display: grid;
+  gap: 10px;
+}
+
+.firma-control .section-help {
+  margin-bottom: 0;
+}
+
+.firma-canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 10 / 3;
+  border: 2px dashed #94a3b8;
+  border-radius: 8px;
+  background: white;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.firma-canvas:focus-visible {
+  outline: 3px solid rgb(243 108 33 / 35%);
+  outline-offset: 2px;
+}
+
+.firma-acciones {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.firma-estado {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.firma-estado-lista {
+  color: #166534;
+}
+
+.timeline-respuesta-contraparte,
+.timeline-invitaciones {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.timeline-respuesta-contraparte h4,
+.timeline-invitaciones h4 {
+  margin-bottom: 12px;
+}
+
+.timeline-respuesta-contraparte dl,
+.invitacion-trazabilidad dl {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) minmax(0, 1fr);
+  gap: 7px 16px;
+  width: 100%;
+}
+
+.timeline-respuesta-contraparte dd,
+.invitacion-trazabilidad dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.texto-hash {
+  font-family: monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.invitacion-trazabilidad + .invitacion-trazabilidad {
+  margin-top: 10px;
+}
+
+.observacion-resumen {
+  padding: 12px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.observacion-resumen:first-of-type {
+  border-top: 0;
+}
+
+.observaciones-contraparte {
+  border-left-color: var(--color-magenta);
+}
+
+.observaciones-contraparte-atendidas {
+  border-left: 4px solid var(--color-magenta);
+}
+
 .elaboracion-documento {
   min-width: 0;
   border-top: 4px solid var(--color-naranja);
@@ -1098,6 +1510,20 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
+  .revision-contraparte-cabecera {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .formalizacion-convenio {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .firmas-lista {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .convenio-editor .ProseMirror {
     min-height: 520px;
     margin: 0;
@@ -1118,6 +1544,10 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
+  .firmas-lista {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .form-span-2 {
     grid-column: span 1;
   }
@@ -1135,6 +1565,44 @@ a:hover {
     align-items: flex-start;
     flex-direction: column;
     padding: 14px 16px;
+  }
+
+  .revision-publica-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .revision-publica-header > div {
+    align-items: flex-start;
+  }
+
+  .revision-publica-main {
+    width: min(100% - 24px, 1120px);
+    padding-top: 24px;
+  }
+
+  .revision-publica-estado {
+    padding: 32px 20px;
+  }
+
+  .revision-publica-acciones .page-toolbar,
+  .modal-decision-contraparte .modal-acciones,
+  .firma-acciones {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .timeline-respuesta-contraparte dl,
+  .invitacion-trazabilidad dl {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .timeline-respuesta-contraparte dd,
+  .invitacion-trazabilidad dd {
+    margin-bottom: 8px;
   }
 }
 

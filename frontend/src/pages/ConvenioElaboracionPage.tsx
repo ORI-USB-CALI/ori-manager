@@ -26,6 +26,9 @@ interface Observacion {
   descripcion: string
   respuesta: string | null
   estado: 'PENDIENTE' | 'ATENDIDA'
+  creado_en: string
+  fecha_atencion: string | null
+  atendida_por: { id: number; nombre_completo: string } | null
 }
 
 interface HistorialConvenio {
@@ -195,12 +198,14 @@ export function ConvenioElaboracionPage() {
     : datos.contenido
   const contenidoModificado = borrador?.version === datos.version_actual
   const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
-  const observaciones = historial.data?.revisiones
-    .filter((revision) => revision.tipo === 'JURIDICA')
-    .flatMap((revision) => revision.observaciones)
-    .filter((observacion) => observacion.origen === 'REVISOR_ORI') ?? []
-  const observacionesPendientes = observaciones.filter((item) => item.estado === 'PENDIENTE')
-  const observacionesAtendidas = observaciones.filter((item) => item.estado === 'ATENDIDA')
+  const todasLasObservaciones = historial.data?.revisiones.flatMap((revision) => revision.observaciones) ?? []
+  const observacionesJuridicas = todasLasObservaciones.filter((item) => item.origen === 'REVISOR_ORI')
+  const observacionesContraparte = todasLasObservaciones.filter((item) => item.origen === 'CONTRAPARTE')
+  const juridicasPendientes = observacionesJuridicas.filter((item) => item.estado === 'PENDIENTE')
+  const contrapartePendientes = observacionesContraparte.filter((item) => item.estado === 'PENDIENTE')
+  const juridicasAtendidas = observacionesJuridicas.filter((item) => item.estado === 'ATENDIDA')
+  const contraparteAtendidas = observacionesContraparte.filter((item) => item.estado === 'ATENDIDA')
+  const hayObservacionesPendientes = juridicasPendientes.length > 0 || contrapartePendientes.length > 0
 
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -258,19 +263,43 @@ export function ConvenioElaboracionPage() {
               )}
             </section>
 
-            {observacionesPendientes.length > 0 && (
+            {juridicasPendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes">
                 <h2>Observaciones jurídicas pendientes</h2>
                 <p className="section-help">Corrige estos puntos antes de volver a enviar el proyecto a revisión jurídica.</p>
-                {observacionesPendientes.map((observacion) => (
+                {juridicasPendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
                       <h3>{observacion.descripcion}</h3>
                       <span className="badge badge-pendiente">Pendiente</span>
                     </div>
+                    <p className="texto-secundario">Registrada el {fechaHora(observacion.creado_en)}</p>
                     {editable && (
                       <div className="form-group">
                         <textarea className="form-control" value={respuestas[observacion.id] ?? ''} onChange={(event) => setRespuestas((actual) => ({ ...actual, [observacion.id]: event.target.value }))} />
+                        <button className="btn btn-outline" type="button" disabled={!respuestas[observacion.id]?.trim() || atender.isPending} onClick={() => atender.mutate({ observacionId: observacion.id, respuesta: respuestas[observacion.id].trim() })}>Marcar como atendida</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </section>
+            )}
+
+            {contrapartePendientes.length > 0 && (
+              <section className="card observaciones-elaboracion observaciones-pendientes observaciones-contraparte">
+                <h2>Observaciones de contraparte pendientes</h2>
+                <p className="section-help">Atiende las solicitudes de la contraparte y corrige el documento antes de iniciar una nueva ronda jurídica.</p>
+                {contrapartePendientes.map((observacion) => (
+                  <article className="observacion-elaboracion" key={observacion.id}>
+                    <div className="observacion-cabecera">
+                      <h3>{observacion.descripcion}</h3>
+                      <span className="badge badge-pendiente">Pendiente</span>
+                    </div>
+                    <p className="texto-secundario">Recibida el {fechaHora(observacion.creado_en)}</p>
+                    {observacion.respuesta && <p><strong>Respuesta del Gestor:</strong> {observacion.respuesta}</p>}
+                    {editable && (
+                      <div className="form-group">
+                        <textarea className="form-control" aria-label={`Respuesta a: ${observacion.descripcion}`} value={respuestas[observacion.id] ?? ''} onChange={(event) => setRespuestas((actual) => ({ ...actual, [observacion.id]: event.target.value }))} />
                         <button className="btn btn-outline" type="button" disabled={!respuestas[observacion.id]?.trim() || atender.isPending} onClick={() => atender.mutate({ observacionId: observacion.id, respuesta: respuestas[observacion.id].trim() })}>Marcar como atendida</button>
                       </div>
                     )}
@@ -296,7 +325,7 @@ export function ConvenioElaboracionPage() {
                   <button
                     className="btn btn-primary"
                     type="button"
-                    disabled={!contenido || observacionesPendientes.length > 0}
+                    disabled={!contenido || hayObservacionesPendientes}
                     onClick={prepararFinalizacion}
                   >
                     Finalizar elaboración
@@ -380,13 +409,30 @@ export function ConvenioElaboracionPage() {
         </div>
       </form>
 
-      {observacionesAtendidas.length > 0 && (
+      {juridicasAtendidas.length > 0 && (
         <section className="card observaciones-elaboracion">
           <h2>Observaciones jurídicas</h2>
-          {observacionesAtendidas.map((observacion) => (
+          {juridicasAtendidas.map((observacion) => (
             <article className="observacion-elaboracion" key={observacion.id}>
               <h3>{observacion.descripcion}</h3>
               <p><strong>Respuesta:</strong> {observacion.respuesta}</p>
+              <p className="texto-secundario">Atendida por {observacion.atendida_por?.nombre_completo ?? 'ORI'} el {fechaHora(observacion.fecha_atencion ?? observacion.creado_en)}</p>
+            </article>
+          ))}
+        </section>
+      )}
+
+      {contraparteAtendidas.length > 0 && (
+        <section className="card observaciones-elaboracion observaciones-contraparte-atendidas">
+          <h2>Observaciones de contraparte atendidas</h2>
+          {contraparteAtendidas.map((observacion) => (
+            <article className="observacion-elaboracion" key={observacion.id}>
+              <div className="observacion-cabecera">
+                <h3>{observacion.descripcion}</h3>
+                <span className="badge badge-activo">Atendida</span>
+              </div>
+              <p><strong>Respuesta del Gestor:</strong> {observacion.respuesta ?? '—'}</p>
+              <p className="texto-secundario">Atendida por {observacion.atendida_por?.nombre_completo ?? 'ORI'} el {fechaHora(observacion.fecha_atencion ?? observacion.creado_en)}</p>
             </article>
           ))}
         </section>

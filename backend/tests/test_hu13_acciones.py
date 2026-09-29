@@ -199,7 +199,10 @@ def test_rj2_exige_otro_revisor_y_solo_entonces_habilita_contraparte(
     assert segunda.version_resultado_id is not None
     assert convenio_listo.etapa_actual.codigo == "REVISION_CONTRAPARTE"
     assert not db.scalars(
-        select(RevisionConvenio).where(RevisionConvenio.tipo == "CONTRAPARTE")
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.tipo == "CONTRAPARTE",
+        )
     ).all()
 
 

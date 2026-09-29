@@ -24,7 +24,6 @@ from backend.models.observacion_revision import ObservacionRevision
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
 from backend.services.aliados import (
-    ConflictoAliado,
     resolver_aliado_existente_para_solicitud,
     resolver_aliado_para_convenio,
 )
@@ -226,17 +225,19 @@ def test_hu04_ca05_correo_distinto_conserva_contactos(
     assert len(db.scalars(select(ContactoAliado).where(ContactoAliado.aliado_id == aliado.id)).all()) == 2
 
 
-def test_hu04_aliado_inactivo_no_se_reactiva_al_formalizar(
+def test_hu04_aliado_inactivo_se_reactiva_al_formalizar(
     db, crear_usuario, crear_solicitud, crear_aliado
 ) -> None:
     usuario = crear_usuario()
     aliado = crear_aliado(identificacion="900123456", activo=False)
     solicitud = crear_solicitud(usuario, **_contraparte("900123456"))
     convenio = _crear_convenio(db, solicitud, usuario, estado=EstadoConvenio.VIGENTE)
-    with pytest.raises(ConflictoAliado, match="reactivarse"):
-        resolver_aliado_para_convenio(db, convenio)
-    assert aliado.activo is False
-    assert convenio.aliado_id is None
+    resultado = resolver_aliado_para_convenio(db, convenio)
+    db.flush()
+    assert resultado is not None and resultado.id == aliado.id
+    assert aliado.activo is True
+    assert convenio.aliado_id == aliado.id
+    assert solicitud.aliado_id == aliado.id
 
 # HU04 CA-06 a CA-12: gestión, permisos, estado e integridad.
 @pytest.mark.parametrize(

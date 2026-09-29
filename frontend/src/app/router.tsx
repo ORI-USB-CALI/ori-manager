@@ -7,10 +7,12 @@ import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
 import { ConvenioHistorialPage } from '../pages/ConvenioHistorialPage'
 import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
+import { FirmaConvenioPublicaPage } from '../pages/FirmaConvenioPublicaPage'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
 import { RevisionesJuridicasPage } from '../pages/RevisionesJuridicasPage'
+import { RevisionContrapartePublicaPage } from '../pages/RevisionContrapartePublicaPage'
 import { SolicitudRecibidaPage } from '../pages/SolicitudRecibidaPage'
 import { SolicitudesRecibidasPage } from '../pages/SolicitudesRecibidasPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
@@ -28,6 +30,8 @@ export const router = createBrowserRouter([
   { path: '/recuperar-contrasena', element: <RecuperarContrasenaPage /> },
   { path: '/restablecer-contrasena', element: <RestablecerContrasenaPage /> },
   { path: '/verificar-correo', element: <VerificarCorreoPage /> },
+  { path: '/revision-contraparte', element: <RevisionContrapartePublicaPage /> },
+  { path: '/firma-convenio', element: <FirmaConvenioPublicaPage /> },
   {
     element: <AppLayout />,
     children: [

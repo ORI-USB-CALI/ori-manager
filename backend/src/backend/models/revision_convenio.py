@@ -29,7 +29,14 @@ if TYPE_CHECKING:
     from backend.models.convenio import Convenio
     from backend.models.documento import Documento
     from backend.models.historial_etapa import HistorialEtapa
+    from backend.models.invitacion_revision_contraparte import (
+        InvitacionRevisionContraparte,
+    )
     from backend.models.observacion_revision import ObservacionRevision
+    from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
+    from backend.models.respuesta_revision_contraparte import (
+        RespuestaRevisionContraparte,
+    )
     from backend.models.usuario import Usuario
     from backend.models.version_convenio import VersionConvenio
 
@@ -74,6 +81,18 @@ class RevisionConvenio(Base):
             unique=True,
             postgresql_where=text("tipo = 'JURIDICA' AND estado = 'PENDIENTE'"),
         ),
+        Index(
+            "uq_revision_convenio_contraparte_pendiente",
+            "convenio_id",
+            unique=True,
+            postgresql_where=text("tipo = 'CONTRAPARTE' AND estado = 'PENDIENTE'"),
+        ),
+        Index(
+            "uq_revision_convenio_final_pendiente",
+            "convenio_id",
+            unique=True,
+            postgresql_where=text("tipo = 'FINAL' AND estado = 'PENDIENTE'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -99,6 +118,9 @@ class RevisionConvenio(Base):
     numero_ronda: Mapped[int | None] = mapped_column(Integer, nullable=True)
     responsable_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
+    )
+    creada_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     estado: Mapped[str] = mapped_column(
         String(20),
@@ -134,9 +156,22 @@ class RevisionConvenio(Base):
     responsable: Mapped[Usuario | None] = relationship(
         foreign_keys=[responsable_id]
     )
+    creada_por: Mapped[Usuario | None] = relationship(foreign_keys=[creada_por_id])
     resuelta_por: Mapped[Usuario | None] = relationship(
         foreign_keys=[resuelta_por_id]
     )
     observaciones: Mapped[list[ObservacionRevision]] = relationship(
         back_populates="revision_convenio"
+    )
+    invitaciones_contraparte: Mapped[list[InvitacionRevisionContraparte]] = relationship(
+        back_populates="revision_convenio",
+        cascade="all, delete-orphan",
+    )
+    respuesta_contraparte: Mapped[RespuestaRevisionContraparte | None] = relationship(
+        back_populates="revision_convenio",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    proceso_firmas: Mapped[ProcesoFirmasConvenio | None] = relationship(
+        back_populates="revision_final", uselist=False
     )
