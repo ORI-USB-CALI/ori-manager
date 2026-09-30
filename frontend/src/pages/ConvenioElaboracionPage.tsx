@@ -201,11 +201,15 @@ export function ConvenioElaboracionPage() {
   const todasLasObservaciones = historial.data?.revisiones.flatMap((revision) => revision.observaciones) ?? []
   const observacionesJuridicas = todasLasObservaciones.filter((item) => item.origen === 'REVISOR_ORI')
   const observacionesContraparte = todasLasObservaciones.filter((item) => item.origen === 'CONTRAPARTE')
+  const observacionesRevisionFinal = todasLasObservaciones.filter((item) => item.origen === 'REVISION_FINAL_ORI')
   const juridicasPendientes = observacionesJuridicas.filter((item) => item.estado === 'PENDIENTE')
   const contrapartePendientes = observacionesContraparte.filter((item) => item.estado === 'PENDIENTE')
+  const revisionFinalPendientes = observacionesRevisionFinal.filter((item) => item.estado === 'PENDIENTE')
   const juridicasAtendidas = observacionesJuridicas.filter((item) => item.estado === 'ATENDIDA')
   const contraparteAtendidas = observacionesContraparte.filter((item) => item.estado === 'ATENDIDA')
-  const hayObservacionesPendientes = juridicasPendientes.length > 0 || contrapartePendientes.length > 0
+  const hayObservacionesPendientes = juridicasPendientes.length > 0
+    || contrapartePendientes.length > 0
+    || revisionFinalPendientes.length > 0
 
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -297,6 +301,28 @@ export function ConvenioElaboracionPage() {
                     </div>
                     <p className="texto-secundario">Recibida el {fechaHora(observacion.creado_en)}</p>
                     {observacion.respuesta && <p><strong>Respuesta del Gestor:</strong> {observacion.respuesta}</p>}
+                    {editable && (
+                      <div className="form-group">
+                        <textarea className="form-control" aria-label={`Respuesta a: ${observacion.descripcion}`} value={respuestas[observacion.id] ?? ''} onChange={(event) => setRespuestas((actual) => ({ ...actual, [observacion.id]: event.target.value }))} />
+                        <button className="btn btn-outline" type="button" disabled={!respuestas[observacion.id]?.trim() || atender.isPending} onClick={() => atender.mutate({ observacionId: observacion.id, respuesta: respuestas[observacion.id].trim() })}>Marcar como atendida</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </section>
+            )}
+
+            {revisionFinalPendientes.length > 0 && (
+              <section className="card observaciones-elaboracion observaciones-pendientes">
+                <h2>Observaciones de revisión final pendientes</h2>
+                <p className="section-help">Atiende la observación, corrige el proyecto y guarda una nueva versión antes de repetir las revisiones.</p>
+                {revisionFinalPendientes.map((observacion) => (
+                  <article className="observacion-elaboracion" key={observacion.id}>
+                    <div className="observacion-cabecera">
+                      <h3>{observacion.descripcion}</h3>
+                      <span className="badge badge-pendiente">Pendiente</span>
+                    </div>
+                    <p className="texto-secundario">Registrada el {fechaHora(observacion.creado_en)}</p>
                     {editable && (
                       <div className="form-group">
                         <textarea className="form-control" aria-label={`Respuesta a: ${observacion.descripcion}`} value={respuestas[observacion.id] ?? ''} onChange={(event) => setRespuestas((actual) => ({ ...actual, [observacion.id]: event.target.value }))} />

@@ -2,6 +2,7 @@ import base64
 import struct
 import zlib
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from threading import Barrier
@@ -16,6 +17,7 @@ from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import hash_contrasena
 from backend.main import app
 from backend.models.aliado import Aliado
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
@@ -240,6 +242,12 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
             FirmaConvenio.proceso_firmas_id.in_(proceso_ids)
         )
         sesion.execute(
+            delete(Auditoria).where(
+                Auditoria.entidad == "proceso_firmas_convenio",
+                Auditoria.registro_id.in_(proceso_ids),
+            )
+        )
+        sesion.execute(
             delete(InvitacionFirmaConvenio).where(
                 InvitacionFirmaConvenio.firma_convenio_id.in_(firma_ids)
             )
@@ -452,6 +460,15 @@ def _obtener_documento_aprobado(client, convenio_id):
     )
 
 
+def _solicitar_cambio_sustancial(
+    client, convenio_id, observacion="Se requiere modificar el alcance contractual"
+):
+    return client.post(
+        f"/api/convenios/{convenio_id}/firmas/cambio-sustancial",
+        json={"observacion": observacion},
+    )
+
+
 def test_documento_aprobado_en_configuracion_usa_version_congelada(
     client, db, escenario_final
 ):
@@ -573,6 +590,475 @@ def test_usuario_sin_sesion_no_consulta_documento_aprobado(
     )
 
     assert respuesta.status_code == 401
+
+
+def test_cambio_sustancial_en_configuracion_cancela_y_registra_trazabilidad(
+    client, db, escenario_final
+):
+    proceso = _aprobar(client, escenario_final).json()
+    convenio_id = escenario_final["convenio"].id
+    version_id = escenario_final["version"].id
+    contenido_original = deepcopy(escenario_final["version"].contenido)
+
+    respuesta = _solicitar_cambio_sustancial(
+        client, convenio_id, "  Modificar obligaciones de las partes  "
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "CANCELADO"
+    db.expire_all()
+    cancelado = db.get(ProcesoFirmasConvenio, proceso["id"])
+    convenio = db.get(Convenio, convenio_id)
+    assert cancelado is not None and cancelado.cancelado_en is not None
+    assert cancelado.version_convenio_id == version_id
+    assert convenio is not None
+    assert convenio.estado == EstadoConvenio.EN_TRAMITE.value
+    assert convenio.etapa_actual.codigo == "ELABORACION"
+    historial = db.scalar(
+        select(HistorialEtapa)
+        .where(HistorialEtapa.convenio_id == convenio_id)
+        .order_by(HistorialEtapa.id.desc())
+        .limit(1)
+    )
+    assert historial is not None
+    assert historial.etapa_origen.codigo == "APROBACION_FIRMAS"
+    assert historial.etapa_destino.codigo == "ELABORACION"
+    assert "Cambio sustancial solicitado" in historial.observacion
+    observacion = db.scalar(
+        select(ObservacionRevision).where(
+            ObservacionRevision.historial_etapa_id == historial.id
+        )
+    )
+    assert observacion is not None
+    assert observacion.descripcion == "Modificar obligaciones de las partes"
+    assert observacion.estado == "PENDIENTE"
+    assert observacion.origen == "REVISION_FINAL_ORI"
+    assert observacion.revision_convenio_id == proceso["revision_final_id"]
+    auditoria = db.scalar(
+        select(Auditoria).where(
+            Auditoria.entidad == "proceso_firmas_convenio",
+            Auditoria.registro_id == proceso["id"],
+        )
+    )
+    assert auditoria is not None
+    assert auditoria.valor_anterior == "CONFIGURACION"
+    assert auditoria.valor_nuevo == "CANCELADO"
+    assert db.get(VersionConvenio, version_id).contenido == contenido_original
+    revision_final = db.get(RevisionConvenio, proceso["revision_final_id"])
+    assert revision_final.resultado == "APROBADA"
+    assert revision_final.version_resultado_id == version_id
+    assert _obtener_documento_aprobado(client, convenio_id).status_code == 409
+
+
+def test_cambio_sustancial_en_curso_cancela_proceso(
+    client, db, escenario_final
+):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+
+    respuesta = _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 200
+    db.expire_all()
+    cancelado = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert cancelado is not None
+    assert cancelado.estado == "CANCELADO"
+    assert cancelado.cancelado_en is not None
+
+
+@pytest.mark.parametrize("motivo", ["", "   "])
+def test_cambio_sustancial_rechaza_motivo_vacio_sin_efectos(
+    client, db, escenario_final, motivo
+):
+    proceso = _aprobar(client, escenario_final).json()
+    convenio = escenario_final["convenio"]
+    historiales_antes = db.scalar(
+        select(func.count()).select_from(HistorialEtapa).where(
+            HistorialEtapa.convenio_id == convenio.id
+        )
+    )
+
+    respuesta = _solicitar_cambio_sustancial(client, convenio.id, motivo)
+
+    assert respuesta.status_code == 422
+    db.expire_all()
+    assert db.get(ProcesoFirmasConvenio, proceso["id"]).estado == "CONFIGURACION"
+    assert db.get(Convenio, convenio.id).etapa_actual.codigo == "APROBACION_FIRMAS"
+    assert db.scalar(
+        select(func.count()).select_from(ObservacionRevision).where(
+            ObservacionRevision.convenio_id == convenio.id,
+            ObservacionRevision.origen == "REVISION_FINAL_ORI",
+        )
+    ) == 0
+    assert db.scalar(
+        select(func.count()).select_from(HistorialEtapa).where(
+            HistorialEtapa.convenio_id == convenio.id
+        )
+    ) == historiales_antes
+
+
+def test_cambio_sustancial_revoca_invitaciones_y_anula_tokens(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=2
+    )
+
+    respuesta = _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 200
+    db.expire_all()
+    invitaciones = list(
+        db.scalars(
+            select(InvitacionFirmaConvenio).where(
+                InvitacionFirmaConvenio.firma_convenio_id.in_(
+                    [firma["id"] for firma in proceso["firmas"]]
+                )
+            )
+        )
+    )
+    assert invitaciones and all(item.revocado_en is not None for item in invitaciones)
+    for token in tokens:
+        acceso = client.post(
+            "/api/public/firma-convenio/acceso", json={"token": token}
+        )
+        assert acceso.status_code == 400
+        assert acceso.json()["detail"]["codigo"] == "ENLACE_NO_DISPONIBLE"
+
+
+def test_cambio_sustancial_preserva_firma_electronica_utilizada(
+    client, db, correo_local, escenario_final
+):
+    proceso, tokens = _iniciar_con_invitaciones(
+        client, correo_local, escenario_final, electronicas=1
+    )
+    firma_id = proceso["firmas"][0]["id"]
+    assert client.post(
+        "/api/public/firma-convenio/firmar",
+        json={"token": tokens[0], "firma": FIRMA_PNG, "confirmacion": True},
+    ).status_code == 200
+    db.expire_all()
+    firma_antes = db.get(FirmaConvenio, firma_id)
+    invitacion_antes = db.scalar(
+        select(InvitacionFirmaConvenio).where(
+            InvitacionFirmaConvenio.firma_convenio_id == firma_id
+        )
+    )
+    evidencia = (
+        firma_antes.firma_png,
+        firma_antes.firma_sha256,
+        firma_antes.fecha_firma,
+        invitacion_antes.utilizado_en,
+    )
+
+    assert _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    ).status_code == 200
+
+    db.expire_all()
+    firma = db.get(FirmaConvenio, firma_id)
+    invitacion = db.get(InvitacionFirmaConvenio, invitacion_antes.id)
+    assert firma.estado == "FIRMADA"
+    assert (firma.firma_png, firma.firma_sha256, firma.fecha_firma) == evidencia[:3]
+    assert invitacion.utilizado_en == evidencia[3]
+    assert invitacion.revocado_en is None
+    assert db.get(ProcesoFirmasConvenio, proceso["id"]).estado == "CANCELADO"
+
+
+def test_cambio_sustancial_preserva_evidencia_fisica(
+    client, db, escenario_final
+):
+    proceso = _iniciar_proceso(
+        client, escenario_final, ["FISICA"] * len(ROLES_ESPERADOS)
+    )
+    firma_id = proceso["firmas"][0]["id"]
+    assert _registrar_fisicas(
+        client, escenario_final["convenio"].id, [firma_id]
+    ).status_code == 201
+    db.expire_all()
+    firma_antes = db.get(FirmaConvenio, firma_id)
+    evidencia = (firma_antes.documento_id, firma_antes.fecha_firma)
+
+    assert _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    ).status_code == 200
+
+    db.expire_all()
+    firma = db.get(FirmaConvenio, firma_id)
+    assert firma.estado == "FIRMADA"
+    assert (firma.documento_id, firma.fecha_firma) == evidencia
+    assert db.get(Documento, evidencia[0]) is not None
+    assert db.get(ProcesoFirmasConvenio, proceso["id"]).estado == "CANCELADO"
+
+
+def test_cambio_sustancial_rechaza_sin_proceso_y_segundo_intento(
+    client, db, escenario_final
+):
+    convenio_id = escenario_final["convenio"].id
+    convenio = escenario_final["convenio"]
+    etapa_final = convenio.etapa_actual
+    convenio.etapa_actual = db.scalar(
+        select(Etapa).where(Etapa.codigo == "APROBACION_FIRMAS")
+    )
+    db.commit()
+    assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 409
+    convenio.etapa_actual = etapa_final
+    db.commit()
+    proceso = _aprobar(client, escenario_final).json()
+    assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 200
+
+    segundo = _solicitar_cambio_sustancial(client, convenio_id)
+
+    assert segundo.status_code == 409
+    db.expire_all()
+    assert db.get(ProcesoFirmasConvenio, proceso["id"]).estado == "CANCELADO"
+    assert db.scalar(
+        select(func.count()).select_from(ObservacionRevision).where(
+            ObservacionRevision.convenio_id == convenio_id,
+            ObservacionRevision.origen == "REVISION_FINAL_ORI",
+        )
+    ) == 1
+
+
+def test_cambio_sustancial_rechaza_proceso_completado(
+    client, db, escenario_final
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    assert _formalizar(client, escenario_final).status_code == 200
+
+    respuesta = _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 409
+    db.expire_all()
+    assert db.get(ProcesoFirmasConvenio, proceso["id"]).estado == "COMPLETADO"
+
+
+def test_administrador_puede_solicitar_cambio_sustancial(
+    client, crear_usuario, entrar_como, escenario_final
+):
+    _aprobar(client, escenario_final)
+    entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI))
+
+    assert _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    ).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "codigo_rol", [CodigoRol.REVISOR_ORI, CodigoRol.SOLICITANTE_INTERNO]
+)
+def test_roles_sin_gestion_firmas_no_solicitan_cambio_sustancial(
+    client, crear_usuario, entrar_como, escenario_final, codigo_rol
+):
+    _aprobar(client, escenario_final)
+    entrar_como(crear_usuario(codigo_rol))
+
+    assert _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    ).status_code == 403
+
+
+def test_sin_sesion_no_solicita_cambio_sustancial(client, escenario_final):
+    _aprobar(client, escenario_final)
+    client.cookies.clear()
+
+    assert _solicitar_cambio_sustancial(
+        client, escenario_final["convenio"].id
+    ).status_code == 401
+
+
+def _atender_cambio_sustancial(client, db, convenio_id):
+    observacion = db.scalar(
+        select(ObservacionRevision).where(
+            ObservacionRevision.convenio_id == convenio_id,
+            ObservacionRevision.origen == "REVISION_FINAL_ORI",
+            ObservacionRevision.estado == "PENDIENTE",
+        )
+    )
+    assert observacion is not None
+    respuesta = client.patch(
+        f"/api/convenios/{convenio_id}/observaciones/{observacion.id}/atender",
+        json={"respuesta": "Cambio incorporado al proyecto"},
+    )
+    assert respuesta.status_code == 200
+    return observacion.id
+
+
+def test_cambio_sustancial_exige_version_nueva_aunque_observacion_este_atendida(
+    client, db, escenario_final
+):
+    _aprobar(client, escenario_final)
+    convenio_id = escenario_final["convenio"].id
+    assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 200
+    _atender_cambio_sustancial(client, db, convenio_id)
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio_id}/elaboracion/finalizar",
+        json={"expected_version": escenario_final["version"].numero},
+    )
+
+    assert respuesta.status_code == 409
+    assert "nueva versi" in respuesta.text.lower()
+    db.expire_all()
+    assert db.get(Convenio, convenio_id).etapa_actual.codigo == "ELABORACION"
+
+
+def _crear_version_posterior_al_cambio(client, db, escenario_final):
+    convenio_id = escenario_final["convenio"].id
+    contenido = deepcopy(escenario_final["version"].contenido)
+    contenido.setdefault("content", []).append(
+        {
+            "type": "paragraph",
+            "content": [{"type": "text", "text": "Cambio sustancial aplicado"}],
+        }
+    )
+    respuesta = client.patch(
+        f"/api/convenios/{convenio_id}/elaboracion",
+        json={
+            "contenido": contenido,
+            "expected_version": escenario_final["version"].numero,
+        },
+    )
+    assert respuesta.status_code == 200
+    db.expire_all()
+    nueva = db.scalar(
+        select(VersionConvenio)
+        .where(VersionConvenio.convenio_id == convenio_id)
+        .order_by(VersionConvenio.numero.desc())
+        .limit(1)
+    )
+    assert nueva is not None
+    assert nueva.numero > escenario_final["version"].numero
+    return nueva
+
+
+def test_nueva_version_abre_nueva_ronda_y_preserva_proceso_cancelado(
+    client, db, escenario_final
+):
+    proceso = _aprobar(client, escenario_final).json()
+    convenio_id = escenario_final["convenio"].id
+    assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 200
+    _atender_cambio_sustancial(client, db, convenio_id)
+    nueva = _crear_version_posterior_al_cambio(client, db, escenario_final)
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio_id}/elaboracion/finalizar",
+        json={"expected_version": nueva.numero},
+    )
+
+    assert respuesta.status_code == 200
+    db.expire_all()
+    revision = db.scalar(
+        select(RevisionConvenio)
+        .where(
+            RevisionConvenio.convenio_id == convenio_id,
+            RevisionConvenio.tipo == "JURIDICA",
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+        .order_by(RevisionConvenio.id.desc())
+        .limit(1)
+    )
+    assert revision is not None
+    assert revision.instancia_juridica == 1
+    assert revision.numero_ronda == 2
+    assert revision.version_convenio_id == nueva.id
+    cancelado = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert cancelado.estado == "CANCELADO"
+    assert cancelado.version_convenio_id == escenario_final["version"].id
+
+
+def test_nuevo_ciclo_crea_proceso_y_firmas_nuevas_sin_reutilizar(
+    client, db, escenario_final
+):
+    anterior = _aprobar(client, escenario_final).json()
+    convenio_id = escenario_final["convenio"].id
+    assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 200
+    _atender_cambio_sustancial(client, db, convenio_id)
+    nueva = _crear_version_posterior_al_cambio(client, db, escenario_final)
+    assert client.post(
+        f"/api/convenios/{convenio_id}/elaboracion/finalizar",
+        json={"expected_version": nueva.numero},
+    ).status_code == 200
+    db.expire_all()
+    primera = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_id,
+            RevisionConvenio.tipo == "JURIDICA",
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    ahora = datetime.now(UTC)
+    primera.estado = "RESUELTA"
+    primera.resultado = "APROBADA"
+    primera.version_resultado_id = nueva.id
+    primera.resuelta_por_id = escenario_final["gestor"].id
+    primera.resuelta_en = ahora
+    segunda = RevisionConvenio(
+        convenio_id=convenio_id,
+        tipo="JURIDICA",
+        historial_etapa_id=primera.historial_etapa_id,
+        version_convenio_id=nueva.id,
+        version_resultado_id=nueva.id,
+        instancia_juridica=2,
+        numero_ronda=primera.numero_ronda,
+        responsable_id=escenario_final["gestor"].id,
+        estado="RESUELTA",
+        resultado="APROBADA",
+        resuelta_por_id=escenario_final["gestor"].id,
+        resuelta_en=ahora,
+    )
+    contraparte = RevisionConvenio(
+        convenio_id=convenio_id,
+        tipo="CONTRAPARTE",
+        historial_etapa_id=primera.historial_etapa_id,
+        version_convenio_id=nueva.id,
+        version_resultado_id=nueva.id,
+        creada_por_id=escenario_final["gestor"].id,
+        estado="RESUELTA",
+        resultado="APROBADA",
+        resuelta_en=ahora,
+    )
+    revision_final = RevisionConvenio(
+        convenio_id=convenio_id,
+        tipo="FINAL",
+        historial_etapa_id=primera.historial_etapa_id,
+        version_convenio_id=nueva.id,
+        responsable_id=escenario_final["gestor"].id,
+        creada_por_id=escenario_final["gestor"].id,
+        estado="PENDIENTE",
+    )
+    etapa_final = db.scalar(select(Etapa).where(Etapa.codigo == "REVISION_FINAL"))
+    convenio = db.get(Convenio, convenio_id)
+    convenio.etapa_actual = etapa_final
+    db.add_all([segunda, contraparte, revision_final])
+    db.commit()
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio_id}/revision-final/aprobar",
+        json={"expected_version": nueva.numero},
+    )
+
+    assert respuesta.status_code == 201
+    nuevo = respuesta.json()
+    assert nuevo["id"] != anterior["id"]
+    assert nuevo["version_convenio_id"] == nueva.id
+    assert len(nuevo["firmas"]) == 7
+    assert {firma["id"] for firma in nuevo["firmas"]}.isdisjoint(
+        {firma["id"] for firma in anterior["firmas"]}
+    )
+    assert all(
+        firma["estado"] == "PENDIENTE"
+        and firma["documento_id"] is None
+        and firma["fecha_firma"] is None
+        for firma in nuevo["firmas"]
+    )
 
 
 def test_no_accede_revision_final_fuera_de_etapa(client, convenio_listo):
@@ -1837,6 +2323,73 @@ def test_firmar_vs_reenviar_concurrente_deja_un_resultado_coherente(db_engine):
                 assert activas == 0
             else:
                 assert firma.estado == "PENDIENTE" and activas == 1
+    finally:
+        _limpiar_escenario_concurrente(db_engine, escenario)
+
+
+def test_firma_vs_cambio_sustancial_preserva_consistencia(db_engine):
+    escenario = _crear_invitacion_concurrente(db_engine)
+    fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
+    barrera = Barrier(2)
+
+    def firmar() -> str:
+        with fabrica() as sesion:
+            barrera.wait(timeout=10)
+            try:
+                ServicioFirmaElectronica(sesion).firmar(
+                    str(escenario["token"]), FIRMA_PNG, True
+                )
+                return "FIRMADA"
+            except EnlaceFirmaConvenioError:
+                return "RECHAZADA"
+
+    def cancelar() -> str:
+        with fabrica() as sesion:
+            gestor = sesion.get(Usuario, int(escenario["gestor_id"]))
+            assert gestor is not None
+            barrera.wait(timeout=10)
+            ServicioFirmas(sesion).solicitar_cambio_sustancial(
+                int(escenario["convenio_id"]),
+                "Cambio contractual concurrente",
+                gestor,
+            )
+            return "CANCELADO"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ejecutor:
+            futuro_firma = ejecutor.submit(firmar)
+            futuro_cancelacion = ejecutor.submit(cancelar)
+            resultados = {futuro_firma.result(), futuro_cancelacion.result()}
+        assert "CANCELADO" in resultados
+        assert resultados & {"FIRMADA", "RECHAZADA"}
+        with fabrica() as verificacion:
+            proceso = verificacion.scalar(
+                select(ProcesoFirmasConvenio).where(
+                    ProcesoFirmasConvenio.convenio_id
+                    == int(escenario["convenio_id"])
+                )
+            )
+            convenio = verificacion.get(Convenio, int(escenario["convenio_id"]))
+            firma = verificacion.get(FirmaConvenio, int(escenario["firma_id"]))
+            activas = verificacion.scalar(
+                select(func.count())
+                .select_from(InvitacionFirmaConvenio)
+                .where(
+                    InvitacionFirmaConvenio.firma_convenio_id == firma.id,
+                    InvitacionFirmaConvenio.utilizado_en.is_(None),
+                    InvitacionFirmaConvenio.revocado_en.is_(None),
+                )
+            )
+            assert proceso.estado == "CANCELADO"
+            assert convenio.etapa_actual.codigo == "ELABORACION"
+            assert activas == 0
+            if firma.estado == "FIRMADA":
+                assert firma.firma_png is not None
+                assert firma.firma_sha256 is not None
+            else:
+                assert firma.estado == "PENDIENTE"
+                assert firma.firma_png is None
+                assert firma.firma_sha256 is None
     finally:
         _limpiar_escenario_concurrente(db_engine, escenario)
 

@@ -45,6 +45,7 @@ from backend.schemas.convenio import (
     RevisionConvenioLeer,
     RevisionFinalLeer,
     RevisionJuridicaPendienteLeer,
+    SolicitarCambioSustancialFirmas,
     TableroConveniosLeer,
     ValidacionElaboracionLeer,
     VersionConvenioLeer,
@@ -767,6 +768,25 @@ def obtener_documento_aprobado_firma(
             convenio_id
         )
         return DocumentoAprobadoFirmaLeer.model_validate(documento)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/firmas/cambio-sustancial",
+    response_model=ProcesoFirmasConvenioLeer,
+)
+def solicitar_cambio_sustancial_firmas(
+    convenio_id: int,
+    datos: SolicitarCambioSustancialFirmas,
+    db: DatabaseSession,
+    usuario: PuedeGestionarFirmas,
+) -> ProcesoFirmasConvenioLeer:
+    try:
+        proceso = ServicioFirmas(db).solicitar_cambio_sustancial(
+            convenio_id, datos.observacion, usuario
+        )
+        return ProcesoFirmasConvenioLeer.model_validate(proceso)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 

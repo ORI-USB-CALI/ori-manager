@@ -570,6 +570,17 @@ class DocumentoAprobadoFirmaLeer(BaseModel):
     creado_en: datetime
 
 
+class SolicitarCambioSustancialFirmas(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observacion: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("observacion", mode="before")
+    @classmethod
+    def normalizar_observacion(cls, valor: object) -> object:
+        return valor.strip() if isinstance(valor, str) else valor
+
+
 class RevisionFinalLeer(BaseModel):
     convenio: ConvenioElaboracionLeer
     documentos: list[DocumentoConvenioLeer]
