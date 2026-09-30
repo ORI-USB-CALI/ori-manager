@@ -1323,6 +1323,18 @@ a:hover {
   font-weight: 650;
 }
 
+.cambio-sustancial-consecuencias {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px;
+  margin: 12px 0 18px;
+}
+
+.btn-cambio-sustancial {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
 .firmas-fisicas-seleccion label {
   display: flex;
   min-width: 0;

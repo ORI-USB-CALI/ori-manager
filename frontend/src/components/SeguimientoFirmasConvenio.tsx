@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
@@ -224,8 +224,11 @@ function ConfiguracionFirma({ convenioId, firma }: { convenioId: number; firma: 
 export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }) {
   const cliente = useQueryClient()
   const notify = useNotifications()
+  const navigate = useNavigate()
   const [firmaFisicaSeleccionada, setFirmaFisicaSeleccionada] = useState<number | null>(null)
   const [confirmarFormalizacion, setConfirmarFormalizacion] = useState(false)
+  const [confirmarCambioSustancial, setConfirmarCambioSustancial] = useState(false)
+  const [motivoCambioSustancial, setMotivoCambioSustancial] = useState('')
   const proceso = useQuery({
     queryKey: ['convenio', convenioId, 'firmas'],
     queryFn: () => apiFetch<ProcesoFirmas>(`/convenios/${convenioId}/firmas`),
@@ -262,6 +265,32 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
     onError: (error) => notify({
       type: 'error',
       message: error instanceof Error ? error.message : 'No fue posible formalizar el convenio.',
+    }),
+  })
+  const solicitarCambioSustancial = useMutation({
+    mutationFn: () => apiFetch(`/convenios/${convenioId}/firmas/cambio-sustancial`, {
+      method: 'POST',
+      body: JSON.stringify({ observacion: motivoCambioSustancial.trim() }),
+    }),
+    onSuccess: async () => {
+      setConfirmarCambioSustancial(false)
+      setMotivoCambioSustancial('')
+      await Promise.all([
+        cliente.invalidateQueries({ queryKey: ['convenio', convenioId] }),
+        cliente.invalidateQueries({ queryKey: ['convenio', convenioId, 'firmas'] }),
+        cliente.invalidateQueries({ queryKey: ['convenio', convenioId, 'historial'] }),
+        cliente.invalidateQueries({ queryKey: ['convenios', convenioId, 'elaboracion'] }),
+        cliente.invalidateQueries({ queryKey: ['convenios', convenioId, 'versiones'] }),
+      ])
+      notify({
+        type: 'success',
+        message: 'El proceso de firmas fue cancelado y el convenio volvió a Elaboración. Debes atender el cambio, crear una nueva versión y repetir las revisiones.',
+      })
+      navigate(`/convenios/${convenioId}/elaboracion`)
+    },
+    onError: (error) => notify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'No fue posible solicitar el cambio sustancial.',
     }),
   })
 
@@ -321,6 +350,11 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
             Ver documento aprobado · Versión {datos.version_numero}
           </Link>
         )}
+        {(datos.estado === 'CONFIGURACION' || datos.estado === 'EN_CURSO') && (
+          <button className="btn btn-outline btn-cambio-sustancial" type="button" onClick={() => setConfirmarCambioSustancial(true)}>
+            Solicitar cambio sustancial
+          </button>
+        )}
         {datos.estado === 'CONFIGURACION' && <button className="btn btn-primary" type="button" disabled={!todasConfiguradas || iniciar.isPending} onClick={() => iniciar.mutate()}>{iniciar.isPending ? 'Iniciando…' : 'Iniciar proceso de firmas'}</button>}
         {datos.estado === 'EN_CURSO' && electronicas.length > 0 && !algunaInvitacion && <button className="btn btn-primary" type="button" disabled={enviar.isPending} onClick={() => enviar.mutate()}>{enviar.isPending ? 'Enviando…' : 'Enviar invitaciones electrónicas'}</button>}
       </div>
@@ -354,6 +388,38 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
         >
           <p>Se cerrará el proceso de firmas de la versión {datos.version_numero}.</p>
           <p>Esta versión quedará como versión contractual definitiva y el convenio pasará a estado Vigente.</p>
+        </ConfirmacionModal>
+      )}
+      {confirmarCambioSustancial && (
+        <ConfirmacionModal
+          titulo="Solicitar cambio sustancial"
+          confirmar="Cancelar firmas y volver a Elaboración"
+          procesando="Registrando cambio…"
+          pendiente={solicitarCambioSustancial.isPending}
+          confirmarDeshabilitado={!motivoCambioSustancial.trim()}
+          onConfirmar={() => solicitarCambioSustancial.mutate()}
+          onCerrar={() => setConfirmarCambioSustancial(false)}
+        >
+          <p>Esta acción:</p>
+          <ul className="cambio-sustancial-consecuencias">
+            <li>cancelará el proceso de firmas actual;</li>
+            <li>mantendrá intacta la versión aprobada como histórico;</li>
+            <li>revocará las invitaciones pendientes;</li>
+            <li>conservará las firmas y evidencias registradas solo como histórico;</li>
+            <li>devolverá el convenio a Elaboración;</li>
+            <li>exigirá una nueva versión y repetir todas las revisiones antes de volver a firmar.</li>
+          </ul>
+          <label className="form-group" htmlFor="motivo-cambio-sustancial">
+            <span className="form-label">Motivo del cambio sustancial</span>
+            <textarea
+              id="motivo-cambio-sustancial"
+              className="form-control"
+              rows={5}
+              maxLength={4000}
+              value={motivoCambioSustancial}
+              onChange={(event) => setMotivoCambioSustancial(event.target.value)}
+            />
+          </label>
         </ConfirmacionModal>
       )}
     </section>

@@ -3,13 +3,15 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
+    AccionAuditoria,
     EstadoConvenio,
     EstadoFirmaConvenio,
     EstadoObservacionRevision,
@@ -26,6 +28,7 @@ from backend.models.enums import (
 from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.invitacion_firma_convenio import InvitacionFirmaConvenio
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.revision_convenio import RevisionConvenio
@@ -551,6 +554,148 @@ class ServicioFirmas:
             contenido=version.contenido,
             creado_en=version.creado_en,
         )
+
+    def solicitar_cambio_sustancial(
+        self, convenio_id: int, observacion: str, usuario: Usuario
+    ) -> ProcesoFirmasConvenio:
+        motivo = observacion.strip()
+        if not motivo:
+            raise ReferenciaConvenioInvalida(
+                "El motivo del cambio sustancial debe tener contenido"
+            )
+
+        convenio = self._convenio(convenio_id, bloquear=True)
+        if convenio.estado != EstadoConvenio.EN_TRAMITE.value:
+            raise RevisionNoDisponible(
+                "El convenio no está en trámite para solicitar el cambio"
+            )
+        if (
+            convenio.etapa_actual is None
+            or convenio.etapa_actual.codigo != CODIGO_ETAPA_APROBACION_FIRMAS
+        ):
+            raise RevisionNoDisponible(
+                "El convenio no está en aprobación de firmas"
+            )
+
+        procesos = list(
+            self.db.scalars(
+                select(ProcesoFirmasConvenio)
+                .options(
+                    selectinload(ProcesoFirmasConvenio.version_convenio),
+                    selectinload(ProcesoFirmasConvenio.firmas).selectinload(
+                        FirmaConvenio.invitaciones
+                    ),
+                    selectinload(ProcesoFirmasConvenio.firmas).joinedload(
+                        FirmaConvenio.documento
+                    ),
+                )
+                .where(
+                    ProcesoFirmasConvenio.convenio_id == convenio.id,
+                    ProcesoFirmasConvenio.estado.in_(
+                        (
+                            EstadoProcesoFirmasConvenio.CONFIGURACION.value,
+                            EstadoProcesoFirmasConvenio.EN_CURSO.value,
+                        )
+                    ),
+                )
+                .order_by(ProcesoFirmasConvenio.id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        )
+        if len(procesos) != 1:
+            raise RevisionNoDisponible(
+                "Debe existir exactamente un proceso de firmas activo"
+            )
+        proceso = procesos[0]
+        estado_anterior = proceso.estado
+
+        version = self.db.scalar(
+            select(VersionConvenio)
+            .where(VersionConvenio.id == proceso.version_convenio_id)
+            .with_for_update()
+        )
+        if version is None or version.convenio_id != convenio.id:
+            raise RevisionNoDisponible(
+                "El proceso no referencia una versión válida del convenio"
+            )
+        revision_final = self.db.scalar(
+            select(RevisionConvenio).where(
+                RevisionConvenio.id == proceso.revision_final_id,
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == TipoRevisionConvenio.FINAL.value,
+            )
+        )
+        if revision_final is None:
+            raise RevisionNoDisponible(
+                "El proceso no referencia una revisión final válida"
+            )
+        elaboracion = self.db.scalar(
+            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_ELABORACION)
+        )
+        if elaboracion is None:
+            raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+
+        ahora = datetime.now(UTC)
+        historial = HistorialEtapa(
+            convenio_id=convenio.id,
+            etapa_origen_id=convenio.etapa_actual_id,
+            etapa_destino_id=elaboracion.id,
+            usuario_id=usuario.id,
+            responsable_id=convenio.creado_por_id,
+            observacion=(
+                "Cambio sustancial solicitado durante el proceso de firmas: "
+                f"{motivo}"
+            ),
+        )
+        self.db.add(historial)
+        try:
+            self.db.flush()
+            self.db.add(
+                ObservacionRevision(
+                    convenio_id=convenio.id,
+                    historial_etapa_id=historial.id,
+                    revision_convenio_id=proceso.revision_final_id,
+                    origen=OrigenObservacionRevision.REVISION_FINAL_ORI.value,
+                    registrada_por_id=usuario.id,
+                    responsable_id=convenio.creado_por_id,
+                    descripcion=motivo,
+                    estado=EstadoObservacionRevision.PENDIENTE.value,
+                )
+            )
+            self.db.execute(
+                update(InvitacionFirmaConvenio)
+                .where(
+                    InvitacionFirmaConvenio.firma_convenio_id.in_(
+                        select(FirmaConvenio.id).where(
+                            FirmaConvenio.proceso_firmas_id == proceso.id
+                        )
+                    ),
+                    InvitacionFirmaConvenio.utilizado_en.is_(None),
+                    InvitacionFirmaConvenio.revocado_en.is_(None),
+                )
+                .values(revocado_en=ahora)
+            )
+            proceso.estado = EstadoProcesoFirmasConvenio.CANCELADO.value
+            proceso.cancelado_en = ahora
+            convenio.etapa_actual = elaboracion
+            convenio.estado = EstadoConvenio.EN_TRAMITE.value
+            self.db.add(
+                Auditoria(
+                    usuario_id=usuario.id,
+                    entidad="proceso_firmas_convenio",
+                    registro_id=proceso.id,
+                    accion=AccionAuditoria.UPDATE.value,
+                    campo="estado",
+                    valor_anterior=estado_anterior,
+                    valor_nuevo=EstadoProcesoFirmasConvenio.CANCELADO.value,
+                )
+            )
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return proceso
 
     def formalizar(
         self, convenio_id: int, usuario: Usuario

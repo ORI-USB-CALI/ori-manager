@@ -16,6 +16,7 @@ from backend.models.enums import (
     ContextoVersionConvenio,
     EstadoConvenio,
     EstadoObservacionRevision,
+    EstadoProcesoFirmasConvenio,
     EstadoRevisionConvenio,
     EstadoSolicitud,
     OrigenObservacionRevision,
@@ -29,6 +30,7 @@ from backend.models.invitacion_revision_contraparte import (
 )
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.plantilla_convenio import PlantillaConvenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.respuesta_revision_contraparte import (
     RespuestaRevisionContraparte,
 )
@@ -1635,6 +1637,31 @@ class ServicioConvenios:
                     )
                 ]
             )
+
+        ultimo_proceso_cancelado = self.db.scalar(
+            select(ProcesoFirmasConvenio)
+            .options(joinedload(ProcesoFirmasConvenio.version_convenio))
+            .where(
+                ProcesoFirmasConvenio.convenio_id == convenio.id,
+                ProcesoFirmasConvenio.estado
+                == EstadoProcesoFirmasConvenio.CANCELADO.value,
+            )
+            .order_by(ProcesoFirmasConvenio.id.desc())
+            .limit(1)
+        )
+        if ultimo_proceso_cancelado is not None:
+            version_cancelada = ultimo_proceso_cancelado.version_convenio
+            if version_cancelada.convenio_id != convenio.id:
+                self.db.rollback()
+                raise RevisionNoDisponible(
+                    "El proceso cancelado no identifica una versión válida"
+                )
+            if version_final.numero <= version_cancelada.numero:
+                self.db.rollback()
+                raise RevisionNoDisponible(
+                    "Debe crear una nueva versión del proyecto después del "
+                    "cambio sustancial antes de reenviarlo a revisión"
+                )
         if ultima_devuelta is not None:
             version_base = (
                 ultima_devuelta.version_convenio
