@@ -1230,6 +1230,34 @@ a:hover {
   gap: 20px;
 }
 
+.documento-aprobado-page {
+  display: grid;
+  gap: 20px;
+}
+
+.documento-aprobado-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--gradiente-ori);
+  color: white;
+}
+
+.documento-aprobado-cabecera p {
+  margin-top: 6px;
+}
+
+.documento-aprobado-cabecera strong {
+  white-space: nowrap;
+}
+
+.documento-aprobado-contenido .convenio-editor {
+  border: 0;
+}
+
 .firmas-lista {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1946,6 +1974,55 @@ a:hover {
   .timeline-respuesta-contraparte dd,
   .invitacion-trazabilidad dd {
     margin-bottom: 8px;
+  }
+}
+
+@media print {
+  @page {
+    margin: 18mm;
+  }
+
+  body,
+  .app-shell,
+  .page {
+    min-height: auto;
+    background: white;
+  }
+
+  .navbar,
+  .footer-internal,
+  .documento-aprobado-acciones {
+    display: none !important;
+  }
+
+  .page {
+    max-width: none;
+    padding: 0;
+  }
+
+  .documento-aprobado-page {
+    display: block;
+  }
+
+  .documento-aprobado-cabecera {
+    margin-bottom: 12mm;
+    padding: 0 0 6mm;
+    border-bottom: 1px solid #777;
+    border-radius: 0;
+    background: none;
+    color: black;
+  }
+
+  .documento-aprobado-contenido .convenio-editor,
+  .documento-aprobado-contenido .convenio-editor .ProseMirror {
+    overflow: visible;
+    width: 100%;
+    min-height: auto;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: white;
+    box-shadow: none;
   }
 }
 
