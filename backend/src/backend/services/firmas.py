@@ -69,6 +69,17 @@ class ContextoRevisionFinal:
     proceso_activo: ProcesoFirmasConvenio | None
 
 
+@dataclass(frozen=True)
+class DocumentoAprobadoFirma:
+    convenio_id: int
+    codigo_convenio: str | None
+    proceso_firmas_id: int
+    version_convenio_id: int
+    version_numero: int
+    contenido: dict[str, object]
+    creado_en: datetime
+
+
 class ServicioFirmas:
     def __init__(
         self, db: Session, almacen: AlmacenDocumentos | None = None
@@ -503,6 +514,43 @@ class ServicioFirmas:
         if proceso is None:
             raise RevisionNoDisponible("No existe un proceso de firmas disponible")
         return proceso
+
+    def obtener_documento_aprobado_para_firma(
+        self, convenio_id: int
+    ) -> DocumentoAprobadoFirma:
+        convenio = self._convenio(convenio_id, bloquear=False)
+        proceso = self.db.scalar(
+            select(ProcesoFirmasConvenio)
+            .where(
+                ProcesoFirmasConvenio.convenio_id == convenio.id,
+                ProcesoFirmasConvenio.estado.in_(
+                    (
+                        EstadoProcesoFirmasConvenio.CONFIGURACION.value,
+                        EstadoProcesoFirmasConvenio.EN_CURSO.value,
+                        EstadoProcesoFirmasConvenio.COMPLETADO.value,
+                    )
+                ),
+            )
+            .order_by(ProcesoFirmasConvenio.id.desc())
+            .limit(1)
+        )
+        if proceso is None:
+            raise RevisionNoDisponible("No existe un proceso de firmas disponible")
+
+        version = self.db.get(VersionConvenio, proceso.version_convenio_id)
+        if version is None or version.convenio_id != convenio.id:
+            raise RevisionNoDisponible(
+                "El proceso de firmas no referencia una versión válida del convenio"
+            )
+        return DocumentoAprobadoFirma(
+            convenio_id=convenio.id,
+            codigo_convenio=convenio.codigo,
+            proceso_firmas_id=proceso.id,
+            version_convenio_id=version.id,
+            version_numero=version.numero,
+            contenido=version.contenido,
+            creado_en=version.creado_en,
+        )
 
     def formalizar(
         self, convenio_id: int, usuario: Usuario

@@ -446,6 +446,135 @@ def _formalizar(client, escenario):
     )
 
 
+def _obtener_documento_aprobado(client, convenio_id):
+    return client.get(
+        f"/api/convenios/{convenio_id}/firmas/documento-aprobado"
+    )
+
+
+def test_documento_aprobado_en_configuracion_usa_version_congelada(
+    client, db, escenario_final
+):
+    proceso = _aprobar(client, escenario_final).json()
+    convenio = escenario_final["convenio"]
+    congelada = escenario_final["version"]
+    contenido_congelado = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "V5"}]}
+        ],
+    }
+    congelada.contenido = contenido_congelado
+    posterior = VersionConvenio(
+        convenio_id=convenio.id,
+        numero=congelada.numero + 1,
+        contenido={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "V6 no aprobada"}],
+                }
+            ],
+        },
+        snapshot_metadata={},
+        autor_id=escenario_final["gestor"].id,
+        etapa_id=congelada.etapa_id,
+        contexto=ContextoVersionConvenio.GUARDADO.value,
+    )
+    db.add(posterior)
+    db.flush()
+    convenio.version_actual = posterior.numero
+    db.commit()
+
+    respuesta = _obtener_documento_aprobado(client, convenio.id)
+
+    assert respuesta.status_code == 200
+    datos = respuesta.json()
+    assert proceso["estado"] == EstadoProcesoFirmasConvenio.CONFIGURACION.value
+    assert datos["proceso_firmas_id"] == proceso["id"]
+    assert datos["version_convenio_id"] == congelada.id
+    assert datos["version_numero"] == congelada.numero
+    assert datos["contenido"] == contenido_congelado
+    assert datos["version_convenio_id"] != posterior.id
+
+
+def test_documento_aprobado_rechaza_convenio_sin_proceso(
+    client, escenario_final
+):
+    respuesta = _obtener_documento_aprobado(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 409
+
+
+def test_documento_aprobado_rechaza_version_ajena_sin_fallback(
+    client, db, escenario_final, crear_convenio
+):
+    proceso = _aprobar(client, escenario_final).json()
+    otro_convenio = crear_convenio(escenario_final["gestor"])
+    version_ajena = db.scalar(
+        select(VersionConvenio).where(
+            VersionConvenio.convenio_id == otro_convenio.id
+        )
+    )
+    assert version_ajena is not None
+    proceso_persistido = db.get(ProcesoFirmasConvenio, proceso["id"])
+    assert proceso_persistido is not None
+    proceso_persistido.version_convenio_id = version_ajena.id
+    db.commit()
+
+    respuesta = _obtener_documento_aprobado(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 409
+
+
+def test_administrador_puede_consultar_documento_aprobado(
+    client, crear_usuario, entrar_como, escenario_final
+):
+    _aprobar(client, escenario_final)
+    entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI))
+
+    respuesta = _obtener_documento_aprobado(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "codigo_rol",
+    [CodigoRol.REVISOR_ORI, CodigoRol.SOLICITANTE_INTERNO],
+)
+def test_roles_sin_gestion_firmas_no_consultan_documento_aprobado(
+    client, crear_usuario, entrar_como, escenario_final, codigo_rol
+):
+    _aprobar(client, escenario_final)
+    entrar_como(crear_usuario(codigo_rol))
+
+    respuesta = _obtener_documento_aprobado(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 403
+
+
+def test_usuario_sin_sesion_no_consulta_documento_aprobado(
+    client, escenario_final
+):
+    _aprobar(client, escenario_final)
+    client.cookies.clear()
+
+    respuesta = _obtener_documento_aprobado(
+        client, escenario_final["convenio"].id
+    )
+
+    assert respuesta.status_code == 401
+
+
 def test_no_accede_revision_final_fuera_de_etapa(client, convenio_listo):
     respuesta = client.get(f"/api/convenios/{convenio_listo.id}/revision-final")
     assert respuesta.status_code == 409

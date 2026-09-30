@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
@@ -315,6 +316,11 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
         })}
       </div>
       <div className="page-toolbar">
+        {(datos.estado === 'CONFIGURACION' || datos.estado === 'EN_CURSO') && (
+          <Link className="btn btn-outline" to={`/convenios/${convenioId}/firmas/documento-aprobado`}>
+            Ver documento aprobado · Versión {datos.version_numero}
+          </Link>
+        )}
         {datos.estado === 'CONFIGURACION' && <button className="btn btn-primary" type="button" disabled={!todasConfiguradas || iniciar.isPending} onClick={() => iniciar.mutate()}>{iniciar.isPending ? 'Iniciando…' : 'Iniciar proceso de firmas'}</button>}
         {datos.estado === 'EN_CURSO' && electronicas.length > 0 && !algunaInvitacion && <button className="btn btn-primary" type="button" disabled={enviar.isPending} onClick={() => enviar.mutate()}>{enviar.isPending ? 'Enviando…' : 'Enviar invitaciones electrónicas'}</button>}
       </div>

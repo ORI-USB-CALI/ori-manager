@@ -558,6 +558,18 @@ class ProcesoFirmasConvenioLeer(BaseModel):
     firmas: list[FirmaConvenioLeer]
 
 
+class DocumentoAprobadoFirmaLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    convenio_id: int
+    codigo_convenio: str | None
+    proceso_firmas_id: int
+    version_convenio_id: int
+    version_numero: int
+    contenido: dict[str, Any]
+    creado_en: datetime
+
+
 class RevisionFinalLeer(BaseModel):
     convenio: ConvenioElaboracionLeer
     documentos: list[DocumentoConvenioLeer]

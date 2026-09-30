@@ -30,6 +30,7 @@ from backend.schemas.convenio import (
     ConvenioTableroLeer,
     CrearObservacionRevision,
     DevolverRevision,
+    DocumentoAprobadoFirmaLeer,
     DocumentoConvenioLeer,
     EnviarRevisionContraparte,
     FirmaConvenioLeer,
@@ -750,6 +751,22 @@ def devolver_revision_final(
         return RevisionConvenioLeer.model_validate(
             next(item for item in convenio.revisiones if item.id == revision.id)
         )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/firmas/documento-aprobado",
+    response_model=DocumentoAprobadoFirmaLeer,
+)
+def obtener_documento_aprobado_firma(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarFirmas
+) -> DocumentoAprobadoFirmaLeer:
+    try:
+        documento = ServicioFirmas(db).obtener_documento_aprobado_para_firma(
+            convenio_id
+        )
+        return DocumentoAprobadoFirmaLeer.model_validate(documento)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
