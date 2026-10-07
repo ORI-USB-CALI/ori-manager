@@ -2,12 +2,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 
 import { useSesion } from '../auth/sesion'
+import { AlertasVencimiento } from '../components/AlertasVencimiento'
+import { BandejaNotificaciones } from '../components/BandejaNotificaciones'
+import { useAlertasVencimiento } from '../pages/alertasVencimiento'
 import { apiFetch } from './api'
 
 export function AppLayout() {
   const { sesion, cargando, error, puede } = useSesion()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const puedeVerAlertasVencimiento = puede('convenios.ver_alertas_vencimiento')
+  const alertasVencimiento = useAlertasVencimiento(puedeVerAlertasVencimiento)
   const logout = useMutation({
     mutationFn: () => apiFetch('/auth/logout', { method: 'POST' }),
     onSuccess: () => {
@@ -49,6 +54,20 @@ export function AppLayout() {
         </nav>
 
         <div className="user-profile">
+          {puedeVerAlertasVencimiento && (
+            <BandejaNotificaciones
+              contador={alertasVencimiento.data?.length ?? 0}
+              onAbrir={() => {
+                void alertasVencimiento.refetch()
+              }}
+            >
+              <AlertasVencimiento
+                alertas={alertasVencimiento.data}
+                cargando={alertasVencimiento.isPending}
+                error={alertasVencimiento.isError}
+              />
+            </BandejaNotificaciones>
+          )}
           <div className="user-data">
             <span className="user-email">{sesion.correo}</span>
             <span className="badge badge-rol">{sesion.rol.nombre}</span>

@@ -16,6 +16,7 @@ class Permiso(StrEnum):
     ALIADOS_CAMBIAR_ESTADO = "aliados.cambiar_estado"
     ALIADOS_CORREGIR_IDENTIFICACION = "aliados.corregir_identificacion"
     CONVENIOS_VER = "convenios.ver"
+    CONVENIOS_VER_ALERTAS_VENCIMIENTO = "convenios.ver_alertas_vencimiento"
     CONVENIOS_CREAR = "convenios.crear"
     CONVENIOS_EDITAR = "convenios.editar"
     CONVENIOS_REVISAR = "convenios.revisar"
@@ -63,6 +64,7 @@ _PERMISOS_SOLICITUDES_PROPIAS = frozenset(
     }
 )
 _PERMISOS_REVISION_JURIDICA = frozenset({Permiso.CONVENIOS_REVISAR})
+_PERMISOS_ALERTAS_VENCIMIENTO = frozenset({Permiso.CONVENIOS_VER_ALERTAS_VENCIMIENTO})
 _PERMISOS_GESTION_CONTRAPARTE = frozenset(
     {Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE}
 )
@@ -83,12 +85,14 @@ PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
             _PERMISOS_GESTION_USUARIOS
             | _PERMISOS_GESTION_EPICA_02
             | _PERMISOS_SOLICITUDES_RECIBIDAS
+            | _PERMISOS_ALERTAS_VENCIMIENTO
             | _PERMISOS_GESTION_CONTRAPARTE
             | _PERMISOS_GESTION_FIRMAS
         ),
         CodigoRol.GESTOR_ORI: (
             _PERMISOS_GESTION_EPICA_02
             | _PERMISOS_SOLICITUDES_RECIBIDAS
+            | _PERMISOS_ALERTAS_VENCIMIENTO
             | _PERMISOS_GESTION_CONTRAPARTE
             | _PERMISOS_GESTION_FIRMAS
         ),

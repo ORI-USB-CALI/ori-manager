@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -372,6 +372,17 @@ class ConvenioTableroLeer(BaseModel):
 class TableroConveniosLeer(BaseModel):
     etapas: list[EtapaTableroLeer]
     convenios: list[ConvenioTableroLeer]
+
+
+class AlertaVencimientoLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    convenio_id: int
+    codigo: str | None
+    objeto: str | None
+    fecha_vencimiento: date
+    dias_restantes: int
+    rango_vencimiento: Literal["0_30", "31_60", "61_90", "91_120"]
 
 
 class HistorialEtapaLeer(BaseModel):

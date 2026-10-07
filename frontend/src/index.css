@@ -512,6 +512,216 @@ a:hover {
   white-space: nowrap;
 }
 
+.bandeja-notificaciones {
+  position: relative;
+  flex: none;
+}
+
+.bandeja-notificaciones-trigger {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  place-items: center;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.bandeja-notificaciones-trigger:hover,
+.bandeja-notificaciones-trigger[aria-expanded='true'] {
+  border-color: rgb(243 108 33 / 45%);
+  background: rgb(243 108 33 / 8%);
+  color: var(--color-naranja);
+}
+
+.bandeja-notificaciones-trigger:focus-visible {
+  outline: 3px solid rgb(243 108 33 / 35%);
+  outline-offset: 2px;
+}
+
+.bandeja-notificaciones-trigger svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.bandeja-notificaciones-contador {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 2px solid white;
+  border-radius: 999px;
+  background: var(--color-magenta);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  place-items: center;
+}
+
+.bandeja-notificaciones-panel {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 96px));
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: 0 18px 48px rgb(26 29 32 / 20%);
+}
+
+.bandeja-notificaciones-cabecera {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.bandeja-notificaciones-cabecera h2 {
+  font-size: 1.1rem;
+}
+
+.bandeja-notificaciones-cerrar {
+  width: 32px;
+  height: 32px;
+}
+
+.bandeja-notificaciones-contenido {
+  padding: 16px;
+}
+
+.avisos-vencimiento-cabecera {
+  margin-bottom: 14px;
+}
+
+.avisos-vencimiento-cabecera h3 {
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.avisos-vencimiento-cabecera p {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.bandeja-notificaciones-estado,
+.bandeja-notificaciones-error {
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.bandeja-notificaciones-estado {
+  background: #f8fafc;
+  color: var(--text-secondary);
+}
+
+.bandeja-notificaciones-error {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.avisos-vencimiento-lista {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+}
+
+.aviso-vencimiento {
+  display: grid;
+  min-width: 0;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
+  border-radius: 9px;
+  background: var(--bg-surface);
+}
+
+.aviso-vencimiento-danger { border-left-color: #dc2626; }
+.aviso-vencimiento-warning { border-left-color: #d97706; }
+.aviso-vencimiento-info { border-left-color: #0284c7; }
+.aviso-vencimiento-neutral { border-left-color: #64748b; }
+
+.aviso-vencimiento-nivel {
+  display: flex;
+  align-items: center;
+}
+
+.aviso-vencimiento-identificacion {
+  min-width: 0;
+}
+
+.aviso-vencimiento-identificacion h4,
+.aviso-vencimiento-identificacion p {
+  overflow-wrap: anywhere;
+}
+
+.aviso-vencimiento-identificacion h4 {
+  font-size: 0.95rem;
+}
+
+.aviso-vencimiento-identificacion p {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.aviso-vencimiento-datos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.aviso-vencimiento-datos div {
+  min-width: 0;
+}
+
+.aviso-vencimiento-datos dt {
+  margin-bottom: 2px;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.aviso-vencimiento-datos dd {
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.aviso-vencimiento-enlace {
+  width: fit-content;
+  font-size: 0.8rem;
+}
+
 .accesos-rapidos-cabecera h2 {
   margin-bottom: 6px;
   font-size: 1.5rem;
@@ -1899,6 +2109,15 @@ a:hover {
 
   .accesos-rapidos-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bandeja-notificaciones-panel {
+    position: fixed;
+    top: 72px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 84px);
   }
 
   .acceso-rapido-enlace {
