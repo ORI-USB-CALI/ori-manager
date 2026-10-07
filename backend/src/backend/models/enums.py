@@ -36,6 +36,14 @@ class EstadoSolicitud(StrEnum):
     RECHAZADA = "RECHAZADA"
 
 
+class TipoDocumentoSolicitud(StrEnum):
+    CAMARA_COMERCIO = "CAMARA_COMERCIO"
+    RUT = "RUT"
+    CEDULA_REPRESENTANTE_LEGAL = "CEDULA_REPRESENTANTE_LEGAL"
+    OTRO_DOCUMENTO_REPRESENTACION = "OTRO_DOCUMENTO_REPRESENTACION"
+    OTRO_SOPORTE = "OTRO_SOPORTE"
+
+
 class EstadoConvenio(StrEnum):
     EN_TRAMITE = "EN_TRAMITE"
     VIGENTE = "VIGENTE"
@@ -49,3 +57,76 @@ class EstadoConvenio(StrEnum):
 class AlcanceConvenio(StrEnum):
     PROGRAMA = "PROGRAMA"
     INSTITUCIONAL = "INSTITUCIONAL"
+
+
+class OrigenObservacionRevision(StrEnum):
+    REVISOR_ORI = "REVISOR_ORI"
+    CONTRAPARTE = "CONTRAPARTE"
+    REVISION_FINAL_ORI = "REVISION_FINAL_ORI"
+
+
+class EstadoObservacionRevision(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    ATENDIDA = "ATENDIDA"
+
+
+class TipoRevisionConvenio(StrEnum):
+    JURIDICA = "JURIDICA"
+    CONTRAPARTE = "CONTRAPARTE"
+    FINAL = "FINAL"
+
+
+class EstadoRevisionConvenio(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    RESUELTA = "RESUELTA"
+
+
+class ResultadoRevisionConvenio(StrEnum):
+    APROBADA = "APROBADA"
+    DEVUELTA = "DEVUELTA"
+
+
+class EstadoProcesoFirmasConvenio(StrEnum):
+    CONFIGURACION = "CONFIGURACION"
+    EN_CURSO = "EN_CURSO"
+    COMPLETADO = "COMPLETADO"
+    CANCELADO = "CANCELADO"
+
+
+class RolFirmanteConvenio(StrEnum):
+    ADMINISTRADOR_ORI = "ADMINISTRADOR_ORI"
+    REVISOR_ORI = "REVISOR_ORI"
+    VICERRECTORIA_FINANCIERA = "VICERRECTORIA_FINANCIERA"
+    VICERRECTORIA_ACADEMICA = "VICERRECTORIA_ACADEMICA"
+    SECRETARIA = "SECRETARIA"
+    RECTOR = "RECTOR"
+    PARTE_SOLICITANTE = "PARTE_SOLICITANTE"
+
+
+class ParteFirmaConvenio(StrEnum):
+    UNIVERSIDAD = "UNIVERSIDAD"
+    UNIDAD_SOLICITANTE = "UNIDAD_SOLICITANTE"
+    REPRESENTANTE_LEGAL_ENTIDAD = "REPRESENTANTE_LEGAL_ENTIDAD"
+
+
+class ModalidadFirma(StrEnum):
+    ELECTRONICA = "ELECTRONICA"
+    FISICA = "FISICA"
+
+
+class EstadoFirmaConvenio(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    FIRMADA = "FIRMADA"
+
+
+class ContextoVersionConvenio(StrEnum):
+    INICIALIZACION = "INICIALIZACION"
+    GUARDADO = "GUARDADO"
+    FINALIZACION = "FINALIZACION"
+    CORRECCION_REVISION = "CORRECCION_REVISION"
+
+
+class AccionAuditoria(StrEnum):
+    INSERT = "INSERT"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"

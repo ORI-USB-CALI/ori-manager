@@ -3,6 +3,7 @@ import { type FormEvent, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { type AliadoPerfil, ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
 
@@ -14,6 +15,7 @@ export function AliadoDetallePage() {
   const { aliadoId } = useParams()
   const id = Number(aliadoId)
   const { puede } = useSesion()
+  const notify = useNotifications()
   const cliente = useQueryClient()
   const [editando, setEditando] = useState(false)
   const aliado = useQuery({
@@ -24,7 +26,11 @@ export function AliadoDetallePage() {
   })
   const estado = useMutation({
     mutationFn: (activo: boolean) => apiFetch(`/aliados/${id}/estado`, { method: 'PATCH', body: JSON.stringify({ activo }) }),
-    onSuccess: () => cliente.invalidateQueries({ queryKey: ['aliado', id] }),
+    onSuccess: (_respuesta, activo) => {
+      void cliente.invalidateQueries({ queryKey: ['aliado', id] })
+      notify({ type: 'success', message: activo ? 'Aliado reactivado correctamente.' : 'Aliado inactivado correctamente.' })
+    },
+    onError: (error) => notify({ type: 'error', message: error instanceof ApiError ? error.message : 'No fue posible cambiar el estado del aliado.' }),
   })
   const editar = useMutation({
     mutationFn: (datos: {
@@ -34,7 +40,12 @@ export function AliadoDetallePage() {
       method: 'PATCH',
       body: JSON.stringify(datos.identidad ? { ...datos.ordinarios, ...datos.identidad } : datos.ordinarios),
     }),
-    onSuccess: async () => { await cliente.invalidateQueries({ queryKey: ['aliado', id] }); setEditando(false) },
+    onSuccess: async () => {
+      await cliente.invalidateQueries({ queryKey: ['aliado', id] })
+      setEditando(false)
+      notify({ type: 'success', message: 'Aliado actualizado correctamente.' })
+    },
+    onError: (error) => notify({ type: 'error', message: error instanceof ApiError ? error.message : 'No fue posible guardar el aliado.' }),
   })
 
   function guardar(evento: FormEvent<HTMLFormElement>) {
@@ -62,22 +73,20 @@ export function AliadoDetallePage() {
   }
   if (!aliado.data) return null
   const datos = aliado.data
-  const error = editar.error ?? estado.error
 
   return (
     <>
       <div className="page-toolbar"><div><Link to="/aliados">← Aliados</Link><h1>{datos.nombre}</h1></div><span className={`badge ${datos.activo ? 'badge-activo' : 'badge-inactivo'}`}>{datos.activo ? 'ACTIVO' : 'INACTIVO'}</span></div>
-      {error && <p className="alert-error">{error instanceof Error ? error.message : 'No fue posible guardar.'}</p>}
       <section className="card">
         <h2>Información del aliado</h2>
         {editando ? (
           <form onSubmit={guardar} className="form-grid">
-            <label className="form-group form-span-2"><span className="form-label">Nombre</span><input className="form-control" name="nombre" defaultValue={datos.nombre} required /></label>
-            <label className="form-group"><span className="form-label">Tipo de identificación</span><select className="form-control" name="tipo_identificacion" defaultValue={datos.tipo_identificacion} disabled={!puede('aliados.corregir_identificacion')}>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo} value={tipo}>{tipo.replaceAll('_', ' ')}</option>)}</select></label>
-            <label className="form-group"><span className="form-label">NIT / documento</span><input className="form-control" name="identificacion" maxLength={40} defaultValue={datos.identificacion} readOnly={!puede('aliados.corregir_identificacion')} required /></label>
-            <label className="form-group"><span className="form-label">Ciudad</span><input className="form-control" name="ciudad" defaultValue={datos.ciudad ?? ''} /></label>
-            <label className="form-group"><span className="form-label">Correo</span><input className="form-control" type="email" name="correo" defaultValue={datos.correo ?? ''} /></label>
-            <label className="form-group"><span className="form-label">Teléfono</span><input className="form-control" name="telefono" defaultValue={datos.telefono ?? ''} /></label>
+            <label className="form-group form-span-2" htmlFor="aliado-nombre"><span className="form-label">Nombre</span><input id="aliado-nombre" className="form-control" name="nombre" defaultValue={datos.nombre} required placeholder="Razón social o nombre oficial de la institución" /></label>
+            <label className="form-group" htmlFor="aliado-tipo-identificacion"><span className="form-label">Tipo de identificación</span><select id="aliado-tipo-identificacion" className="form-control" name="tipo_identificacion" defaultValue={datos.tipo_identificacion} disabled={!puede('aliados.corregir_identificacion')}>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo} value={tipo}>{tipo.replaceAll('_', ' ')}</option>)}</select></label>
+            <label className="form-group" htmlFor="aliado-identificacion"><span className="form-label">NIT / documento</span><input id="aliado-identificacion" className="form-control" name="identificacion" maxLength={40} defaultValue={datos.identificacion} readOnly={!puede('aliados.corregir_identificacion')} required placeholder="Número de identificación jurídica" /></label>
+            <label className="form-group" htmlFor="aliado-ciudad"><span className="form-label">Ciudad</span><input id="aliado-ciudad" className="form-control" name="ciudad" defaultValue={datos.ciudad ?? ''} placeholder="Ciudad donde se encuentra la entidad" /></label>
+            <label className="form-group" htmlFor="aliado-correo"><span className="form-label">Correo</span><input id="aliado-correo" className="form-control" type="email" name="correo" defaultValue={datos.correo ?? ''} placeholder="Correo institucional de contacto" /></label>
+            <label className="form-group" htmlFor="aliado-telefono"><span className="form-label">Teléfono</span><input id="aliado-telefono" className="form-control" name="telefono" defaultValue={datos.telefono ?? ''} placeholder="Número institucional de contacto" /></label>
             <div><button className="btn btn-primary" disabled={editar.isPending}>Guardar</button> <button className="btn btn-outline" type="button" onClick={() => setEditando(false)}>Cancelar</button></div>
           </form>
         ) : (

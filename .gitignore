@@ -11,6 +11,7 @@ backend/.pytest_cache/
 backend/.ruff_cache/
 backend/.coverage
 backend/htmlcov/
+backend/var/
 
 # Node generated files
 frontend/node_modules/

@@ -18,6 +18,20 @@ class Permiso(StrEnum):
     CONVENIOS_VER = "convenios.ver"
     CONVENIOS_CREAR = "convenios.crear"
     CONVENIOS_EDITAR = "convenios.editar"
+    CONVENIOS_REVISAR = "convenios.revisar"
+    CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE = (
+        "convenios.gestionar_revision_contraparte"
+    )
+    CONVENIOS_REVISAR_CONTRAPARTE_PROPIA = (
+        "convenios.revisar_contraparte_propia"
+    )
+    CONVENIOS_GESTIONAR_FIRMAS = "convenios.gestionar_firmas"
+    SOLICITUDES_CREAR = "solicitudes.crear"
+    SOLICITUDES_VER_PROPIAS = "solicitudes.ver_propias"
+    SOLICITUDES_EDITAR_PROPIAS = "solicitudes.editar_propias"
+    SOLICITUDES_RADICAR = "solicitudes.radicar"
+    SOLICITUDES_VER_RECIBIDAS = "solicitudes.ver_recibidas"
+    SOLICITUDES_GESTIONAR_RECIBIDAS = "solicitudes.gestionar_recibidas"
 
 
 _PERMISOS_GESTION_USUARIOS = frozenset(
@@ -34,24 +48,62 @@ _PERMISOS_GESTION_EPICA_02 = frozenset(
         Permiso.ALIADOS_VER,
         Permiso.ALIADOS_EDITAR,
         Permiso.ALIADOS_CAMBIAR_ESTADO,
+        Permiso.ALIADOS_CORREGIR_IDENTIFICACION,
         Permiso.CONVENIOS_VER,
         Permiso.CONVENIOS_CREAR,
         Permiso.CONVENIOS_EDITAR,
+    }
+)
+_PERMISOS_SOLICITUDES_PROPIAS = frozenset(
+    {
+        Permiso.SOLICITUDES_CREAR,
+        Permiso.SOLICITUDES_VER_PROPIAS,
+        Permiso.SOLICITUDES_EDITAR_PROPIAS,
+        Permiso.SOLICITUDES_RADICAR,
+    }
+)
+_PERMISOS_REVISION_JURIDICA = frozenset({Permiso.CONVENIOS_REVISAR})
+_PERMISOS_GESTION_CONTRAPARTE = frozenset(
+    {Permiso.CONVENIOS_GESTIONAR_REVISION_CONTRAPARTE}
+)
+_PERMISOS_REVISION_CONTRAPARTE_PROPIA = frozenset(
+    {Permiso.CONVENIOS_REVISAR_CONTRAPARTE_PROPIA}
+)
+_PERMISOS_GESTION_FIRMAS = frozenset({Permiso.CONVENIOS_GESTIONAR_FIRMAS})
+_PERMISOS_SOLICITUDES_RECIBIDAS = frozenset(
+    {
+        Permiso.SOLICITUDES_VER_RECIBIDAS,
+        Permiso.SOLICITUDES_GESTIONAR_RECIBIDAS,
     }
 )
 
 PERMISOS_POR_ROL: Mapping[CodigoRol, frozenset[Permiso]] = MappingProxyType(
     {
         CodigoRol.ADMINISTRADOR_ORI: (
-            _PERMISOS_GESTION_USUARIOS | _PERMISOS_GESTION_EPICA_02
-            | frozenset({Permiso.ALIADOS_CORREGIR_IDENTIFICACION})
+            _PERMISOS_GESTION_USUARIOS
+            | _PERMISOS_GESTION_EPICA_02
+            | _PERMISOS_SOLICITUDES_RECIBIDAS
+            | _PERMISOS_GESTION_CONTRAPARTE
+            | _PERMISOS_GESTION_FIRMAS
         ),
-        CodigoRol.GESTOR_ORI: _PERMISOS_GESTION_EPICA_02,
-        CodigoRol.REVISOR_ORI: frozenset(
-            {Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER}
+        CodigoRol.GESTOR_ORI: (
+            _PERMISOS_GESTION_EPICA_02
+            | _PERMISOS_SOLICITUDES_RECIBIDAS
+            | _PERMISOS_GESTION_CONTRAPARTE
+            | _PERMISOS_GESTION_FIRMAS
         ),
-        CodigoRol.SOLICITANTE_INTERNO: frozenset(),
-        CodigoRol.SOLICITANTE_EXTERNO: frozenset(),
+        CodigoRol.REVISOR_ORI: (
+            frozenset({Permiso.ALIADOS_VER, Permiso.CONVENIOS_VER})
+            | _PERMISOS_REVISION_JURIDICA
+        ),
+        CodigoRol.SOLICITANTE_INTERNO: (
+            _PERMISOS_SOLICITUDES_PROPIAS
+            | _PERMISOS_REVISION_CONTRAPARTE_PROPIA
+        ),
+        CodigoRol.SOLICITANTE_EXTERNO: (
+            _PERMISOS_SOLICITUDES_PROPIAS
+            | _PERMISOS_REVISION_CONTRAPARTE_PROPIA
+        ),
     }
 )
 

@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { CLAVE_SESION, useSesion } from '../auth/sesion'
+import { PasswordInput } from '../components/PasswordInput'
 
 interface Credenciales {
   correo: string
@@ -77,25 +78,28 @@ export function LoginPage() {
               required
               autoComplete="username"
               autoFocus
+              placeholder="Correo asociado a su cuenta"
             />
           </div>
           <div className="form-group">
-            <label className="form-label" htmlFor="contrasena">
-              Contraseña
-            </label>
-            <input
+            <PasswordInput
               id="contrasena"
+              label="Contraseña"
               name="contrasena"
-              type="password"
-              className="form-control"
               required
               autoComplete="current-password"
             />
+            <div className="enlace-recuperacion">
+              <Link to="/recuperar-contrasena">Olvidé mi contraseña</Link>
+            </div>
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={login.isPending}>
             {login.isPending ? 'Ingresando…' : 'Ingresar'}
           </button>
         </form>
+        <p className="registro-login">
+          ¿No tiene cuenta? <Link to="/registro">Crear cuenta</Link>
+        </p>
       </section>
     </main>
   )

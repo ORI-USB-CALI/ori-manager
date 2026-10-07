@@ -18,10 +18,12 @@ from backend.models.enums import (
     TipoIdentificacion,
     TipoSolicitante,
 )
+from backend.models.etapa import Etapa
+from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
 from backend.services.aliados import (
-    ConflictoAliado,
     resolver_aliado_existente_para_solicitud,
     resolver_aliado_para_convenio,
 )
@@ -74,12 +76,16 @@ def _crear_convenio(
     aliado: Aliado | None = None,
     estado: EstadoConvenio = EstadoConvenio.EN_TRAMITE,
 ) -> Convenio:
+    # Nace en ELABORACION igual que en ServicioConvenios.crear(): sin etapa el
+    # convenio no sería editable y no reflejaría un registro real.
+    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
     convenio = Convenio(
         solicitud_id=solicitud.id,
         aliado_id=aliado.id if aliado else None,
         estado=estado.value,
         objeto="Cooperación internacional",
         alcance=AlcanceConvenio.INSTITUCIONAL.value,
+        etapa_actual_id=elaboracion.id if elaboracion else None,
         creado_por_id=usuario.id,
     )
     db.add(convenio)
@@ -96,10 +102,9 @@ def _autenticar(client, crear_usuario, entrar_como, rol: CodigoRol) -> Usuario:
     return usuario
 
 
-def _payload_convenio(solicitud_id: int, aliado_id: int | None = None) -> dict:
+def _payload_convenio(solicitud_id: int) -> dict:
     return {
         "solicitud_id": solicitud_id,
-        "aliado_id": aliado_id,
         "objeto": "Convenio de movilidad académica",
         "alcance": "INSTITUCIONAL",
     }
@@ -220,17 +225,19 @@ def test_hu04_ca05_correo_distinto_conserva_contactos(
     assert len(db.scalars(select(ContactoAliado).where(ContactoAliado.aliado_id == aliado.id)).all()) == 2
 
 
-def test_hu04_aliado_inactivo_no_se_reactiva_al_formalizar(
+def test_hu04_aliado_inactivo_se_reactiva_al_formalizar(
     db, crear_usuario, crear_solicitud, crear_aliado
 ) -> None:
     usuario = crear_usuario()
     aliado = crear_aliado(identificacion="900123456", activo=False)
     solicitud = crear_solicitud(usuario, **_contraparte("900123456"))
     convenio = _crear_convenio(db, solicitud, usuario, estado=EstadoConvenio.VIGENTE)
-    with pytest.raises(ConflictoAliado, match="reactivarse"):
-        resolver_aliado_para_convenio(db, convenio)
-    assert aliado.activo is False
-    assert convenio.aliado_id is None
+    resultado = resolver_aliado_para_convenio(db, convenio)
+    db.flush()
+    assert resultado is not None and resultado.id == aliado.id
+    assert aliado.activo is True
+    assert convenio.aliado_id == aliado.id
+    assert solicitud.aliado_id == aliado.id
 
 # HU04 CA-06 a CA-12: gestión, permisos, estado e integridad.
 @pytest.mark.parametrize(
@@ -336,7 +343,7 @@ def test_hu04_por_vencer_bloquea_y_finalizado_no_bloquea(
     assert client.patch(f"/api/aliados/{aliado.id}/estado", json={"activo": False}).status_code == 200
 
 
-def test_hu04_ca11_identificacion_unica_y_no_editable(
+def test_hu04_ca11_identificacion_unica_y_no_editable_por_patch_ordinario(
     db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion="900123456")
@@ -366,17 +373,35 @@ def test_hu04_correccion_admin_permiso_colision_y_convenios(
     assert corregido.json()["tipo_identificacion"] == "PASAPORTE"
     assert corregido.json()["identificacion"] == "900777222"
     assert convenio.aliado_id == aliado.id
-    for rol in (CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI):
-        _autenticar(client, crear_usuario, entrar_como, rol)
-        assert client.patch(ruta, json={"tipo_identificacion": "NIT", "identificacion": "900777222"}).status_code == 403
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.REVISOR_ORI)
+    assert client.patch(ruta, json={"tipo_identificacion": "NIT", "identificacion": "900777222"}).status_code == 403
 
 
-def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
+def test_hu04_gestor_puede_corregir_identificacion(
     db, client, crear_usuario, entrar_como, crear_aliado
+) -> None:
+    aliado = crear_aliado(identificacion=_nit_unico())
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    nueva_identificacion = _nit_unico()
+
+    respuesta = client.patch(
+        f"/api/aliados/{aliado.id}/identificacion",
+        json={"tipo_identificacion": "PASAPORTE", "identificacion": nueva_identificacion},
+    )
+
+    assert respuesta.status_code == 200
+    db.refresh(aliado)
+    assert aliado.tipo_identificacion == TipoIdentificacion.PASAPORTE
+    assert aliado.identificacion == nueva_identificacion
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI])
+def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
+    rol, db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
     otro = crear_aliado(identificacion=_nit_unico())
-    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    _autenticar(client, crear_usuario, entrar_como, rol)
 
     respuesta = client.patch(
         f"/api/aliados/{aliado.id}/administracion",
@@ -394,12 +419,13 @@ def test_hu04_administracion_colision_no_persiste_cambios_ordinarios(
     assert aliado.identificacion != otro.identificacion
 
 
+@pytest.mark.parametrize("rol", [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI])
 def test_hu04_administracion_edicion_completa_valida(
-    db, client, crear_usuario, entrar_como, crear_aliado
+    rol, db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
     nueva_identificacion = _nit_unico()
-    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    _autenticar(client, crear_usuario, entrar_como, rol)
 
     respuesta = client.patch(
         f"/api/aliados/{aliado.id}/administracion",
@@ -419,12 +445,16 @@ def test_hu04_administracion_edicion_completa_valida(
     assert aliado.identificacion == nueva_identificacion
 
 
-@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI])
-def test_hu04_administracion_restringida_a_admin(
-    rol, db, client, crear_usuario, entrar_como, crear_aliado
+def test_hu04_revisor_no_puede_modificar_identificacion(
+    db, client, crear_usuario, entrar_como, crear_aliado
 ) -> None:
     aliado = crear_aliado(identificacion=_nit_unico(), telefono="6011111111")
-    _autenticar(client, crear_usuario, entrar_como, rol)
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.REVISOR_ORI)
+
+    correccion = client.patch(
+        f"/api/aliados/{aliado.id}/identificacion",
+        json={"tipo_identificacion": "NIT", "identificacion": _nit_unico()},
+    )
 
     respuesta = client.patch(
         f"/api/aliados/{aliado.id}/administracion",
@@ -435,6 +465,7 @@ def test_hu04_administracion_restringida_a_admin(
         },
     )
 
+    assert correccion.status_code == 403
     assert respuesta.status_code == 403
     db.refresh(aliado)
     assert aliado.telefono == "6011111111"
@@ -488,7 +519,7 @@ def test_hu05_404_403_y_401(client, crear_usuario, entrar_como) -> None:
 
 # HU06 CA-01 a CA-08: registro, consulta, edición y permisos.
 def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
-    client, crear_usuario, entrar_como, crear_solicitud
+    db, client, crear_usuario, entrar_como, crear_solicitud
 ) -> None:
     gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
     solicitud = crear_solicitud(gestor)
@@ -501,21 +532,108 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
     assert cuerpo["creado_por_id"] == gestor.id
     assert cuerpo["creado_por"]["id"] == gestor.id
     assert cuerpo["creado_en"]
+    solicitud_persistida = db.get(SolicitudConvenio, solicitud.id)
+    assert solicitud_persistida is not None
+    assert solicitud_persistida.estado == EstadoSolicitud.APROBADA
+    convenio = db.get(Convenio, cuerpo["id"])
+    assert convenio is not None
+    elaboracion = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
+    assert elaboracion is not None
+    assert convenio.etapa_actual_id == elaboracion.id
+    assert convenio.etapa_actual.codigo == "ELABORACION"
+    historiales = list(
+        db.scalars(
+            select(HistorialEtapa).where(HistorialEtapa.convenio_id == convenio.id)
+        )
+    )
+    assert len(historiales) == 1
+    historial = historiales[0]
+    assert historial.etapa_origen_id is None
+    assert historial.etapa_destino_id == elaboracion.id
+    assert historial.usuario_id == gestor.id
+    assert historial.responsable_id == gestor.id
+    assert historial.observacion is None
+    assert (
+        db.scalar(
+            select(ObservacionRevision).where(
+                ObservacionRevision.convenio_id == convenio.id
+            )
+        )
+        is None
+    )
     assert client.get(f"/api/convenios/{cuerpo['id']}").status_code == 200
 
 
-def test_hu06_ca02_ca07_aliado_activo_valido_inexistente_e_inactivo_rechazados(
+@pytest.mark.parametrize(
+    "estado",
+    [
+        EstadoSolicitud.BORRADOR,
+        EstadoSolicitud.RADICADA,
+        EstadoSolicitud.EN_ESTUDIO,
+        EstadoSolicitud.DEVUELTA,
+        EstadoSolicitud.RECHAZADA,
+    ],
+)
+def test_convenio_rechaza_solicitud_no_aprobada_sin_persistir(
+    estado, db, client, crear_usuario, entrar_como, crear_solicitud
+) -> None:
+    gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    solicitud = crear_solicitud(gestor, estado=estado.value)
+
+    respuesta = client.post("/api/convenios", json=_payload_convenio(solicitud.id))
+
+    assert respuesta.status_code == 409
+    assert (
+        db.scalar(select(Convenio).where(Convenio.solicitud_id == solicitud.id))
+        is None
+    )
+
+
+def test_hu06_aliado_se_deriva_exclusivamente_de_solicitud(
     client, crear_usuario, entrar_como, crear_solicitud, crear_aliado
 ) -> None:
     gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
-    activo = crear_aliado()
-    inactivo = crear_aliado(activo=False)
-    correcta = client.post("/api/convenios", json=_payload_convenio(crear_solicitud(gestor).id, activo.id))
-    inexistente = client.post("/api/convenios", json=_payload_convenio(crear_solicitud(gestor).id, 999999999))
-    rechazada = client.post("/api/convenios", json=_payload_convenio(crear_solicitud(gestor).id, inactivo.id))
-    assert correcta.status_code == 201
-    assert inexistente.status_code == 422
-    assert rechazada.status_code == 422
+    aliado = crear_aliado()
+    solicitud = crear_solicitud(gestor, aliado_id=aliado.id)
+
+    respuesta = client.post("/api/convenios", json=_payload_convenio(solicitud.id))
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["aliado_id"] == aliado.id
+
+
+def test_hu06_aliado_inactivo_derivado_impide_crear_convenio(
+    db, client, crear_usuario, entrar_como, crear_solicitud, crear_aliado
+) -> None:
+    gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    aliado = crear_aliado(activo=False)
+    solicitud = crear_solicitud(gestor, aliado_id=aliado.id)
+
+    respuesta = client.post("/api/convenios", json=_payload_convenio(solicitud.id))
+
+    assert respuesta.status_code == 422
+    assert (
+        db.scalar(select(Convenio).where(Convenio.solicitud_id == solicitud.id))
+        is None
+    )
+
+
+def test_hu06_post_rechaza_campos_controlados_por_servidor(
+    client, crear_usuario, entrar_como, crear_solicitud, crear_aliado
+) -> None:
+    gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    solicitud = crear_solicitud(gestor)
+    aliado = crear_aliado()
+    for campo, valor in (
+        ("aliado_id", aliado.id),
+        ("etapa_actual_id", 999999999),
+        ("estado", EstadoConvenio.VIGENTE.value),
+    ):
+        respuesta = client.post(
+            "/api/convenios",
+            json={**_payload_convenio(solicitud.id), campo: valor},
+        )
+        assert respuesta.status_code == 422
 
 
 def test_hu06_ca04_rechaza_estado_y_creado_por_del_cliente(
@@ -523,7 +641,7 @@ def test_hu06_ca04_rechaza_estado_y_creado_por_del_cliente(
 ) -> None:
     gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
     solicitud = crear_solicitud(gestor)
-    datos = {**_payload_convenio(solicitud.id), "estado": "VIGENTE", "creado_por_id": 999}
+    datos = {**_payload_convenio(solicitud.id), "creado_por_id": 999}
     assert client.post("/api/convenios", json=datos).status_code == 422
 
 
@@ -542,14 +660,22 @@ def test_hu06_patch_parcial_y_campos_inmutables(
     creado = client.post("/api/convenios", json=_payload_convenio(solicitud.id)).json()
     respuesta = client.patch(f"/api/convenios/{creado['id']}", json={"objeto": "Objeto actualizado"})
     assert respuesta.status_code == 200 and respuesta.json()["objeto"] == "Objeto actualizado"
-    for campo, valor in [("estado", "VIGENTE"), ("solicitud_id", 1), ("creado_por_id", 1), ("id", 1), ("creado_en", "2026-01-01")]:
+    for campo, valor in [
+        ("estado", "VIGENTE"),
+        ("solicitud_id", 1),
+        ("aliado_id", 1),
+        ("etapa_actual_id", 1),
+        ("creado_por_id", 1),
+        ("id", 1),
+        ("creado_en", "2026-01-01"),
+    ]:
         assert client.patch(f"/api/convenios/{creado['id']}", json={campo: valor}).status_code == 422
 
 
 @pytest.mark.parametrize(
     ("rol", "lectura", "escritura"),
     [
-        (CodigoRol.REVISOR_ORI, 200, 403),
+        (CodigoRol.REVISOR_ORI, 404, 403),
         (CodigoRol.GESTOR_ORI, 200, 201),
         (CodigoRol.SOLICITANTE_INTERNO, 403, 403),
         (CodigoRol.SOLICITANTE_EXTERNO, 403, 403),

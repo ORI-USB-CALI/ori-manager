@@ -89,6 +89,28 @@ GitHub Actions uses the PostgreSQL service container and:
 DATABASE_SSLMODE=disable
 ```
 
+### Staging migrations
+
+On every push to `develop`, the existing CI workflow runs Staging migrations
+only after both Backend CI and Frontend CI succeed. The migration job uses the
+GitHub Environment named `staging` and requires these Environment Secrets:
+
+```text
+STAGING_MIGRATION_DATABASE_HOST
+STAGING_MIGRATION_DATABASE_USER
+STAGING_MIGRATION_DATABASE_PASSWORD
+```
+
+GitHub Actions maps those secrets to the `DATABASE_*` settings and runs
+Alembic with the administrative/migration credential. Render does not receive
+that credential: the Staging FastAPI service continues to run exclusively as
+`ori_app_runtime.<project-ref>` and does not execute migrations during its
+build or startup.
+
+Pull requests and pushes to `main` never run the Staging migration job.
+Production migrations remain a controlled manual operation as documented in
+[`production-release.md`](production-release.md).
+
 ### Supabase / cloud runtime
 
 The backend must receive its credentials through the deployment platform's secret or environment configuration.

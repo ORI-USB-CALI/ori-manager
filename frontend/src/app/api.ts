@@ -1,10 +1,12 @@
 export class ApiError extends Error {
   readonly status: number
+  readonly detail: unknown
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.detail = detail
   }
 }
 
@@ -17,7 +19,12 @@ function mensajeError(cuerpo: unknown, statusText: string): string {
   if (!cuerpo || typeof cuerpo !== 'object' || !('detail' in cuerpo)) return statusText
   const detalle = cuerpo.detail
   if (typeof detalle === 'string') return detalle
-  if (!Array.isArray(detalle)) return statusText
+  if (!Array.isArray(detalle)) {
+    if (detalle && typeof detalle === 'object' && 'message' in detalle && typeof detalle.message === 'string') {
+      return detalle.message
+    }
+    return statusText
+  }
 
   return detalle
     .map((error: ErrorValidacion) => {
@@ -30,7 +37,7 @@ function mensajeError(cuerpo: unknown, statusText: string): string {
 
 export async function apiFetch<T>(ruta: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
-  if (init?.body && !headers.has('Content-Type')) {
+  if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -42,7 +49,8 @@ export async function apiFetch<T>(ruta: string, init?: RequestInit): Promise<T> 
 
   if (!respuesta.ok) {
     const cuerpo: unknown = await respuesta.json().catch(() => null)
-    throw new ApiError(respuesta.status, mensajeError(cuerpo, respuesta.statusText))
+    const detail = cuerpo && typeof cuerpo === 'object' && 'detail' in cuerpo ? cuerpo.detail : undefined
+    throw new ApiError(respuesta.status, mensajeError(cuerpo, respuesta.statusText), detail)
   }
 
   if (respuesta.status === 204) return undefined as T

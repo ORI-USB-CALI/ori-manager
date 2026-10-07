@@ -26,7 +26,8 @@ class TipoConvenio(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     codigo: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
-    naturaleza: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Solo MARCO y ESPECIFICO tienen una naturaleza definida por el dominio actual.
+    naturaleza: Mapped[str | None] = mapped_column(String(10), nullable=True)
     duracion_meses_defecto: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)

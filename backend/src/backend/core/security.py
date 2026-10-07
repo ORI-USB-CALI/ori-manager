@@ -5,10 +5,25 @@ from pwdlib import PasswordHash
 
 _password_hash = PasswordHash.recommended()
 
+MENSAJE_POLITICA_CONTRASENA = (
+    "La contraseña debe tener al menos 8 caracteres, una mayúscula, una "
+    "minúscula, un número y un carácter especial."
+)
+
 
 def validar_contrasena(contrasena: str) -> str:
-    if len(contrasena) < 8:
-        raise ValueError("La contraseña debe tener al menos 8 caracteres")
+    cumple_politica = (
+        len(contrasena) >= 8
+        and any(caracter.isupper() for caracter in contrasena)
+        and any(caracter.islower() for caracter in contrasena)
+        and any(caracter.isdigit() for caracter in contrasena)
+        and any(
+            not caracter.isalnum() and not caracter.isspace()
+            for caracter in contrasena
+        )
+    )
+    if not cumple_politica:
+        raise ValueError(MENSAJE_POLITICA_CONTRASENA)
     return contrasena
 
 

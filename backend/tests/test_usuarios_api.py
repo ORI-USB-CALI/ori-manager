@@ -5,8 +5,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.core.security import verificar_contrasena
+from backend.core.unidades_organizacionales import TipoUnidad
+from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.schemas.usuario import UsuarioActualizar
 from backend.services.sesiones import RepositorioSesionesMemoria
+from backend.services.usuarios import ServicioUsuarios
 
 
 def _datos_usuario(
@@ -16,7 +21,7 @@ def _datos_usuario(
 ) -> dict[str, object]:
     return {
         "correo": correo or f"nuevo-{uuid4().hex}@example.com",
-        "contrasena": "ClaveNueva123",
+        "contrasena": "ClaveNueva123!",
         "nombre_completo": "Usuario nuevo",
         "rol": rol.value,
         "tipo_usuario": tipo_usuario.value,
@@ -49,14 +54,59 @@ def test_listar_y_obtener_usuario(
     assert detalle.json()["correo"] == otro.correo
 
 
-def test_listado_y_detalle_excluyen_usuarios_externos(
+@pytest.mark.parametrize(
+    ("rol", "tipo"),
+    [
+        (CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO),
+        (CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+def test_usuarios_sin_permisos_no_acceden_a_endpoints_administrativos(
+    rol: CodigoRol,
+    tipo: TipoUsuario,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+) -> None:
+    objetivo = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    actor = crear_usuario(rol, tipo)
+    entrar_como(actor)
+
+    respuestas = [
+        client.get("/api/usuarios"),
+        client.get(f"/api/usuarios/{objetivo.id}"),
+        client.post("/api/usuarios", json=_datos_usuario()),
+        client.patch(
+            f"/api/usuarios/{objetivo.id}",
+            json={"nombre_completo": "Cambio no autorizado"},
+        ),
+        client.patch(
+            f"/api/usuarios/{objetivo.id}/rol",
+            json={"rol": CodigoRol.GESTOR_ORI.value},
+        ),
+        client.patch(
+            f"/api/usuarios/{objetivo.id}/estado",
+            json={"activo": False},
+        ),
+    ]
+
+    assert all(respuesta.status_code == 403 for respuesta in respuestas)
+
+
+def test_listado_y_detalle_incluyen_usuarios_ori_y_solicitantes(
     client: TestClient,
     crear_usuario,
     entrar_como,
 ) -> None:
     admin = _autenticar_admin(client, crear_usuario, entrar_como)
-    interno = crear_usuario()
-    externo = crear_usuario(
+    gestor = crear_usuario()
+    solicitante_interno = crear_usuario(
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+    )
+    solicitante_externo = crear_usuario(
         CodigoRol.SOLICITANTE_EXTERNO,
         TipoUsuario.EXTERNO,
     )
@@ -65,30 +115,238 @@ def test_listado_y_detalle_excluyen_usuarios_externos(
 
     assert listado.status_code == 200
     ids = {usuario["id"] for usuario in listado.json()}
-    assert ids >= {admin.id, interno.id}
-    assert externo.id not in ids
-    assert client.get(f"/api/usuarios/{externo.id}").status_code == 404
-    assert (
-        client.patch(
-            f"/api/usuarios/{externo.id}",
-            json={"cargo": "No permitido"},
-        ).status_code
-        == 404
+    assert ids >= {
+        admin.id,
+        gestor.id,
+        solicitante_interno.id,
+        solicitante_externo.id,
+    }
+    for solicitante in (solicitante_interno, solicitante_externo):
+        detalle = client.get(f"/api/usuarios/{solicitante.id}")
+        assert detalle.status_code == 200
+        assert detalle.json()["id"] == solicitante.id
+
+
+@pytest.mark.parametrize(
+    ("rol", "tipo"),
+    [
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+def test_admin_edita_datos_generales_de_solicitantes(
+    rol: CodigoRol,
+    tipo: TipoUsuario,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(rol, tipo)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={
+            "nombre_completo": "Solicitante actualizado",
+            "telefono": "3151234567",
+            "cargo": "Representante",
+        },
     )
-    assert (
-        client.patch(
-            f"/api/usuarios/{externo.id}/rol",
-            json={"rol": CodigoRol.GESTOR_ORI.value},
-        ).status_code
-        == 404
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["nombre_completo"] == "Solicitante actualizado"
+    assert respuesta.json()["telefono"] == "3151234567"
+    assert respuesta.json()["cargo"] == "Representante"
+    db.refresh(solicitante)
+    assert solicitante.nombre_completo == "Solicitante actualizado"
+    assert solicitante.telefono == "3151234567"
+
+
+@pytest.mark.parametrize(
+    ("rol", "tipo"),
+    [
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+def test_admin_desactiva_y_reactiva_solicitantes_e_invalida_sesiones(
+    rol: CodigoRol,
+    tipo: TipoUsuario,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    solicitante = crear_usuario(rol, tipo)
+    token_solicitante = entrar_como(solicitante)
+    entrar_como(admin)
+
+    desactivar = client.patch(
+        f"/api/usuarios/{solicitante.id}/estado",
+        json={"activo": False},
     )
-    assert (
-        client.patch(
-            f"/api/usuarios/{externo.id}/estado",
-            json={"activo": False},
-        ).status_code
-        == 404
+    reactivar = client.patch(
+        f"/api/usuarios/{solicitante.id}/estado",
+        json={"activo": True},
     )
+
+    assert desactivar.status_code == 200
+    assert desactivar.json()["activo"] is False
+    assert sesiones.obtener_por_token(token_solicitante) is None
+    assert reactivar.status_code == 200
+    assert reactivar.json()["activo"] is True
+
+
+@pytest.mark.parametrize(
+    ("rol_actual", "tipo"),
+    [
+        (CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO),
+        (CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO),
+    ],
+)
+@pytest.mark.parametrize(
+    "rol_destino",
+    [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI],
+)
+def test_admin_no_puede_cambiar_rol_de_solicitantes(
+    rol_actual: CodigoRol,
+    tipo: TipoUsuario,
+    rol_destino: CodigoRol,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(rol_actual, tipo)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}/rol",
+        json={"rol": rol_destino.value},
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == (
+        "El rol de los solicitantes no se administra desde este módulo"
+    )
+    db.refresh(solicitante)
+    assert solicitante.rol.codigo == rol_actual
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor", "mensaje"),
+    [
+        (
+            "correo",
+            "otro-dominio@example.com",
+            "El correo de los solicitantes no se administra desde este módulo",
+        ),
+        (
+            "contrasena",
+            "ClaveDistinta123!",
+            "La contraseña de los solicitantes se gestiona mediante recuperación de acceso",
+        ),
+    ],
+)
+def test_edicion_solicitante_bloquea_correo_y_contrasena(
+    campo: str,
+    valor: str,
+    mensaje: str,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+        correo="solicitante@usbcali.edu.co",
+    )
+    correo_anterior = solicitante.correo
+    hash_anterior = solicitante.hash_contrasena
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={campo: valor},
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == mensaje
+    db.refresh(solicitante)
+    assert solicitante.correo == correo_anterior
+    assert solicitante.hash_contrasena == hash_anterior
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("documento_identidad", "DOC-NUEVO"),
+        ("entidad_externa", "Entidad nueva"),
+    ],
+)
+def test_solicitante_interno_rechaza_campos_de_solicitante_externo(
+    campo: str,
+    valor: str,
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    solicitante = crear_usuario(
+        CodigoRol.SOLICITANTE_INTERNO,
+        TipoUsuario.INTERNO,
+    )
+    solicitante.documento_identidad = "DOC-LEGACY"
+    solicitante.entidad_externa = "Entidad legacy"
+    db.commit()
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={campo: valor},
+    )
+
+    assert respuesta.status_code == 422
+    assert campo in respuesta.json()["detail"]
+    db.refresh(solicitante)
+    assert solicitante.documento_identidad == "DOC-LEGACY"
+    assert solicitante.entidad_externa == "Entidad legacy"
+
+
+def test_solicitante_externo_rechaza_unidad_organizacional(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    unidad = UnidadOrganizacional(
+        codigo=f"USR-{uuid4().hex}",
+        nombre="Unidad legacy solicitante externo",
+        tipo=TipoUnidad.FACULTAD.value,
+        activa=True,
+    )
+    db.add(unidad)
+    db.commit()
+    solicitante = crear_usuario(
+        CodigoRol.SOLICITANTE_EXTERNO,
+        TipoUsuario.EXTERNO,
+    )
+    solicitante.unidad_organizacional_id = unidad.id
+    db.commit()
+
+    respuesta = client.patch(
+        f"/api/usuarios/{solicitante.id}",
+        json={"unidad_organizacional_id": None},
+    )
+
+    assert respuesta.status_code == 422
+    assert "unidad_organizacional_id" in respuesta.json()["detail"]
+    db.refresh(solicitante)
+    assert solicitante.unidad_organizacional_id == unidad.id
 
 
 def test_crear_usuario_y_no_exponer_hash(
@@ -129,13 +387,25 @@ def test_creacion_rechaza_campos_obligatorios_ausentes(
     assert respuesta.status_code == 422
 
 
-def test_creacion_exige_contrasena_minima(
+@pytest.mark.parametrize(
+    "contrasena",
+    [
+        "Corta1!",
+        "clavesegura123!",
+        "CLAVESEGURA123!",
+        "ClaveSegura!",
+        "ClaveSegura123",
+        "Clave Segura123",
+    ],
+)
+def test_creacion_exige_politica_completa_contrasena(
     client: TestClient,
     crear_usuario,
     entrar_como,
+    contrasena: str,
 ) -> None:
     _autenticar_admin(client, crear_usuario, entrar_como)
-    datos = {**_datos_usuario(), "contrasena": "corta"}
+    datos = {**_datos_usuario(), "contrasena": contrasena}
 
     assert client.post("/api/usuarios", json=datos).status_code == 422
 
@@ -170,7 +440,7 @@ def test_editar_datos_y_contrasena(
         f"/api/usuarios/{usuario.id}",
         json={
             "correo": "editado@example.com",
-            "contrasena": "ClaveEditada123",
+            "contrasena": "ClaveEditada123!",
             "telefono": "3110000000",
             "entidad_externa": "Entidad",
         },
@@ -183,10 +453,176 @@ def test_editar_datos_y_contrasena(
         "/api/auth/login",
         json={
             "correo": "editado@example.com",
-            "contrasena": "ClaveEditada123",
+            "contrasena": "ClaveEditada123!",
         },
     )
     assert login.status_code == 200
+
+
+def test_cambio_contrasena_debil_no_actualiza_usuario(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    db: Session,
+) -> None:
+    _autenticar_admin(client, crear_usuario, entrar_como)
+    usuario = crear_usuario(correo="debil-edicion@example.com")
+    hash_anterior = usuario.hash_contrasena
+    telefono_anterior = usuario.telefono
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"contrasena": "clavesegura123!", "telefono": "3110000000"},
+    )
+
+    assert respuesta.status_code == 422
+    db.refresh(usuario)
+    assert usuario.hash_contrasena == hash_anterior
+    assert usuario.telefono == telefono_anterior
+
+
+def test_contrasena_igual_rechaza_todo_el_patch_y_conserva_sesion(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+    db: Session,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario(correo="misma-clave@example.com")
+    token_usuario = entrar_como(usuario)
+    hash_anterior = usuario.hash_contrasena
+    telefono_anterior = usuario.telefono
+    entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"telefono": "3110000000", "contrasena": "ClaveSegura123!"},
+    )
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == (
+        "La nueva contraseña debe ser diferente a la actual"
+    )
+    db.refresh(usuario)
+    assert usuario.hash_contrasena == hash_anterior
+    assert usuario.telefono == telefono_anterior
+    assert verificar_contrasena("ClaveSegura123!", usuario.hash_contrasena)
+    assert sesiones.obtener_por_token(token_usuario) is not None
+    client.cookies.set("session_id", token_usuario)
+    assert client.get("/api/auth/me").status_code == 200
+    client.cookies.clear()
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
+    ).status_code == 200
+
+
+def test_cambio_contrasena_invalida_sesion_y_credencial_anterior(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario(correo="cambio-clave@example.com")
+    token_usuario = entrar_como(usuario)
+    entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"contrasena": "ClaveDistinta123!"},
+    )
+
+    assert respuesta.status_code == 200
+    assert sesiones.obtener_por_token(token_usuario) is None
+    client.cookies.set("session_id", token_usuario)
+    assert client.get("/api/auth/me").status_code == 401
+    client.cookies.clear()
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
+    ).status_code == 401
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": usuario.correo, "contrasena": "ClaveDistinta123!"},
+    ).status_code == 200
+
+
+def test_cambio_contrasena_invalida_todas_las_sesiones(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    usuario = crear_usuario()
+    primer_token = entrar_como(usuario)
+    segundo_token = entrar_como(usuario)
+    entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{usuario.id}",
+        json={"contrasena": "ClaveDistinta123!"},
+    )
+
+    assert respuesta.status_code == 200
+    assert sesiones.obtener_por_token(primer_token) is None
+    assert sesiones.obtener_por_token(segundo_token) is None
+
+
+def test_admin_cambia_su_contrasena_e_invalida_su_sesion(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+) -> None:
+    admin = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    token = entrar_como(admin)
+
+    respuesta = client.patch(
+        f"/api/usuarios/{admin.id}",
+        json={"contrasena": "ClaveDistinta123!"},
+    )
+
+    assert respuesta.status_code == 200
+    assert sesiones.obtener_por_token(token) is None
+    assert client.get("/api/auth/me").status_code == 401
+    client.cookies.clear()
+    assert client.post(
+        "/api/auth/login",
+        json={"correo": admin.correo, "contrasena": "ClaveDistinta123!"},
+    ).status_code == 200
+
+
+def test_fallo_al_guardar_contrasena_conserva_sesiones(
+    client: TestClient,
+    crear_usuario,
+    entrar_como,
+    sesiones: RepositorioSesionesMemoria,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    usuario = crear_usuario()
+    token = entrar_como(usuario)
+    hash_anterior = usuario.hash_contrasena
+
+    def fallar_commit() -> None:
+        raise RuntimeError("Fallo de persistencia simulado")
+
+    with monkeypatch.context() as parche:
+        parche.setattr(db, "commit", fallar_commit)
+        with pytest.raises(RuntimeError, match="Fallo de persistencia simulado"):
+            ServicioUsuarios(db, sesiones).actualizar(
+                usuario.id,
+                UsuarioActualizar(contrasena="ClaveDistinta123!"),
+            )
+
+    db.rollback()
+    db.refresh(usuario)
+    assert usuario.hash_contrasena == hash_anterior
+    assert sesiones.obtener_por_token(token) is not None
+    assert client.get("/api/auth/me").status_code == 200
 
 
 def test_edicion_parcial_conserva_campos_no_enviados(
@@ -313,7 +749,7 @@ def test_cambiar_estado_invalida_sesiones(
     client.cookies.clear()
     login = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     assert login.status_code == 403
     assert login.cookies.get("session_id") is None
@@ -474,7 +910,7 @@ def test_usuario_desactivado_conserva_identidad_y_ultimo_acceso(
 
     login = client.post(
         "/api/auth/login",
-        json={"correo": usuario.correo, "contrasena": "ClaveSegura123"},
+        json={"correo": usuario.correo, "contrasena": "ClaveSegura123!"},
     )
     assert login.status_code == 200
 

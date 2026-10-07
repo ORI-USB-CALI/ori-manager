@@ -7,15 +7,19 @@ from backend.core.config import settings
 from backend.db.base import Base
 from backend.models import (  # noqa: F401
     Aliado,
+    Auditoria,
     ContactoAliado,
     Convenio,
     Etapa,
     Pais,
+    PlantillaConvenio,
     Rol,
     SolicitudConvenio,
     TipoConvenio,
+    TokenCredencial,
     UnidadOrganizacional,
     Usuario,
+    VersionConvenio,
 )
 
 config = context.config

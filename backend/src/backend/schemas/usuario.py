@@ -1,11 +1,23 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    model_validator,
+)
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.core.security import validar_contrasena
 
-Contrasena = Annotated[str, Field(min_length=8)]
+Contrasena = Annotated[
+    str,
+    Field(min_length=8),
+    AfterValidator(validar_contrasena),
+]
 
 
 class RolLeer(BaseModel):

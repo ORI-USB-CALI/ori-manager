@@ -2,6 +2,7 @@
 
 import argparse
 import getpass
+from datetime import UTC, datetime
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import select
@@ -20,7 +21,7 @@ def main() -> None:
     argumentos = parser.parse_args()
 
     try:
-        correo = str(TypeAdapter(EmailStr).validate_python(argumentos.correo))
+        correo = str(TypeAdapter(EmailStr).validate_python(argumentos.correo)).lower()
     except ValidationError as exc:
         raise SystemExit("El correo no es válido") from exc
 
@@ -49,6 +50,7 @@ def main() -> None:
                 rol=rol,
                 tipo_usuario=TipoUsuario.INTERNO.value,
                 activo=True,
+                correo_verificado_en=datetime.now(UTC),
             )
             db.add(usuario)
             accion = "creado"
@@ -59,6 +61,7 @@ def main() -> None:
                 )
             usuario.rol = rol
             usuario.activo = True
+            usuario.correo_verificado_en = datetime.now(UTC)
             accion = "promovido"
         db.commit()
 

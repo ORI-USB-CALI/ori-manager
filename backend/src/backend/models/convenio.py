@@ -21,11 +21,18 @@ from backend.models.enums import AlcanceConvenio, EstadoConvenio
 
 if TYPE_CHECKING:
     from backend.models.aliado import Aliado
+    from backend.models.documento import Documento
     from backend.models.etapa import Etapa
+    from backend.models.historial_etapa import HistorialEtapa
+    from backend.models.observacion_revision import ObservacionRevision
+    from backend.models.plantilla_convenio import PlantillaConvenio
+    from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
+    from backend.models.revision_convenio import RevisionConvenio
     from backend.models.solicitud_convenio import SolicitudConvenio
     from backend.models.tipo_convenio import TipoConvenio
     from backend.models.unidad_organizacional import UnidadOrganizacional
     from backend.models.usuario import Usuario
+    from backend.models.version_convenio import VersionConvenio
 
 _ESTADOS = ", ".join(f"'{valor.value}'" for valor in EstadoConvenio)
 _ALCANCES = ", ".join(f"'{valor.value}'" for valor in AlcanceConvenio)
@@ -37,11 +44,16 @@ class Convenio(Base):
         CheckConstraint(f"estado IN ({_ESTADOS})", name="ck_convenio_estado"),
         CheckConstraint(f"alcance IS NULL OR alcance IN ({_ALCANCES})", name="ck_convenio_alcance"),
         CheckConstraint("porcentaje_avance IS NULL OR porcentaje_avance BETWEEN 0 AND 100", name="ck_convenio_porcentaje_avance"),
+        CheckConstraint("version_actual >= 0", name="ck_convenio_version_actual_no_negativa"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     codigo: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
     solicitud_id: Mapped[int] = mapped_column(ForeignKey("solicitud_convenio.id"), unique=True, nullable=False)
+    plantilla_origen_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plantilla_convenio.id", ondelete="RESTRICT"), nullable=True
+    )
+    version_actual: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     aliado_id: Mapped[int | None] = mapped_column(ForeignKey("aliado.id"), nullable=True)
     tipo_convenio_id: Mapped[int | None] = mapped_column(ForeignKey("tipo_convenio.id"), nullable=True)
     etapa_actual_id: Mapped[int | None] = mapped_column(ForeignKey("etapa.id"), nullable=True)
@@ -62,9 +74,30 @@ class Convenio(Base):
     actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     solicitud: Mapped[SolicitudConvenio] = relationship(back_populates="convenio")
+    plantilla_origen: Mapped[PlantillaConvenio | None] = relationship(
+        back_populates="convenios"
+    )
     aliado: Mapped[Aliado | None] = relationship(back_populates="convenios")
     tipo_convenio: Mapped[TipoConvenio | None] = relationship()
     etapa_actual: Mapped[Etapa | None] = relationship()
     unidad_organizacional: Mapped[UnidadOrganizacional | None] = relationship()
     creado_por: Mapped[Usuario] = relationship(foreign_keys=[creado_por_id])
     convenio_origen: Mapped[Convenio | None] = relationship(remote_side=[id])
+    documentos: Mapped[list[Documento]] = relationship(
+        back_populates="convenio", foreign_keys="Documento.convenio_id"
+    )
+    historial_etapas: Mapped[list[HistorialEtapa]] = relationship(
+        back_populates="convenio"
+    )
+    observaciones_revision: Mapped[list[ObservacionRevision]] = relationship(
+        back_populates="convenio"
+    )
+    revisiones: Mapped[list[RevisionConvenio]] = relationship(
+        back_populates="convenio"
+    )
+    versiones: Mapped[list[VersionConvenio]] = relationship(
+        back_populates="convenio", order_by="VersionConvenio.numero"
+    )
+    procesos_firmas: Mapped[list[ProcesoFirmasConvenio]] = relationship(
+        back_populates="convenio", order_by="ProcesoFirmasConvenio.id"
+    )

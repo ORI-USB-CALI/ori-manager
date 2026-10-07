@@ -27,6 +27,7 @@ CAMPOS_USUARIO = {
     "entidad_externa",
     "activo",
     "ultimo_acceso",
+    "correo_verificado_en",
     "creado_en",
     "actualizado_en",
 }
@@ -138,6 +139,15 @@ def test_ultimo_acceso_es_timestamp_nullable() -> None:
     assert isinstance(columna.type, DateTime)
     assert columna.type.timezone
     assert columna.nullable
+
+
+def test_correo_verificado_es_timestamp_nullable() -> None:
+    columna = Usuario.__table__.c.correo_verificado_en
+
+    assert isinstance(columna.type, DateTime)
+    assert columna.type.timezone
+    assert columna.nullable
+    assert columna.default is None
 
 
 def test_timestamps_son_obligatorios_y_actualizado_en_tiene_onupdate() -> None:

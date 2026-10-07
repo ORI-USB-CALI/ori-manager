@@ -2,17 +2,28 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { ApiError, apiFetch } from '../app/api'
+import { useNotifications } from '../app/notifications/useNotifications'
 import {
   CLAVE_SESION,
   type CodigoRol,
   useSesion,
 } from '../auth/sesion'
 import { Select } from '../components/Select'
-import { type Usuario, etiquetaTipo, opcionesRol } from './usuarios'
+import { PasswordInput } from '../components/PasswordInput'
+import {
+  PASSWORD_POLICY_MESSAGE,
+  passwordPolicyError,
+} from '../security/passwordPolicy'
+import {
+  type Usuario,
+  esRolSolicitante,
+  etiquetaTipo,
+  opcionesRol,
+} from './usuarios'
 
 interface Props {
   usuario?: Usuario
-  onGuardado: (mensaje: string) => Promise<unknown>
+  onGuardado: () => Promise<unknown>
   onCerrar: () => void
 }
 
@@ -39,17 +50,21 @@ function valorFormulario(form: FormData, campo: string): string {
 export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
   const queryClient = useQueryClient()
+  const notify = useNotifications()
   const { sesion, puede } = useSesion()
   const esPropio = usuario?.id === sesion?.id
+  const esSolicitante = usuario ? esRolSolicitante(usuario.rol.codigo) : false
+  const esSolicitanteInterno = esSolicitante && usuario?.tipo_usuario === 'INTERNO'
   const [rol, setRol] = useState<CodigoRol | ''>(usuario?.rol.codigo ?? '')
   const [erroresCreacion, setErroresCreacion] = useState<ErroresCreacion>({})
 
   async function completar(mensaje: string, afectaSesion = false) {
-    await onGuardado(mensaje)
+    await onGuardado()
+    dialogo.current?.close()
+    notify({ type: 'success', message: mensaje })
     if (afectaSesion) {
       await queryClient.invalidateQueries({ queryKey: CLAVE_SESION })
     }
-    dialogo.current?.close()
   }
 
   const guardar = useMutation({
@@ -64,6 +79,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
             body: JSON.stringify(datos),
           }),
     onSuccess: () => completar(usuario ? 'Datos actualizados.' : 'Usuario creado.', esPropio),
+    onError: (error) => notify({ type: 'error', message: texto(error) }),
   })
 
   const cambiarRol = useMutation({
@@ -73,6 +89,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
         body: JSON.stringify({ rol: codigo }),
       }),
     onSuccess: () => completar('Rol actualizado.'),
+    onError: (error) => notify({ type: 'error', message: texto(error) }),
   })
 
   const cambiarEstado = useMutation({
@@ -82,6 +99,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
         body: JSON.stringify({ activo }),
       }),
     onSuccess: () => completar(usuario?.activo ? 'Usuario desactivado.' : 'Usuario activado.'),
+    onError: (error) => notify({ type: 'error', message: texto(error) }),
   })
 
   useEffect(() => {
@@ -97,8 +115,9 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
       errores.nombre_completo = 'El nombre completo es obligatorio.'
     }
     if (!contrasena) errores.contrasena = 'La contraseña es obligatoria.'
-    else if (contrasena.length < 8) {
-      errores.contrasena = 'La contraseña debe tener al menos 8 caracteres.'
+    else {
+      const errorContrasena = passwordPolicyError(contrasena)
+      if (errorContrasena) errores.contrasena = errorContrasena
     }
     if (!rol) errores.rol = 'Seleccione un rol.'
     return errores
@@ -134,26 +153,44 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
       return
     }
 
+    if (!esSolicitante && contrasena) {
+      const errorContrasena = passwordPolicyError(contrasena)
+      if (errorContrasena) {
+        setErroresCreacion((actuales) => ({
+          ...actuales,
+          contrasena: errorContrasena,
+        }))
+        return
+      }
+      setErroresCreacion((actuales) => ({
+        ...actuales,
+        contrasena: undefined,
+      }))
+    }
+
     const cambios: Record<string, unknown> = {}
     const campos: Array<[string, string | null]> = [
-      ['correo', usuario.correo],
       ['nombre_completo', usuario.nombre_completo],
-      ['documento_identidad', usuario.documento_identidad],
       ['telefono', usuario.telefono],
       ['cargo', usuario.cargo],
-      ['entidad_externa', usuario.entidad_externa],
     ]
+    if (!esSolicitanteInterno) {
+      campos.push(
+        ['documento_identidad', usuario.documento_identidad],
+        ['entidad_externa', usuario.entidad_externa],
+      )
+    }
+    if (!esSolicitante) campos.unshift(['correo', usuario.correo])
     for (const [campo, original] of campos) {
       const valor = valorFormulario(form, campo)
       const normalizado = campo === 'correo' || campo === 'nombre_completo' ? valor : valor || null
       if (normalizado !== original) cambios[campo] = normalizado
     }
-    if (contrasena) cambios.contrasena = contrasena
+    if (!esSolicitante && contrasena) cambios.contrasena = contrasena
     if (Object.keys(cambios).length === 0) return
     guardar.mutate(cambios)
   }
 
-  const error = guardar.error ?? cambiarRol.error ?? cambiarEstado.error
   const pendiente = guardar.isPending || cambiarRol.isPending || cambiarEstado.isPending
   const puedeEditar = !usuario || puede('usuarios.editar')
 
@@ -175,12 +212,6 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
           </button>
         </div>
 
-        {error && (
-          <p className="alert-error" role="alert">
-            {texto(error)}
-          </p>
-        )}
-
         <section className="modal-section">
           <h3>{usuario ? 'Datos generales' : 'Información del usuario'}</h3>
           <div className="form-grid">
@@ -196,10 +227,9 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 required
                 disabled={!puedeEditar}
                 autoFocus
+                placeholder="Nombre completo del usuario"
                 aria-invalid={Boolean(erroresCreacion.nombre_completo)}
-                aria-describedby={
-                  erroresCreacion.nombre_completo ? 'usuario-nombre-error' : undefined
-                }
+                aria-describedby={erroresCreacion.nombre_completo ? 'usuario-nombre-error' : undefined}
                 onChange={() =>
                   setErroresCreacion((actuales) => ({
                     ...actuales,
@@ -224,32 +254,45 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 className={`form-control ${erroresCreacion.correo ? 'is-invalid' : ''}`}
                 defaultValue={usuario?.correo}
                 required
-                disabled={!puedeEditar}
+                disabled={!puedeEditar || esSolicitante}
                 autoComplete="username"
+                placeholder="Correo de acceso a ORI Manager"
                 aria-invalid={Boolean(erroresCreacion.correo)}
-                aria-describedby={erroresCreacion.correo ? 'usuario-correo-error' : undefined}
+                aria-describedby={
+                  [esSolicitante ? 'usuario-correo-ayuda' : null, erroresCreacion.correo ? 'usuario-correo-error' : null]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
                 onChange={() =>
                   setErroresCreacion((actuales) => ({ ...actuales, correo: undefined }))
                 }
               />
+              {esSolicitante && (
+                <small id="usuario-correo-ayuda" className="form-help">
+                  El correo del solicitante se conserva según su autorregistro.
+                </small>
+              )}
               {erroresCreacion.correo && (
                 <small id="usuario-correo-error" className="form-error">
                   {erroresCreacion.correo}
                 </small>
               )}
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="usuario-documento">
-                Documento
-              </label>
-              <input
-                id="usuario-documento"
-                name="documento_identidad"
-                className="form-control"
-                defaultValue={usuario?.documento_identidad ?? ''}
-                disabled={!puedeEditar}
-              />
-            </div>
+            {!esSolicitanteInterno && (
+              <div className="form-group">
+                <label className="form-label" htmlFor="usuario-documento">
+                  Documento
+                </label>
+                <input
+                  id="usuario-documento"
+                  name="documento_identidad"
+                  className="form-control"
+                  defaultValue={usuario?.documento_identidad ?? ''}
+                  disabled={!puedeEditar}
+                  placeholder="Documento de identificación del solicitante"
+                />
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label" htmlFor="usuario-telefono">
                 Teléfono
@@ -260,6 +303,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 className="form-control"
                 defaultValue={usuario?.telefono ?? ''}
                 disabled={!puedeEditar}
+                placeholder="Número de contacto del usuario"
               />
             </div>
             <div className="form-group">
@@ -272,51 +316,57 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
                 className="form-control"
                 defaultValue={usuario?.cargo ?? ''}
                 disabled={!puedeEditar}
+                placeholder="Cargo o función del usuario"
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="usuario-entidad">
-                Entidad externa
-              </label>
-              <input
-                id="usuario-entidad"
-                name="entidad_externa"
-                className="form-control"
-                defaultValue={usuario?.entidad_externa ?? ''}
-                disabled={!puedeEditar}
-              />
-            </div>
-            <div className="form-group form-span-2">
-              <label className="form-label" htmlFor="usuario-contrasena">
-                {usuario ? 'Nueva contraseña' : 'Contraseña'}
-              </label>
-              <input
-                id="usuario-contrasena"
-                name="contrasena"
-                type="password"
-                className={`form-control ${erroresCreacion.contrasena ? 'is-invalid' : ''}`}
-                minLength={8}
-                required={!usuario}
-                disabled={!puedeEditar}
-                autoComplete="new-password"
-                placeholder={usuario ? 'Vacío para conservar la actual' : 'Mínimo 8 caracteres'}
-                aria-invalid={Boolean(erroresCreacion.contrasena)}
-                aria-describedby={
-                  erroresCreacion.contrasena ? 'usuario-contrasena-error' : undefined
-                }
-                onChange={() =>
-                  setErroresCreacion((actuales) => ({
-                    ...actuales,
-                    contrasena: undefined,
-                  }))
-                }
-              />
-              {erroresCreacion.contrasena && (
-                <small id="usuario-contrasena-error" className="form-error">
-                  {erroresCreacion.contrasena}
+            {!esSolicitanteInterno && (
+              <div className="form-group">
+                <label className="form-label" htmlFor="usuario-entidad">
+                  Entidad externa
+                </label>
+                <input
+                  id="usuario-entidad"
+                  name="entidad_externa"
+                  className="form-control"
+                  defaultValue={usuario?.entidad_externa ?? ''}
+                  disabled={!puedeEditar}
+                  placeholder="Organización externa a la que pertenece"
+                />
+              </div>
+            )}
+            {!esSolicitante && (
+              <div className="form-group form-span-2">
+                <PasswordInput
+                  id="usuario-contrasena"
+                  label={usuario ? 'Nueva contraseña' : 'Contraseña'}
+                  name="contrasena"
+                  className={erroresCreacion.contrasena ? 'is-invalid' : undefined}
+                  required={!usuario}
+                  disabled={!puedeEditar}
+                  autoComplete="new-password"
+                  placeholder={usuario ? 'Vacío para conservar la actual' : 'Cree una contraseña segura'}
+                  aria-invalid={Boolean(erroresCreacion.contrasena)}
+                  aria-describedby={[
+                    'usuario-contrasena-ayuda',
+                    erroresCreacion.contrasena ? 'usuario-contrasena-error' : null,
+                  ].filter(Boolean).join(' ')}
+                  onChange={() =>
+                    setErroresCreacion((actuales) => ({
+                      ...actuales,
+                      contrasena: undefined,
+                    }))
+                  }
+                />
+                <small id="usuario-contrasena-ayuda" className="form-help">
+                  {PASSWORD_POLICY_MESSAGE}
                 </small>
-              )}
-            </div>
+                {erroresCreacion.contrasena && (
+                  <small id="usuario-contrasena-error" className="form-error">
+                    {erroresCreacion.contrasena}
+                  </small>
+                )}
+              </div>
+            )}
           </div>
 
           {!usuario ? (
@@ -345,9 +395,14 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
               </div>
             </div>
           ) : (
-            <p className="dato-solo-lectura">
-              Tipo de usuario: <strong>{etiquetaTipo(usuario.tipo_usuario)}</strong>
-            </p>
+            <div className="dato-solo-lectura">
+              <p>
+                Tipo de usuario: <strong>{etiquetaTipo(usuario.tipo_usuario)}</strong>
+              </p>
+              <p>
+                Rol actual: <strong>{usuario.rol.nombre}</strong>
+              </p>
+            </div>
           )}
 
           {puedeEditar && (
@@ -357,7 +412,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
           )}
         </section>
 
-        {usuario && puede('usuarios.cambiar_rol') && (
+        {usuario && !esSolicitante && puede('usuarios.cambiar_rol') && (
           <section className="modal-section">
             <h3>Cambiar rol</h3>
             <Select
@@ -384,7 +439,7 @@ export function UsuarioModal({ usuario, onGuardado, onCerrar }: Props) {
           <section className="modal-section">
             <h3>Estado de acceso</h3>
             <p className="texto-secundario">
-              El usuario está {usuario.activo ? 'activo' : 'inactivo'}.
+              El usuario está {usuario.activo ? 'activo' : 'inactivo'}. Este estado determina si puede acceder al sistema.
             </p>
             <button
               type="button"
