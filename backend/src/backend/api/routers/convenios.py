@@ -16,6 +16,7 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import (
+    AlertaVencimientoLeer,
     AprobarRevision,
     AtenderObservacion,
     CatalogosElaboracionLeer,
@@ -53,6 +54,7 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ConflictoVersionConvenio,
     ConvenioDuplicado,
@@ -88,6 +90,9 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
 Correo = Annotated[EnviadorCorreo, Depends(get_enviador_correo)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
+PuedeVerAlertasVencimiento = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_VER_ALERTAS_VENCIMIENTO)
+]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
@@ -316,6 +321,14 @@ def obtener_tablero(db: DatabaseSession, usuario: PuedeVer) -> TableroConveniosL
             for convenio, responsable, puede_ver_detalle in convenios
         ],
     )
+
+
+@router.get("/alertas-vencimiento", response_model=list[AlertaVencimientoLeer])
+def listar_alertas_vencimiento(
+    db: DatabaseSession, _: PuedeVerAlertasVencimiento
+) -> list[AlertaVencimientoLeer]:
+    alertas = ServicioAlertasVencimiento(db).listar_proximos_vencimientos()
+    return [AlertaVencimientoLeer.model_validate(alerta) for alerta in alertas]
 
 
 @router.get("/{convenio_id}", response_model=ConvenioLeer)

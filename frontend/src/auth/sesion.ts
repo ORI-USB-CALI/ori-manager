@@ -22,6 +22,7 @@ export type Permiso =
   | 'aliados.cambiar_estado'
   | 'aliados.corregir_identificacion'
   | 'convenios.ver'
+  | 'convenios.ver_alertas_vencimiento'
   | 'convenios.crear'
   | 'convenios.editar'
   | 'convenios.revisar'
