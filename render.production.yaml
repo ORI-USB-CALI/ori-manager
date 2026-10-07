@@ -18,7 +18,7 @@ projects:
             startCommand: uv run --no-sync uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 
             healthCheckPath: /health
-            autoDeployTrigger: off
+            autoDeployTrigger: checksPass
 
             envVars:
               - key: APP_ENV
@@ -48,6 +48,42 @@ projects:
               - key: DATABASE_SSLMODE
                 value: require
 
+              # ==========================================
+              # DOCUMENT STORAGE — Microsoft Graph
+              # ==========================================
+              - key: DOCUMENT_STORAGE_PROVIDER
+                value: microsoft_graph
+
+              - key: MICROSOFT_CLIENT_ID
+                sync: false
+
+              - key: MICROSOFT_CLIENT_SECRET
+                sync: false
+
+              - key: MICROSOFT_REFRESH_TOKEN
+                sync: false
+
+              - key: MICROSOFT_STORAGE_ROOT
+                value: production
+
+              # ==========================================
+              # TRANSACTIONAL EMAIL — Brevo
+              # ==========================================
+              - key: EMAIL_PROVIDER
+                value: brevo
+
+              - key: BREVO_API_KEY
+                sync: false
+
+              - key: EMAIL_FROM_ADDRESS
+                sync: false
+
+              - key: EMAIL_FROM_NAME
+                value: ORI USB Cali
+
+              - key: PUBLIC_FRONTEND_URL
+                value: https://ori-manager-frontend-production.onrender.com
+
           # ==========================================
           # FRONTEND — React + Vite
           # ==========================================
@@ -60,7 +96,7 @@ projects:
             buildCommand: npm ci && npm run build
             staticPublishPath: dist
 
-            autoDeployTrigger: off
+            autoDeployTrigger: checksPass
 
             routes:
               - type: rewrite

@@ -48,6 +48,36 @@ projects:
               - key: DATABASE_SSLMODE
                 value: require
 
+              - key: DOCUMENT_STORAGE_PROVIDER
+                value: microsoft_graph
+
+              - key: MICROSOFT_CLIENT_ID
+                sync: false
+
+              - key: MICROSOFT_CLIENT_SECRET
+                sync: false
+
+              - key: MICROSOFT_REFRESH_TOKEN
+                sync: false
+
+              - key: MICROSOFT_STORAGE_ROOT
+                value: staging
+
+              - key: EMAIL_PROVIDER
+                value: brevo
+
+              - key: BREVO_API_KEY
+                sync: false
+
+              - key: EMAIL_FROM_ADDRESS
+                sync: false
+
+              - key: EMAIL_FROM_NAME
+                value: ORI USB Cali
+
+              - key: PUBLIC_FRONTEND_URL
+                value: https://ori-manager-frontend-staging.onrender.com
+
           # ==========================================
           # FRONTEND — React + Vite
           # ==========================================
