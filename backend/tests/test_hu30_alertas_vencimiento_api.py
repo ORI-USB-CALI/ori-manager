@@ -2,14 +2,15 @@ from collections.abc import Callable
 from datetime import date, timedelta
 
 import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
 from backend.models.usuario import Usuario
 from backend.services import alertas_vencimiento
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
 URL_ALERTAS = "/api/convenios/alertas-vencimiento"
 FECHA_REFERENCIA = date(2026, 10, 7)

@@ -2,6 +2,9 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
@@ -12,8 +15,6 @@ from backend.services.alertas_vencimiento import (
     RangoVencimiento,
     ServicioAlertasVencimiento,
 )
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
 FECHA_REFERENCIA = date(2026, 10, 7)
 

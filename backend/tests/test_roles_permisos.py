@@ -3,6 +3,7 @@ import inspect
 from types import ModuleType
 
 import pytest
+
 from backend.core import permisos, roles
 from backend.core.permisos import (
     PERMISOS_POR_ROL,
