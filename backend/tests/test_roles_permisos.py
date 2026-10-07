@@ -61,6 +61,9 @@ PERMISOS_GESTION_FIRMAS = {
 PERMISOS_ALERTAS_VENCIMIENTO = {
     "convenios.ver_alertas_vencimiento",
 }
+PERMISOS_GESTION_RENOVACIONES = {
+    "convenios.gestionar_renovaciones",
+}
 
 
 def test_codigo_rol_coincide_exactamente_con_el_mer() -> None:
@@ -91,6 +94,7 @@ def test_permisos_coinciden_con_los_alcances_integrados() -> None:
         | PERMISOS_REVISION_CONTRAPARTE_PROPIA
         | PERMISOS_GESTION_FIRMAS
         | PERMISOS_ALERTAS_VENCIMIENTO
+        | PERMISOS_GESTION_RENOVACIONES
     )
     assert len(valores) == len(set(valores))
 
@@ -122,6 +126,7 @@ def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
         | PERMISOS_REVISION_CONTRAPARTE
         | PERMISOS_GESTION_FIRMAS
         | PERMISOS_ALERTAS_VENCIMIENTO
+        | PERMISOS_GESTION_RENOVACIONES
     )
 
 
@@ -135,6 +140,7 @@ def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
             "convenios.gestionar_revision_contraparte",
             "convenios.gestionar_firmas",
             "convenios.ver_alertas_vencimiento",
+            "convenios.gestionar_renovaciones",
         }
     )
     assert Permiso.ALIADOS_CORREGIR_IDENTIFICACION in permisos_para_rol(
@@ -203,4 +209,12 @@ def test_alertas_vencimiento_son_exclusivas_de_gestor_y_administrador() -> None:
         rol
         for rol in CodigoRol
         if tiene_permiso(rol, Permiso.CONVENIOS_VER_ALERTAS_VENCIMIENTO)
+    } == {CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI}
+
+
+def test_gestion_renovaciones_es_exclusiva_de_gestor_y_administrador() -> None:
+    assert {
+        rol
+        for rol in CodigoRol
+        if tiene_permiso(rol, Permiso.CONVENIOS_GESTIONAR_RENOVACIONES)
     } == {CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI}

@@ -909,6 +909,18 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 "No existe la etapa FIRMA_ARCHIVO_SEGUIMIENTO"
             )
+        padre = None
+        if convenio.convenio_origen_id is not None:
+            padre = self._convenio(convenio.convenio_origen_id, bloquear=True)
+            if padre.estado not in {
+                EstadoConvenio.VIGENTE.value,
+                EstadoConvenio.POR_VENCER.value,
+                EstadoConvenio.VENCIDO.value,
+                EstadoConvenio.RENOVADO.value,
+            }:
+                raise RevisionNoDisponible(
+                    "El estado del convenio padre no permite formalizar la renovación"
+                )
         ahora = datetime.now(UTC)
         historial = HistorialEtapa(
             convenio_id=convenio.id,
@@ -930,6 +942,8 @@ class ServicioFirmas:
         ).date()
         convenio.etapa_actual = etapa_seguimiento
         try:
+            if padre is not None and padre.estado != EstadoConvenio.RENOVADO.value:
+                padre.estado = EstadoConvenio.RENOVADO.value
             resolver_aliado_para_convenio(self.db, convenio)
             self.db.commit()
         except ErrorAliado as exc:
@@ -937,7 +951,7 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 f"No fue posible consolidar el aliado: {exc}"
             ) from exc
-        except SQLAlchemyError:
+        except Exception:
             self.db.rollback()
             raise
         return self.obtener_proceso_seguimiento(convenio_id)

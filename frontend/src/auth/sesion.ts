@@ -23,6 +23,7 @@ export type Permiso =
   | 'aliados.corregir_identificacion'
   | 'convenios.ver'
   | 'convenios.ver_alertas_vencimiento'
+  | 'convenios.gestionar_renovaciones'
   | 'convenios.crear'
   | 'convenios.editar'
   | 'convenios.revisar'

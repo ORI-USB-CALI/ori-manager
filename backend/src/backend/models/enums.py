@@ -54,6 +54,12 @@ class EstadoConvenio(StrEnum):
     CANCELADO = "CANCELADO"
 
 
+class EstadoSeguimientoRenovacion(StrEnum):
+    PENDIENTE_DE_DECISION = "PENDIENTE_DE_DECISION"
+    RENOVACION_INICIADA = "RENOVACION_INICIADA"
+    NO_SE_RENOVARA = "NO_SE_RENOVARA"
+
+
 class AlcanceConvenio(StrEnum):
     PROGRAMA = "PROGRAMA"
     INSTITUCIONAL = "INSTITUCIONAL"

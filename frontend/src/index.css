@@ -407,6 +407,101 @@ a:hover {
   background: var(--bg-surface);
 }
 
+.renovaciones-filtros,
+.renovacion-cabecera,
+.renovacion-acciones,
+.renovaciones-resultado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.renovaciones-filtros,
+.renovaciones-resultado {
+  margin-bottom: 24px;
+}
+
+.renovaciones-filtros .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.renovaciones-titulo {
+  margin-bottom: 16px;
+}
+
+.renovaciones-lista {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.renovacion-tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  overflow-wrap: anywhere;
+}
+
+.renovacion-cabecera {
+  justify-content: space-between;
+}
+
+.renovacion-cabecera .badge {
+  white-space: normal;
+}
+
+.renovacion-objeto {
+  white-space: pre-wrap;
+}
+
+.renovacion-datos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.renovacion-datos dt,
+.renovacion-evaluacion p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.renovacion-datos dd {
+  margin: 4px 0 0;
+}
+
+.renovacion-evaluacion {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.renovacion-acciones {
+  margin-top: auto;
+}
+
+@media (max-width: 980px) {
+  .renovaciones-lista {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .renovacion-datos {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .renovacion-acciones .btn {
+    width: 100%;
+  }
+}
+
 .solicitud-form {
   display: grid;
   gap: 20px;
