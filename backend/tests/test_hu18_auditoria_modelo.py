@@ -49,3 +49,18 @@ def test_auditoria_no_admite_sobrescribir_registros(db, crear_usuario):
             {"id": registro.id},
         )
     db.rollback()
+
+
+def test_auditoria_sin_rol_toma_el_rol_vigente_del_usuario(db, crear_usuario):
+    # Los servicios actuales no asignan rol: la base lo completa al insertar.
+    usuario = crear_usuario(CodigoRol.REVISOR_ORI)
+    registro = Auditoria(
+        usuario_id=usuario.id,
+        entidad="convenio",
+        registro_id=1,
+        accion=AccionAuditoria.INSERT.value,
+    )
+    db.add(registro)
+    db.commit()
+    db.expire_all()
+    assert db.get(Auditoria, registro.id).rol == CodigoRol.REVISOR_ORI.value
