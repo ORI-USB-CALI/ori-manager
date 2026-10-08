@@ -1392,6 +1392,97 @@ a:hover {
   margin-top: 8px;
 }
 
+.observaciones-juridicas {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ronda-juridica {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ronda-juridica h3 {
+  font-size: 16px;
+}
+
+.instancia-juridica {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.instancia-juridica h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.observaciones-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.observacion-correccion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.observacion-correccion p {
+  margin: 0;
+}
+
+.observacion-juridica,
+.correccion-gestor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.correccion-gestor .badge {
+  align-self: flex-start;
+}
+
+.observacion-flecha {
+  color: var(--text-secondary);
+  font-size: 18px;
+}
+
+.etiqueta-dato {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .observacion-correccion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .observacion-flecha {
+    transform: rotate(90deg);
+    justify-self: start;
+  }
+}
+
 .snapshot-revision,
 .documentos-revision,
 .revision-acciones {
