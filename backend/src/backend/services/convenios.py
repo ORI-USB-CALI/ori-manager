@@ -362,6 +362,8 @@ class ServicioConvenios:
             etapa_actual_id=elaboracion.id,
             estado=EstadoConvenio.EN_TRAMITE.value,
             creado_por_id=usuario.id,
+            # Misma hora de la transacción que el historial de ingreso a Elaboración.
+            elaboracion_iniciada_en=func.now(),
         )
         # Mantiene coherente la relación ya cargada en la misma sesión (por
         # ejemplo, la bandeja consultada antes de iniciar la elaboración).
