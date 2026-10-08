@@ -76,6 +76,10 @@ class Convenio(Base):
     fecha_inicio: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_vencimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_firma: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Hitos de la línea de tiempo: el momento exacto de "Iniciar elaboración" y el
+    # paso a VIGENTE al formalizar las firmas. Los asigna el servidor, nunca el cliente.
+    elaboracion_iniciada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    activado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duracion_meses: Mapped[int | None] = mapped_column(Integer, nullable=True)
     porcentaje_avance: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     # El origen es siempre el convenio inmediatamente anterior. La numeración cuenta
