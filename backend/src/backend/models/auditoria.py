@@ -30,12 +30,17 @@ class Auditoria(Base):
     __table_args__ = (
         CheckConstraint(f"accion IN ({_ACCIONES})", name="ck_auditoria_accion"),
         Index("ix_auditoria_entidad_registro", "entidad", "registro_id"),
+        Index("ix_auditoria_entidad_fecha_hora", "entidad", "fecha_hora"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     usuario_id: Mapped[int] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=False
     )
+    # Copia del código de rol al momento de la acción: el rol del usuario puede
+    # cambiar después y la bitácora debe mostrar con qué rol actuó. Es nullable
+    # porque los registros previos a HU-18 se completan con el rol vigente.
+    rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
     entidad: Mapped[str] = mapped_column(String(80), nullable=False)
     registro_id: Mapped[int] = mapped_column(Integer, nullable=False)
     accion: Mapped[str] = mapped_column(String(10), nullable=False)
