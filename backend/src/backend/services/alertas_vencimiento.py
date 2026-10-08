@@ -4,9 +4,10 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from backend.models.convenio import Convenio
+from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.enums import EstadoConvenio
 
 ZONA_HORARIA_DOMINIO = ZoneInfo("America/Bogota")
@@ -53,6 +54,16 @@ class ServicioAlertasVencimiento:
     ) -> list[ProximoVencimiento]:
         referencia = fecha_referencia or _fecha_actual_dominio()
         fecha_limite = referencia + timedelta(days=DIAS_MAXIMOS_ALERTA)
+        renovacion = aliased(Convenio)
+        decision_vigente = select(DecisionNoRenovacion.id).where(
+            DecisionNoRenovacion.convenio_id == Convenio.id,
+            DecisionNoRenovacion.fecha_vencimiento_origen
+            == Convenio.fecha_vencimiento,
+        ).exists()
+        renovacion_activa = select(renovacion.id).where(
+            renovacion.convenio_origen_id == Convenio.id,
+            renovacion.estado == EstadoConvenio.EN_TRAMITE.value,
+        ).exists()
 
         consulta = (
             select(
@@ -71,6 +82,8 @@ class ServicioAlertasVencimiento:
                 Convenio.fecha_vencimiento.is_not(None),
                 Convenio.fecha_vencimiento >= referencia,
                 Convenio.fecha_vencimiento <= fecha_limite,
+                ~decision_vigente,
+                ~renovacion_activa,
             )
             .order_by(Convenio.fecha_vencimiento, Convenio.id)
         )

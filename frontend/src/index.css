@@ -408,7 +408,6 @@ a:hover {
 }
 
 .renovaciones-filtros,
-.renovacion-cabecera,
 .renovacion-acciones,
 .renovaciones-resultado {
   display: flex;
@@ -432,74 +431,72 @@ a:hover {
   margin-bottom: 16px;
 }
 
-.renovaciones-lista {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.renovacion-tarjeta {
+.renovaciones-destino {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-  overflow-wrap: anywhere;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.renovacion-cabecera {
-  justify-content: space-between;
+.renovaciones-destino > p + .btn {
+  margin-top: 0;
 }
 
-.renovacion-cabecera .badge {
+.renovaciones-tabla {
+  min-width: 1120px;
+}
+
+.renovaciones-tabla tbody th {
+  min-width: 150px;
+  border-top: 1px solid var(--border-color);
+  background: inherit;
+  color: var(--text-primary);
   white-space: normal;
 }
 
+.renovaciones-tabla td,
+.renovaciones-tabla tbody th {
+  overflow-wrap: anywhere;
+}
+
 .renovacion-objeto {
-  white-space: pre-wrap;
+  display: -webkit-box;
+  min-width: 200px;
+  max-width: 300px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
-.renovacion-datos {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.renovacion-datos dt,
-.renovacion-evaluacion p {
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.renovacion-datos dd {
-  margin: 4px 0 0;
-}
-
-.renovacion-evaluacion {
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
+.renovaciones-tabla .badge,
+.renovaciones-tabla td:last-child {
+  white-space: normal;
 }
 
 .renovacion-acciones {
-  margin-top: auto;
+  width: 220px;
+  gap: 8px;
 }
 
-@media (max-width: 980px) {
-  .renovaciones-lista {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.renovacion-acciones .btn {
+  max-width: 100%;
+  white-space: normal;
 }
 
-@media (max-width: 480px) {
-  .renovacion-datos {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.renovaciones-tabla .renovacion-destacada {
+  background: #fff3e8;
+  box-shadow: inset 4px 0 var(--color-naranja);
+  scroll-margin-block: 90px;
+}
 
-  .renovacion-acciones .btn {
-    width: 100%;
-  }
+.renovacion-identificada {
+  font-weight: 700;
+}
+
+.renovacion-destacada:focus-visible {
+  outline: 2px solid var(--color-naranja);
+  outline-offset: -2px;
 }
 
 .solicitud-form {

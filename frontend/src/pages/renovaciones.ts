@@ -63,13 +63,22 @@ export function registrarNoRenovacion(convenioId: number) {
 
 export function mensajeErrorAccion(error: Error, tipo: 'iniciar' | 'no-renovar'): string {
   if (error instanceof ApiError) {
+    if (error.status === 401) return 'Tu sesión ha expirado. Inicia sesión nuevamente.'
+    if (error.status === 403) return 'No tienes permiso para gestionar renovaciones.'
+    const detalle = typeof error.detail === 'string' ? error.detail.trim() : ''
+    if (
+      error.status >= 400 && error.status < 500
+      && detalle.length > 0 && detalle.length <= 500
+      && /\p{L}/u.test(detalle)
+      && Array.from(detalle).every((caracter) => caracter.charCodeAt(0) > 31 && caracter.charCodeAt(0) !== 127)
+      && !/[<>[\]{}]/u.test(detalle)
+      && !/traceback|stack\s*trace|\bat\s+\S+\s*\(|\b(select|insert|update|delete)\b.+\b(from|into|set)\b|\b\w*(?:error|exception)\s*:|https?:\/\/|\.(?:py|tsx?|jsx?):\d+/i.test(detalle)
+    ) return detalle
     if (error.status === 409) {
       return tipo === 'iniciar'
         ? 'No se pudo iniciar la renovación. El convenio puede tener una renovación en curso o ya no admitir un nuevo intento. Consulta su situación actual.'
         : 'El convenio ya no está pendiente de decisión: puede tener una renovación en curso, una decisión registrada o estar fuera del periodo permitido.'
     }
-    if (error.status === 401) return 'Tu sesión ha expirado. Inicia sesión nuevamente.'
-    if (error.status === 403) return 'No tienes permiso para gestionar renovaciones.'
     if (error.status === 404) return 'El convenio ya no está disponible. Actualiza el panel.'
   }
   return 'No se pudo completar la acción. Comprueba tu conexión y vuelve a intentarlo.'

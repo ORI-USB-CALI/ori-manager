@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from backend.models.auditoria import Auditoria
@@ -167,6 +167,8 @@ def test_consulta_es_read_only_y_no_fuerza_flush(
     estado_inicial = convenio.estado
     actualizado_inicial = convenio.actualizado_en
     auditorias_iniciales = db.scalar(select(func.count()).select_from(Auditoria))
+    objeto_inicial = convenio.objeto
+    convenio.objeto = "Cambio pendiente que las alertas no deben guardar"
 
     def operacion_prohibida(*args, **kwargs) -> None:
         raise AssertionError("El servicio de alertas intentó escribir")
@@ -176,10 +178,12 @@ def test_consulta_es_read_only_y_no_fuerza_flush(
         contexto.setattr(db, "flush", operacion_prohibida)
 
         ServicioAlertasVencimiento(db).listar_proximos_vencimientos(FECHA_REFERENCIA)
+        assert convenio in db.dirty
 
     db.expire(convenio)
     assert convenio.estado == estado_inicial
     assert convenio.actualizado_en == actualizado_inicial
+    assert convenio.objeto == objeto_inicial
     assert (
         db.scalar(select(func.count()).select_from(Auditoria)) == auditorias_iniciales
     )
@@ -224,3 +228,28 @@ def test_fecha_por_defecto_usa_zona_horaria_de_bogota(db, monkeypatch) -> None:
     assert ServicioAlertasVencimiento(db).listar_proximos_vencimientos() == []
     assert zonas_recibidas == [alertas_vencimiento.ZONA_HORARIA_DOMINIO]
     assert alertas_vencimiento.ZONA_HORARIA_DOMINIO.key == "America/Bogota"
+
+
+def test_filtro_de_decisiones_y_renovaciones_usa_una_sola_consulta(
+    db, crear_alertable, crear_convenio, gestor
+) -> None:
+    pendientes = [crear_alertable(dias=dias) for dias in (30, 60, 90, 120)]
+    con_hijo = crear_alertable(dias=30)
+    crear_convenio(gestor, convenio_origen_id=con_hijo.id, numero_renovacion=1)
+    sentencias = []
+
+    def registrar_consulta(conn, cursor, statement, parameters, context, executemany):
+        sentencias.append(statement)
+
+    conexion = db.connection()
+    event.listen(conexion, "before_cursor_execute", registrar_consulta)
+    try:
+        resultados = ServicioAlertasVencimiento(db).listar_proximos_vencimientos(
+            FECHA_REFERENCIA
+        )
+    finally:
+        event.remove(conexion, "before_cursor_execute", registrar_consulta)
+
+    assert {item.convenio_id for item in resultados} == {c.id for c in pendientes}
+    assert len(sentencias) == 1
+    assert sentencias[0].lstrip().upper().startswith("SELECT")

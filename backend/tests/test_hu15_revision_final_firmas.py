@@ -48,6 +48,7 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.services import firmas as servicio_firmas
+from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.aliados import ErrorAliado
 from backend.services.convenios import RevisionNoDisponible
 from backend.services.correo import CorreoLocal, ErrorEnvioCorreo, get_enviador_correo
@@ -1744,6 +1745,9 @@ def test_formalizar_renovacion_actualiza_padre_inmediato(
     client, db, escenario_final, crear_convenio, estado_padre
 ):
     padre = _vincular_padre_renovacion(db, escenario_final, crear_convenio, estado_padre)
+    referencia = datetime.now(UTC).date()
+    padre.fecha_vencimiento = referencia + timedelta(days=30)
+    db.commit()
     _proceso_listo_para_formalizar(client, db, escenario_final)
     hijo = escenario_final["convenio"]
     ids = (padre.id, hijo.id)
@@ -1761,6 +1765,10 @@ def test_formalizar_renovacion_actualiza_padre_inmediato(
     assert (padre.id, hijo.id) == ids
     assert hijo.convenio_origen_id == padre.id
     assert hijo.numero_renovacion == 1
+    assert padre.id not in {
+        item.convenio_id
+        for item in ServicioAlertasVencimiento(db).listar_proximos_vencimientos(referencia)
+    }
     assert {
         columna.name: getattr(padre, columna.name)
         for columna in Convenio.__table__.columns
