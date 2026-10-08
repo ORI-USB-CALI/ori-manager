@@ -50,9 +50,12 @@ def test_vencimiento_hoy_no_es_futuro():
     assert hitos[-1] == ("VENCIMIENTO", "COMPLETADO", HOY)
 
 
-def test_cancelado_sin_activar_omite_activacion():
+def test_cancelado_sin_activar_omite_activacion_y_vencimiento():
+    # Nunca entrará en vigor: ni activación pendiente ni vencimiento programado.
     assert _hitos(
-        estado=EstadoConvenio.CANCELADO.value, elaboracion_iniciada_en=INICIO
+        estado=EstadoConvenio.CANCELADO.value,
+        elaboracion_iniciada_en=INICIO,
+        fecha_vencimiento=date(2028, 9, 30),
     ) == [("INICIO_ELABORACION", "COMPLETADO", INICIO)]
 
 

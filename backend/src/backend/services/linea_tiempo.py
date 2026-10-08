@@ -36,7 +36,11 @@ def construir_linea_tiempo(convenio: Convenio, hoy: date) -> list[HitoLineaTiemp
                 codigo="ACTIVACION", nombre="Activación", fecha=None, estado="PENDIENTE"
             )
         )
-    if convenio.fecha_vencimiento is not None:
+    nunca_vigente = (
+        convenio.activado_en is None
+        and convenio.estado == EstadoConvenio.CANCELADO.value
+    )
+    if convenio.fecha_vencimiento is not None and not nunca_vigente:
         hitos.append(
             HitoLineaTiempoLeer(
                 codigo="VENCIMIENTO",
