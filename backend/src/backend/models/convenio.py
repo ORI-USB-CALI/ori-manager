@@ -22,6 +22,7 @@ from backend.db.base import Base
 from backend.models.enums import AlcanceConvenio, EstadoConvenio
 
 if TYPE_CHECKING:
+    from backend.models.actividad_utilizacion import ActividadUtilizacion
     from backend.models.aliado import Aliado
     from backend.models.decision_no_renovacion import DecisionNoRenovacion
     from backend.models.documento import Documento
@@ -121,4 +122,7 @@ class Convenio(Base):
     )
     procesos_firmas: Mapped[list[ProcesoFirmasConvenio]] = relationship(
         back_populates="convenio", order_by="ProcesoFirmasConvenio.id"
+    )
+    actividades_utilizacion: Mapped[list[ActividadUtilizacion]] = relationship(
+        back_populates="convenio"
     )

@@ -1,3 +1,4 @@
+from backend.models.actividad_utilizacion import ActividadUtilizacion
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.contacto_aliado import ContactoAliado
@@ -25,6 +26,7 @@ from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 
 __all__ = [
+    "ActividadUtilizacion",
     "Aliado",
     "Auditoria",
     "ContactoAliado",

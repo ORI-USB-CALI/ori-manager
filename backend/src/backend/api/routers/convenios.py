@@ -11,11 +11,16 @@ from backend.api.deps import requiere
 from backend.core.config import settings
 from backend.core.permisos import Permiso
 from backend.db.session import get_db
+from backend.models.actividad_utilizacion import ActividadUtilizacion
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoSeguimientoRenovacion
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.schemas.actividad_utilizacion import (
+    ActividadUtilizacionCrear,
+    ActividadUtilizacionLeer,
+)
 from backend.schemas.convenio import (
     AlertaVencimientoLeer,
     AprobarRevision,
@@ -60,6 +65,7 @@ from backend.schemas.renovacion import (
     RenovacionIniciadaLeer,
     SeguimientoRenovacionLeer,
 )
+from backend.services.actividades_utilizacion import ServicioActividadesUtilizacion
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ConflictoVersionConvenio,
@@ -364,6 +370,38 @@ def obtener_convenio(
     try:
         return ServicioConvenios(db).obtener_en_alcance_operativo(
             convenio_id, usuario
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/actividades-utilizacion",
+    response_model=list[ActividadUtilizacionLeer],
+)
+def listar_actividades_utilizacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> list[ActividadUtilizacion]:
+    try:
+        return ServicioActividadesUtilizacion(db).listar(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/actividades-utilizacion",
+    response_model=ActividadUtilizacionLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_actividad_utilizacion(
+    convenio_id: int,
+    payload: ActividadUtilizacionCrear,
+    db: DatabaseSession,
+    usuario: PuedeEditar,
+) -> ActividadUtilizacion:
+    try:
+        return ServicioActividadesUtilizacion(db).registrar(
+            convenio_id, payload, usuario
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
