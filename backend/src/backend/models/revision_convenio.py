@@ -161,7 +161,7 @@ class RevisionConvenio(Base):
         foreign_keys=[resuelta_por_id]
     )
     observaciones: Mapped[list[ObservacionRevision]] = relationship(
-        back_populates="revision_convenio"
+        back_populates="revision_convenio", order_by="ObservacionRevision.id"
     )
     invitaciones_contraparte: Mapped[list[InvitacionRevisionContraparte]] = relationship(
         back_populates="revision_convenio",
