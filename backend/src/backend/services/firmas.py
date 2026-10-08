@@ -937,6 +937,7 @@ class ServicioFirmas:
         proceso.estado = EstadoProcesoFirmasConvenio.COMPLETADO.value
         proceso.completado_en = ahora
         convenio.estado = EstadoConvenio.VIGENTE.value
+        convenio.activado_en = ahora
         convenio.fecha_firma = max(
             firma.fecha_firma for firma in firmas if firma.fecha_firma is not None
         ).date()
