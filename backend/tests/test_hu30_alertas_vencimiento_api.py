@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoConvenio
+from backend.models.decision_no_renovacion import DecisionNoRenovacion
+from backend.models.enums import EstadoConvenio, EstadoSeguimientoRenovacion
 from backend.models.usuario import Usuario
-from backend.services import alertas_vencimiento
+from backend.services import alertas_vencimiento, renovaciones
 
 URL_ALERTAS = "/api/convenios/alertas-vencimiento"
 FECHA_REFERENCIA = date(2026, 10, 7)
@@ -23,6 +24,7 @@ def fecha_dominio_fija(monkeypatch) -> None:
         "_fecha_actual_dominio",
         lambda: FECHA_REFERENCIA,
     )
+    monkeypatch.setattr(renovaciones, "fecha_actual_dominio", lambda: FECHA_REFERENCIA)
 
 
 @pytest.fixture
@@ -205,3 +207,107 @@ def test_consulta_posterior_refleja_cambio_de_fecha(
             "rango_vencimiento": "61_90",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("accion", "seguimiento"),
+    [
+        ("no-renovar", EstadoSeguimientoRenovacion.NO_SE_RENOVARA),
+        ("renovaciones", EstadoSeguimientoRenovacion.RENOVACION_INICIADA),
+    ],
+)
+@pytest.mark.parametrize("estado", [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER])
+def test_decision_oculta_alerta_sin_modificar_original(
+    db, client, gestor, crear_alerta, accion, seguimiento, estado
+) -> None:
+    convenio = crear_alerta(dias=30, estado=estado)
+    original = {
+        columna.name: getattr(convenio, columna.name)
+        for columna in Convenio.__table__.columns
+    }
+    assert convenio.id in {
+        item["convenio_id"] for item in client.get(URL_ALERTAS).json()
+    }
+
+    respuesta = client.post(f"/api/convenios/{convenio.id}/{accion}")
+
+    assert respuesta.status_code == 201
+    assert convenio.id not in {
+        item["convenio_id"] for item in client.get(URL_ALERTAS).json()
+    }
+    panel = client.get("/api/convenios/renovaciones")
+    assert panel.status_code == 200
+    assert next(
+        item["estado_seguimiento"]
+        for item in panel.json() if item["convenio_id"] == convenio.id
+    ) == seguimiento.value
+    db.refresh(convenio)
+    assert {
+        columna.name: getattr(convenio, columna.name)
+        for columna in Convenio.__table__.columns
+    } == original
+    if accion == "no-renovar":
+        decision = db.scalar(select(DecisionNoRenovacion).where(
+            DecisionNoRenovacion.convenio_id == convenio.id
+        ))
+        assert decision.fecha_vencimiento_origen == convenio.fecha_vencimiento
+        assert decision.decidida_por_id == gestor.id
+
+
+@pytest.mark.parametrize("decision_negativa", [False, True])
+def test_cancelacion_reabre_alerta_solo_sin_decision_vigente(
+    db, client, gestor, crear_alerta, decision_negativa
+) -> None:
+    convenio = crear_alerta(dias=30)
+    if decision_negativa:
+        assert client.post(f"/api/convenios/{convenio.id}/no-renovar").status_code == 201
+    respuesta = client.post(f"/api/convenios/{convenio.id}/renovaciones")
+    assert respuesta.status_code == 201
+    hijo = db.get(Convenio, respuesta.json()["convenio_renovacion_id"])
+    assert convenio.id not in {
+        item["convenio_id"] for item in client.get(URL_ALERTAS).json()
+    }
+
+    hijo.estado = EstadoConvenio.CANCELADO.value
+    db.commit()
+
+    assert (convenio.id in {
+        item["convenio_id"] for item in client.get(URL_ALERTAS).json()
+    }) is (not decision_negativa)
+    if decision_negativa:
+        assert db.scalar(select(DecisionNoRenovacion.id).where(
+            DecisionNoRenovacion.convenio_id == convenio.id,
+            DecisionNoRenovacion.fecha_vencimiento_origen == convenio.fecha_vencimiento,
+        )) is not None
+
+
+def test_decision_de_periodo_anterior_no_silencia_nuevo_vencimiento(
+    db, client, gestor, crear_alerta
+) -> None:
+    convenio = crear_alerta(dias=30)
+    assert client.post(f"/api/convenios/{convenio.id}/no-renovar").status_code == 201
+    decision = db.scalar(select(DecisionNoRenovacion).where(
+        DecisionNoRenovacion.convenio_id == convenio.id
+    ))
+    historica = {
+        columna.name: getattr(decision, columna.name)
+        for columna in DecisionNoRenovacion.__table__.columns
+    }
+    assert convenio.id not in {
+        item["convenio_id"] for item in client.get(URL_ALERTAS).json()
+    }
+
+    convenio.fecha_vencimiento = FECHA_REFERENCIA + timedelta(days=75)
+    db.commit()
+
+    alerta = next(
+        item for item in client.get(URL_ALERTAS).json()
+        if item["convenio_id"] == convenio.id
+    )
+    assert alerta["dias_restantes"] == 75
+    assert alerta["rango_vencimiento"] == "61_90"
+    db.refresh(decision)
+    assert {
+        columna.name: getattr(decision, columna.name)
+        for columna in DecisionNoRenovacion.__table__.columns
+    } == historica

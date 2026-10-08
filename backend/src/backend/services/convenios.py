@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import UTC, date, datetime
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
@@ -318,6 +319,8 @@ class ServicioConvenios:
         datos: ConvenioCrear,
         usuario: Usuario,
         solicitud: SolicitudConvenio,
+        *,
+        version_base: VersionConvenio | None = None,
     ) -> Convenio:
         """Construye el convenio y su historial inicial sin hacer commit."""
         if solicitud.estado != EstadoSolicitud.APROBADA:
@@ -375,19 +378,23 @@ class ServicioConvenios:
                 observacion=None,
             )
         )
-        plantilla = self._plantilla_base_activa()
-        tipo_nombre = self.db.scalar(
-            select(TipoConvenio.nombre).where(
-                TipoConvenio.id == solicitud.tipo_convenio_id
+        if version_base is not None:
+            contenido_inicial = deepcopy(version_base.contenido)
+            convenio.plantilla_origen_id = version_base.plantilla_id
+        else:
+            plantilla = self._plantilla_base_activa()
+            tipo_nombre = self.db.scalar(
+                select(TipoConvenio.nombre).where(
+                    TipoConvenio.id == solicitud.tipo_convenio_id
+                )
             )
-        )
-        try:
-            contenido_inicial = expandir_plantilla(
-                plantilla.contenido_base, solicitud, tipo_nombre
-            )
-        except ContenidoConvenioInvalido as exc:
-            raise ConfiguracionConvenioInvalida(str(exc)) from exc
-        convenio.plantilla_origen_id = plantilla.id
+            try:
+                contenido_inicial = expandir_plantilla(
+                    plantilla.contenido_base, solicitud, tipo_nombre
+                )
+            except ContenidoConvenioInvalido as exc:
+                raise ConfiguracionConvenioInvalida(str(exc)) from exc
+            convenio.plantilla_origen_id = plantilla.id
         self._crear_version(
             convenio,
             contenido_inicial,

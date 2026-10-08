@@ -51,7 +51,7 @@ export function AlertasVencimiento({ alertas, cargando, error }: AlertasVencimie
     <section className="avisos-vencimiento" aria-labelledby="avisos-vencimiento-titulo">
       <header className="avisos-vencimiento-cabecera">
         <h3 id="avisos-vencimiento-titulo">Vencimientos</h3>
-        <p>Convenios que finalizan dentro de los próximos 120 días.</p>
+        <p>Convenios que vencen dentro de los próximos 120 días y requieren una decisión de renovación.</p>
       </header>
 
       {cargando && (
@@ -100,9 +100,9 @@ export function AlertasVencimiento({ alertas, cargando, error }: AlertasVencimie
                   </dl>
                   <Link
                     className="aviso-vencimiento-enlace"
-                    to={`/convenios/${alerta.convenio_id}`}
+                    to={`/renovaciones?estado=PENDIENTE_DE_DECISION&convenio_id=${alerta.convenio_id}`}
                   >
-                    Ver convenio
+                    Gestionar renovación
                   </Link>
                 </article>
               </li>

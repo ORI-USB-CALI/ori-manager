@@ -12,6 +12,7 @@ from backend.core.config import settings
 from backend.core.permisos import Permiso
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
+from backend.models.enums import EstadoSeguimientoRenovacion
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
@@ -54,6 +55,11 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.renovacion import (
+    DecisionNoRenovacionLeer,
+    RenovacionIniciadaLeer,
+    SeguimientoRenovacionLeer,
+)
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ConflictoVersionConvenio,
@@ -84,6 +90,10 @@ from backend.services.firma_electronica import (
     ServicioFirmaElectronica,
 )
 from backend.services.firmas import ServicioFirmas
+from backend.services.renovaciones import (
+    ServicioRenovaciones,
+    listar_seguimiento_renovaciones,
+)
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -92,6 +102,9 @@ Correo = Annotated[EnviadorCorreo, Depends(get_enviador_correo)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
 PuedeVerAlertasVencimiento = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_VER_ALERTAS_VENCIMIENTO)
+]
+PuedeGestionarRenovaciones = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_RENOVACIONES)
 ]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
@@ -331,6 +344,19 @@ def listar_alertas_vencimiento(
     return [AlertaVencimientoLeer.model_validate(alerta) for alerta in alertas]
 
 
+@router.get("/renovaciones", response_model=list[SeguimientoRenovacionLeer])
+def listar_renovaciones(
+    db: DatabaseSession,
+    _: PuedeGestionarRenovaciones,
+    estado: EstadoSeguimientoRenovacion | None = None,
+) -> list[SeguimientoRenovacionLeer]:
+    seguimientos = listar_seguimiento_renovaciones(db, estado=estado)
+    return [
+        SeguimientoRenovacionLeer.model_validate(seguimiento)
+        for seguimiento in seguimientos
+    ]
+
+
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
 def obtener_convenio(
     convenio_id: int, db: DatabaseSession, usuario: PuedeVer
@@ -341,6 +367,43 @@ def obtener_convenio(
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/renovaciones",
+    response_model=RenovacionIniciadaLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def iniciar_renovacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeGestionarRenovaciones
+) -> RenovacionIniciadaLeer:
+    try:
+        hijo = ServicioRenovaciones(db).iniciar_renovacion(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return RenovacionIniciadaLeer(
+        convenio_origen_id=hijo.convenio_origen_id,
+        convenio_renovacion_id=hijo.id,
+        codigo=hijo.codigo,
+        numero_renovacion=hijo.numero_renovacion,
+        estado=hijo.estado,
+        etapa=hijo.etapa_actual.codigo,
+    )
+
+
+@router.post(
+    "/{convenio_id}/no-renovar",
+    response_model=DecisionNoRenovacionLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_no_renovacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeGestionarRenovaciones
+) -> DecisionNoRenovacionLeer:
+    try:
+        decision = ServicioRenovaciones(db).registrar_no_renovacion(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return DecisionNoRenovacionLeer.model_validate(decision)
 
 
 @router.get("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)

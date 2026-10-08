@@ -2,6 +2,7 @@ from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
+from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.documento import Documento
 from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
@@ -28,6 +29,7 @@ __all__ = [
     "Auditoria",
     "ContactoAliado",
     "Convenio",
+    "DecisionNoRenovacion",
     "Documento",
     "Etapa",
     "FirmaConvenio",

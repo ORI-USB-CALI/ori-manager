@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -47,6 +47,9 @@ from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
+from backend.services import firmas as servicio_firmas
+from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
+from backend.services.aliados import ErrorAliado
 from backend.services.convenios import RevisionNoDisponible
 from backend.services.correo import CorreoLocal, ErrorEnvioCorreo, get_enviador_correo
 from backend.services.firma_electronica import (
@@ -1655,9 +1658,16 @@ def test_seis_de_siete_firmas_no_permiten_formalizar(
 
 
 def test_formalizar_cierra_proceso_y_activa_convenio_sin_nueva_version(
-    client, db, escenario_final
+    client, db, escenario_final, crear_convenio
 ):
     proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    otro = crear_convenio(escenario_final["gestor"])
+    otro.estado = EstadoConvenio.VIGENTE.value
+    db.commit()
+    otro_antes = {
+        columna.name: getattr(otro, columna.name)
+        for columna in Convenio.__table__.columns
+    }
     for indice, firma_dato in enumerate(proceso["firmas"]):
         firma = db.get(FirmaConvenio, firma_dato["id"])
         assert firma is not None
@@ -1681,6 +1691,11 @@ def test_formalizar_cierra_proceso_y_activa_convenio_sin_nueva_version(
     convenio = db.get(Convenio, escenario_final["convenio"].id)
     proceso_persistido = db.get(ProcesoFirmasConvenio, proceso["id"])
     assert convenio is not None and proceso_persistido is not None
+    assert convenio.convenio_origen_id is None
+    assert {
+        columna.name: getattr(otro, columna.name)
+        for columna in Convenio.__table__.columns
+    } == otro_antes
     assert convenio.estado == EstadoConvenio.VIGENTE.value
     assert convenio.etapa_actual.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO"
     assert convenio.fecha_firma.isoformat() == "2026-09-26"
@@ -1710,6 +1725,187 @@ def test_formalizar_cierra_proceso_y_activa_convenio_sin_nueva_version(
     seguimiento = client.get(f"/api/convenios/{convenio.id}/firmas")
     assert seguimiento.status_code == 200
     assert seguimiento.json()["estado"] == "COMPLETADO"
+
+
+def _vincular_padre_renovacion(db, escenario, crear_convenio, estado):
+    padre = crear_convenio(escenario["gestor"])
+    padre.estado = estado.value
+    hijo = escenario["convenio"]
+    hijo.convenio_origen_id = padre.id
+    hijo.numero_renovacion = 1
+    db.commit()
+    return padre
+
+
+@pytest.mark.parametrize(
+    "estado_padre",
+    [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER, EstadoConvenio.VENCIDO],
+)
+def test_formalizar_renovacion_actualiza_padre_inmediato(
+    client, db, escenario_final, crear_convenio, estado_padre
+):
+    padre = _vincular_padre_renovacion(db, escenario_final, crear_convenio, estado_padre)
+    referencia = datetime.now(UTC).date()
+    padre.fecha_vencimiento = referencia + timedelta(days=30)
+    db.commit()
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    hijo = escenario_final["convenio"]
+    ids = (padre.id, hijo.id)
+    padre_antes = {
+        columna.name: getattr(padre, columna.name)
+        for columna in Convenio.__table__.columns
+        if columna.name not in {"estado", "actualizado_en"}
+    }
+
+    assert _formalizar(client, escenario_final).status_code == 200
+
+    db.expire_all()
+    assert padre.estado == EstadoConvenio.RENOVADO.value
+    assert hijo.estado == EstadoConvenio.VIGENTE.value
+    assert (padre.id, hijo.id) == ids
+    assert hijo.convenio_origen_id == padre.id
+    assert hijo.numero_renovacion == 1
+    assert padre.id not in {
+        item.convenio_id
+        for item in ServicioAlertasVencimiento(db).listar_proximos_vencimientos(referencia)
+    }
+    assert {
+        columna.name: getattr(padre, columna.name)
+        for columna in Convenio.__table__.columns
+        if columna.name not in {"estado", "actualizado_en"}
+    } == padre_antes
+
+
+def test_formalizar_renovacion_no_actualiza_raiz_de_cadena(
+    client, db, escenario_final, crear_convenio
+):
+    raiz = crear_convenio(escenario_final["gestor"])
+    raiz.estado = EstadoConvenio.RENOVADO.value
+    db.commit()
+    padre = _vincular_padre_renovacion(
+        db, escenario_final, crear_convenio, EstadoConvenio.VIGENTE
+    )
+    padre.convenio_origen_id = raiz.id
+    padre.numero_renovacion = 1
+    hijo = escenario_final["convenio"]
+    hijo.numero_renovacion = 2
+    db.commit()
+    raiz_antes = {
+        columna.name: getattr(raiz, columna.name)
+        for columna in Convenio.__table__.columns
+    }
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+
+    assert _formalizar(client, escenario_final).status_code == 200
+
+    db.expire_all()
+    assert padre.estado == EstadoConvenio.RENOVADO.value
+    assert hijo.estado == EstadoConvenio.VIGENTE.value
+    assert hijo.convenio_origen_id == padre.id
+    assert padre.convenio_origen_id == raiz.id
+    assert hijo.numero_renovacion == 2
+    assert padre.numero_renovacion == 1
+    assert len({raiz.id, padre.id, hijo.id}) == 3
+    assert {
+        columna.name: getattr(raiz, columna.name)
+        for columna in Convenio.__table__.columns
+    } == raiz_antes
+
+
+def test_formalizar_renovacion_con_padre_ya_renovado_no_duplica_efectos(
+    client, db, escenario_final, crear_convenio
+):
+    padre = _vincular_padre_renovacion(
+        db, escenario_final, crear_convenio, EstadoConvenio.RENOVADO
+    )
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    timestamp_padre = padre.actualizado_en
+
+    assert _formalizar(client, escenario_final).status_code == 200
+    historial_antes = db.scalar(select(func.count()).select_from(HistorialEtapa))
+    assert _formalizar(client, escenario_final).status_code == 409
+
+    db.expire_all()
+    assert padre.estado == EstadoConvenio.RENOVADO.value
+    assert padre.actualizado_en == timestamp_padre
+    assert escenario_final["convenio"].estado == EstadoConvenio.VIGENTE.value
+    assert db.scalar(select(func.count()).select_from(HistorialEtapa)) == historial_antes
+
+
+@pytest.mark.parametrize(
+    "estado_padre",
+    [EstadoConvenio.CANCELADO, EstadoConvenio.FINALIZADO, EstadoConvenio.EN_TRAMITE],
+)
+def test_formalizar_renovacion_rechaza_estado_inesperado_del_padre(
+    client, db, escenario_final, crear_convenio, estado_padre
+):
+    padre = _vincular_padre_renovacion(db, escenario_final, crear_convenio, estado_padre)
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    historial_antes = db.scalar(select(func.count()).select_from(HistorialEtapa))
+
+    assert _formalizar(client, escenario_final).status_code == 409
+
+    db.expire_all()
+    assert padre.estado == estado_padre.value
+    assert escenario_final["convenio"].estado == EstadoConvenio.EN_TRAMITE.value
+    assert db.scalar(select(func.count()).select_from(HistorialEtapa)) == historial_antes
+
+
+def test_formalizar_renovacion_cancelada_no_modifica_padre(
+    client, db, escenario_final, crear_convenio
+):
+    padre = _vincular_padre_renovacion(
+        db, escenario_final, crear_convenio, EstadoConvenio.VIGENTE
+    )
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    hijo = escenario_final["convenio"]
+    hijo.estado = EstadoConvenio.CANCELADO.value
+    db.commit()
+    timestamp_padre = padre.actualizado_en
+
+    assert _formalizar(client, escenario_final).status_code == 409
+
+    db.expire_all()
+    assert hijo.estado == EstadoConvenio.CANCELADO.value
+    assert padre.estado == EstadoConvenio.VIGENTE.value
+    assert padre.actualizado_en == timestamp_padre
+
+
+@pytest.mark.parametrize("tipo_error", [ErrorAliado, SQLAlchemyError, RuntimeError])
+def test_formalizar_renovacion_revierte_ambos_estados_tras_fallo(
+    client, db, escenario_final, crear_convenio, monkeypatch, tipo_error
+):
+    padre = _vincular_padre_renovacion(
+        db, escenario_final, crear_convenio, EstadoConvenio.VENCIDO
+    )
+    datos_proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    hijo = escenario_final["convenio"]
+    padre_timestamp = padre.actualizado_en
+    historial_antes = db.scalar(select(func.count()).select_from(HistorialEtapa))
+
+    def fallar_despues_de_flush(db, convenio):
+        db.flush()
+        assert convenio.estado == EstadoConvenio.VIGENTE.value
+        assert padre.estado == EstadoConvenio.RENOVADO.value
+        raise tipo_error("Fallo posterior a persistir padre e hijo")
+
+    monkeypatch.setattr(
+        servicio_firmas, "resolver_aliado_para_convenio", fallar_despues_de_flush
+    )
+    error_esperado = RevisionNoDisponible if tipo_error == ErrorAliado else tipo_error
+    with pytest.raises(error_esperado):
+        ServicioFirmas(db).formalizar(hijo.id, escenario_final["gestor"])
+
+    db.expire_all()
+    assert hijo.estado == EstadoConvenio.EN_TRAMITE.value
+    assert hijo.fecha_firma is None
+    assert hijo.etapa_actual.codigo == "APROBACION_FIRMAS"
+    assert padre.estado == EstadoConvenio.VENCIDO.value
+    assert padre.actualizado_en == padre_timestamp
+    proceso = db.get(ProcesoFirmasConvenio, datos_proceso["id"])
+    assert proceso.estado == EstadoProcesoFirmasConvenio.EN_CURSO.value
+    assert proceso.completado_en is None
+    assert db.scalar(select(func.count()).select_from(HistorialEtapa)) == historial_antes
 
 
 def test_electronica_sin_png_hash_bloquea_formalizacion(

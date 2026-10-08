@@ -407,6 +407,98 @@ a:hover {
   background: var(--bg-surface);
 }
 
+.renovaciones-filtros,
+.renovacion-acciones,
+.renovaciones-resultado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.renovaciones-filtros,
+.renovaciones-resultado {
+  margin-bottom: 24px;
+}
+
+.renovaciones-filtros .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.renovaciones-titulo {
+  margin-bottom: 16px;
+}
+
+.renovaciones-destino {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.renovaciones-destino > p + .btn {
+  margin-top: 0;
+}
+
+.renovaciones-tabla {
+  min-width: 1120px;
+}
+
+.renovaciones-tabla tbody th {
+  min-width: 150px;
+  border-top: 1px solid var(--border-color);
+  background: inherit;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
+.renovaciones-tabla td,
+.renovaciones-tabla tbody th {
+  overflow-wrap: anywhere;
+}
+
+.renovacion-objeto {
+  display: -webkit-box;
+  min-width: 200px;
+  max-width: 300px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.renovaciones-tabla .badge,
+.renovaciones-tabla td:last-child {
+  white-space: normal;
+}
+
+.renovacion-acciones {
+  width: 220px;
+  gap: 8px;
+}
+
+.renovacion-acciones .btn {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.renovaciones-tabla .renovacion-destacada {
+  background: #fff3e8;
+  box-shadow: inset 4px 0 var(--color-naranja);
+  scroll-margin-block: 90px;
+}
+
+.renovacion-identificada {
+  font-weight: 700;
+}
+
+.renovacion-destacada:focus-visible {
+  outline: 2px solid var(--color-naranja);
+  outline-offset: -2px;
+}
+
 .solicitud-form {
   display: grid;
   gap: 20px;

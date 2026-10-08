@@ -15,6 +15,7 @@ import { MisSolicitudesPage } from '../pages/MisSolicitudesPage'
 import { RevisionContrapartePage } from '../pages/RevisionContrapartePage'
 import { RevisionesContrapartePage } from '../pages/RevisionesContrapartePage'
 import { RevisionesJuridicasPage } from '../pages/RevisionesJuridicasPage'
+import { RenovacionesPage } from '../pages/RenovacionesPage'
 import { SolicitudRecibidaPage } from '../pages/SolicitudRecibidaPage'
 import { SolicitudesRecibidasPage } from '../pages/SolicitudesRecibidasPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
@@ -38,6 +39,9 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { path: '/', element: <HomePage /> },
+      { element: <RequierePermiso permiso="convenios.gestionar_renovaciones" />, children: [
+        { path: '/renovaciones', element: <RenovacionesPage /> },
+      ] },
       { element: <RequierePermiso permiso="usuarios.ver" />, children: [{ path: '/admin/usuarios', element: <UsuariosRolesPage /> }] },
       { element: <RequierePermiso permiso="aliados.ver" />, children: [
         { path: '/aliados', element: <AliadosPage /> },
