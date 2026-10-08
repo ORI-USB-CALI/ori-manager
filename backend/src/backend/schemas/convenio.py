@@ -620,3 +620,11 @@ class ConfigurarFirmaConvenio(BaseModel):
         if not normalizado:
             raise ValueError("El campo debe tener contenido")
         return normalizado
+
+
+class HitoLineaTiempoLeer(BaseModel):
+    codigo: Literal["INICIO_ELABORACION", "ACTIVACION", "VENCIMIENTO"]
+    nombre: str
+    # datetime para los hitos que registra el servidor; date para el vencimiento.
+    fecha: datetime | date | None
+    estado: Literal["COMPLETADO", "PENDIENTE", "PROGRAMADO"]
