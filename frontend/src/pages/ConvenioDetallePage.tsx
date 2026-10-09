@@ -7,6 +7,7 @@ import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import {
@@ -220,6 +221,8 @@ export function ConvenioDetallePage() {
         <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
         <p><span className="badge">{datos.estado}</span></p>
       </section>
+
+      <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
 
       {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isPending || historialContraparte.isPending) && (
         <p className="estado-pagina">Verificando disponibilidad para envío a contraparte…</p>

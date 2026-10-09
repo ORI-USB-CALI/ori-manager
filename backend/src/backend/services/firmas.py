@@ -916,6 +916,7 @@ class ServicioFirmas:
                 EstadoConvenio.VIGENTE.value,
                 EstadoConvenio.POR_VENCER.value,
                 EstadoConvenio.VENCIDO.value,
+                EstadoConvenio.FINALIZADO.value,
                 EstadoConvenio.RENOVADO.value,
             }:
                 raise RevisionNoDisponible(

@@ -281,6 +281,7 @@ def test_calculo_es_read_only_y_sin_efectos_secundarios(
         EstadoConvenio.VIGENTE,
         EstadoConvenio.POR_VENCER,
         EstadoConvenio.VENCIDO,
+        EstadoConvenio.FINALIZADO,
     ],
 )
 def test_estados_permitidos_pueden_iniciar_renovacion(
@@ -301,7 +302,7 @@ def test_vencido_no_aparece_como_pendiente_del_panel(
 
 @pytest.mark.parametrize(
     "estado",
-    [EstadoConvenio.VIGENTE, EstadoConvenio.VENCIDO],
+    [EstadoConvenio.VIGENTE, EstadoConvenio.VENCIDO, EstadoConvenio.FINALIZADO],
 )
 def test_decision_no_renovacion_no_bloquea_iniciar_renovacion(
     db, gestor, crear_convenio_renovable, estado: EstadoConvenio
@@ -336,7 +337,6 @@ def test_hijo_cancelado_permite_iniciar_otro_intento(
         EstadoConvenio.RENOVADO,
         EstadoConvenio.EN_TRAMITE,
         EstadoConvenio.CANCELADO,
-        EstadoConvenio.FINALIZADO,
     ],
 )
 def test_estados_terminales_o_en_tramite_no_pueden_ser_origen(
