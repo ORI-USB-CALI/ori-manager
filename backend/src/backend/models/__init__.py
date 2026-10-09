@@ -9,6 +9,7 @@ from backend.models.firma_convenio import FirmaConvenio
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.invitacion_firma_convenio import InvitacionFirmaConvenio
 from backend.models.invitacion_revision_contraparte import InvitacionRevisionContraparte
+from backend.models.notificacion import Notificacion
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.pais import Pais
 from backend.models.plantilla_convenio import PlantillaConvenio
@@ -36,6 +37,7 @@ __all__ = [
     "HistorialEtapa",
     "InvitacionFirmaConvenio",
     "InvitacionRevisionContraparte",
+    "Notificacion",
     "ObservacionRevision",
     "Pais",
     "PlantillaConvenio",

@@ -15,6 +15,7 @@ from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
     ContextoVersionConvenio,
+    EntidadNotificacion,
     EstadoConvenio,
     EstadoObservacionRevision,
     EstadoProcesoFirmasConvenio,
@@ -22,6 +23,7 @@ from backend.models.enums import (
     EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
+    TipoNotificacion,
     TipoRevisionConvenio,
 )
 from backend.models.etapa import Etapa
@@ -61,6 +63,7 @@ from backend.services.contraparte_externa import (
 )
 from backend.services.correo import EnviadorCorreo
 from backend.services.documentos import AlmacenDocumentos
+from backend.services.notificaciones import ServicioNotificaciones
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
@@ -849,6 +852,14 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        ServicioNotificaciones(self.db).crear(
+            solicitud.solicitante_id,
+            TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
+            f"El convenio {convenio.codigo or convenio.id} está pendiente de "
+            "revisión por la contraparte.",
+        )
         return revision
 
     def listar_revisiones_contraparte_pendientes(
@@ -1124,6 +1135,14 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        ServicioNotificaciones(self.db).crear(
+            responsable_ori_id,
+            TipoNotificacion.DEVOLUCION_REVISION,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
+            f"La contraparte devolvió el convenio {convenio.codigo or convenio.id} "
+            "con observaciones.",
+        )
         return revision
 
     def reenviar_invitacion_contraparte(
@@ -1722,6 +1741,14 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        ServicioNotificaciones(self.db).crear_para_rol(
+            CodigoRol.REVISOR_ORI,
+            TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
+            f"El convenio {convenio.codigo or convenio.id} fue entregado a "
+            "revisión jurídica.",
+        )
         return self.obtener(convenio.id)
 
     def _revision_juridica_pendiente(
@@ -2088,6 +2115,14 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        ServicioNotificaciones(self.db).crear(
+            convenio.creado_por_id,
+            TipoNotificacion.DEVOLUCION_REVISION,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
+            f"La revisión jurídica devolvió el convenio "
+            f"{convenio.codigo or convenio.id} con observaciones.",
+        )
         return revision
 
     def obtener_historial(self, convenio_id: int) -> Convenio:
