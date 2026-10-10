@@ -21,6 +21,7 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.token_credencial import TokenCredencial
+from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
@@ -49,6 +50,7 @@ __all__ = [
     "SolicitudUsuario",
     "TipoConvenio",
     "TokenCredencial",
+    "TransicionEstadoConvenio",
     "UnidadOrganizacional",
     "Usuario",
     "VersionConvenio",

@@ -1,7 +1,7 @@
 """HU-33 notificaciones de acciones pendientes.
 
 Revision ID: a2b6f4d9c1e8
-Revises: f3a1c8e4d2b7
+Revises: a9c72d104e6b
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a2b6f4d9c1e8"
-down_revision: str | Sequence[str] | None = "f3a1c8e4d2b7"
+down_revision: str | Sequence[str] | None = "a9c72d104e6b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

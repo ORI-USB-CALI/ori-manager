@@ -41,6 +41,7 @@ ESTADOS_ORIGEN_RENOVACION = frozenset(
         EstadoConvenio.VIGENTE.value,
         EstadoConvenio.POR_VENCER.value,
         EstadoConvenio.VENCIDO.value,
+        EstadoConvenio.FINALIZADO.value,
     )
 )
 

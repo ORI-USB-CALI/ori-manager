@@ -1,0 +1,70 @@
+# PLANTILLA INACTIVA. Revisar y aprobar antes de copiar a .github/workflows.
+name: Conciliación diaria de convenios
+
+on:
+  schedule:
+    - cron: '17 5 * * *' # 00:17 America/Bogota
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        type: choice
+        required: true
+        default: staging
+        options: [staging, production]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conciliacion-convenios-${{ inputs.ambiente || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  conciliar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.ambiente || 'production' }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Verificar habilitación explícita del ambiente
+        working-directory: .
+        env:
+          HABILITADA: ${{ vars.CONCILIACION_CONVENIOS_HABILITADA }}
+        run: |
+          if [[ "$HABILITADA" != 'true' ]]; then
+            echo '::error::Conciliación no habilitada para este ambiente.'
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ambiente == 'staging' && 'develop' || 'main' }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: '0.12.12'
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Instalar dependencias de runtime
+        run: uv sync --frozen --no-dev
+      - name: Conciliar convenios
+        env:
+          APP_ENV: ${{ inputs.ambiente || 'production' }}
+          DATABASE_HOST: ${{ secrets.CONCILIACION_DATABASE_HOST }}
+          DATABASE_PORT: ${{ secrets.CONCILIACION_DATABASE_PORT }}
+          DATABASE_NAME: ${{ secrets.CONCILIACION_DATABASE_NAME }}
+          DATABASE_USER: ${{ secrets.CONCILIACION_DATABASE_USER }}
+          DATABASE_PASSWORD: ${{ secrets.CONCILIACION_DATABASE_PASSWORD }}
+          DATABASE_SSLMODE: require
+        shell: bash
+        run: |
+          for variable in DATABASE_HOST DATABASE_PORT DATABASE_NAME DATABASE_USER DATABASE_PASSWORD; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Falta configuración: $variable"
+              exit 1
+            fi
+          done
+          uv run --no-sync python -m backend.cli.conciliar_convenios --intentos 3
