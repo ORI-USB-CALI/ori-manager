@@ -1065,6 +1065,11 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        ServicioNotificaciones(self.db).resolver(
+            TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
+        )
         return revision
 
     def devolver_revision_contraparte(
@@ -1142,6 +1147,11 @@ class ServicioConvenios:
             convenio.id,
             f"La contraparte devolvió el convenio {convenio.codigo or convenio.id} "
             "con observaciones.",
+        )
+        ServicioNotificaciones(self.db).resolver(
+            TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
         )
         return revision
 
@@ -1749,6 +1759,11 @@ class ServicioConvenios:
             f"El convenio {convenio.codigo or convenio.id} fue entregado a "
             "revisión jurídica.",
         )
+        ServicioNotificaciones(self.db).resolver(
+            TipoNotificacion.DEVOLUCION_REVISION,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
+        )
         return self.obtener(convenio.id)
 
     def _revision_juridica_pendiente(
@@ -1988,6 +2003,12 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        if revision.instancia_juridica == 2:
+            ServicioNotificaciones(self.db).resolver(
+                TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+            )
         return revision
 
     def atender_observacion(
@@ -2122,6 +2143,11 @@ class ServicioConvenios:
             convenio.id,
             f"La revisión jurídica devolvió el convenio "
             f"{convenio.codigo or convenio.id} con observaciones.",
+        )
+        ServicioNotificaciones(self.db).resolver(
+            TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            convenio.id,
         )
         return revision
 

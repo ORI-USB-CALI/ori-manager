@@ -814,6 +814,66 @@ a:hover {
   font-size: 0.8rem;
 }
 
+.centro-notificaciones-lista {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+}
+
+.centro-notificacion {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-left-width: 4px;
+  border-radius: 9px;
+  background: var(--bg-surface);
+}
+
+.centro-notificacion-danger { border-left-color: #dc2626; }
+.centro-notificacion-warning { border-left-color: #d97706; }
+.centro-notificacion-info { border-left-color: #0284c7; }
+
+.centro-notificacion-no-leida {
+  background: rgb(243 108 33 / 5%);
+}
+
+.centro-notificacion-nivel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.centro-notificacion-mensaje {
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.centro-notificacion-acciones {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.btn-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-naranja);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
 .accesos-rapidos-cabecera h2 {
   margin-bottom: 6px;
   font-size: 1.5rem;

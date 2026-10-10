@@ -471,4 +471,9 @@ class ServicioSolicitudes:
         solicitud.decidida_por_id = None
         solicitud.fecha_decision = None
         self.db.commit()
+        ServicioNotificaciones(self.db).resolver(
+            TipoNotificacion.SOLICITUD_DEVUELTA,
+            EntidadNotificacion.SOLICITUD,
+            solicitud.id,
+        )
         return self.obtener(solicitud.id, usuario)

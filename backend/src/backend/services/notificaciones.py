@@ -9,6 +9,7 @@ from backend.models.enums import EntidadNotificacion, TipoNotificacion
 from backend.models.notificacion import Notificacion
 from backend.models.rol import Rol
 from backend.models.usuario import Usuario
+from backend.services.notificaciones_realtime import gestor_notificaciones_tiempo_real
 
 
 class ErrorNotificacion(Exception):
@@ -66,6 +67,7 @@ class ServicioNotificaciones:
             if existente is None:
                 raise
             return existente
+        gestor_notificaciones_tiempo_real.marcar_cambio(usuario_id)
         return notificacion
 
     def crear_para_rol(
@@ -139,10 +141,12 @@ class ServicioNotificaciones:
             )
         )
         ahora = datetime.now(UTC)
-        hubo_cambios = False
+        afectados: list[int] = []
         for notificacion in pendientes:
             notificacion.resuelta = True
             notificacion.resuelta_en = ahora
-            hubo_cambios = True
-        if hubo_cambios:
+            afectados.append(notificacion.usuario_id)
+        if afectados:
             self.db.commit()
+            for usuario_id in afectados:
+                gestor_notificaciones_tiempo_real.marcar_cambio(usuario_id)
