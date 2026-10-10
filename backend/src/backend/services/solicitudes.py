@@ -15,9 +15,11 @@ from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
     AccionAuditoria,
+    EntidadNotificacion,
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
+    TipoNotificacion,
 )
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
@@ -31,6 +33,7 @@ from backend.services.documentos import (
     TIPOS_MIME_PERMITIDOS,
     AlmacenDocumentos,
 )
+from backend.services.notificaciones import ServicioNotificaciones
 
 
 class ErrorSolicitud(Exception):
@@ -292,6 +295,13 @@ class ServicioSolicitudes:
         )
         solicitud.observaciones_devolucion = observaciones
         self.db.commit()
+        ServicioNotificaciones(self.db).crear(
+            solicitud.solicitante_id,
+            TipoNotificacion.SOLICITUD_DEVUELTA,
+            EntidadNotificacion.SOLICITUD,
+            solicitud.id,
+            f"Su solicitud {solicitud.consecutivo} fue devuelta con observaciones.",
+        )
         return self.obtener_recibida(solicitud_id)
 
     def obtener_contenido_documento_recibido(
@@ -461,4 +471,9 @@ class ServicioSolicitudes:
         solicitud.decidida_por_id = None
         solicitud.fecha_decision = None
         self.db.commit()
+        ServicioNotificaciones(self.db).resolver(
+            TipoNotificacion.SOLICITUD_DEVUELTA,
+            EntidadNotificacion.SOLICITUD,
+            solicitud.id,
+        )
         return self.obtener(solicitud.id, usuario)
