@@ -29,13 +29,11 @@ def _contenido_editado(contenido: dict, texto: str) -> dict:
     return nuevo
 
 
-@pytest.fixture
-def historial_juridico(
-    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
-) -> dict:
-    """Ronda 1: RJ1 devuelve con dos observaciones y el Gestor las corrige.
-    Ronda 2: RJ1 aprueba y RJ2, con otro revisor, devuelve con una observación."""
-    convenio = convenio_listo
+def _devolver_y_corregir_ronda_1(
+    client, db, convenio, gestor, revisor, entrar_como
+) -> None:
+    """RJ1 devuelve con dos observaciones, el Gestor las corrige y reenvía, y
+    el convenio queda esperando la RJ1 de la ronda 2."""
     base = f"/api/convenios/{convenio.id}"
 
     ServicioConvenios(db).finalizar_elaboracion(convenio.id, gestor)
@@ -67,8 +65,19 @@ def historial_juridico(
         },
     ).status_code == 200
     assert client.post(f"{base}/elaboracion/finalizar").status_code == 200
-
     db.refresh(convenio)
+
+
+@pytest.fixture
+def historial_juridico(
+    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
+) -> dict:
+    """Ronda 1: RJ1 devuelve con dos observaciones y el Gestor las corrige.
+    Ronda 2: RJ1 aprueba y RJ2, con otro revisor, devuelve con una observación."""
+    convenio = convenio_listo
+    base = f"/api/convenios/{convenio.id}"
+    _devolver_y_corregir_ronda_1(client, db, convenio, gestor, revisor, entrar_como)
+
     rj1_ronda_2 = _pendiente(db, convenio.id)
     entrar_como(revisor)
     assert client.post(
@@ -209,6 +218,24 @@ def test_administrador_y_gestor_consultan_el_historial(
     revisiones = _revisiones_juridicas(client, historial_juridico["convenio"].id)
 
     assert len(revisiones) == 3
+
+
+def test_revisor_con_revision_juridica_asignada_consulta_las_observaciones_previas(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+) -> None:
+    _devolver_y_corregir_ronda_1(
+        client, db, convenio_listo, gestor, revisor, entrar_como
+    )
+    entrar_como(revisor)
+
+    revisiones = _por_ronda_e_instancia(
+        _revisiones_juridicas(client, convenio_listo.id)
+    )
+
+    ronda_1 = revisiones[(1, 1)]["observaciones"]
+    assert [o["descripcion"] for o in ronda_1] == OBSERVACIONES_RONDA_1
+    assert [o["respuesta"] for o in ronda_1] == CORRECCIONES_RONDA_1
+    assert revisiones[(2, 1)]["resultado"] is None
 
 
 def test_revisor_sin_revision_juridica_asignada_no_consulta_el_historial(
