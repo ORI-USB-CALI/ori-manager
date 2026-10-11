@@ -116,10 +116,11 @@ def test_roles_sin_permiso_no_pueden_sobrescribir_una_evaluacion_existente(
 ):
     entrar_como(crear_usuario(CodigoRol.GESTOR_ORI))
     assert client.post(url(finalizado.id), json=cuerpo()).status_code == 201
+    sin_permiso = crear_usuario(rol, tipo)
     antes_fila = fila(db, finalizado.id)
     antes_conteos = conteos(db)
 
-    entrar_como(crear_usuario(rol, tipo))
+    entrar_como(sin_permiso)
     respuesta = client.post(
         url(finalizado.id),
         json=cuerpo(
