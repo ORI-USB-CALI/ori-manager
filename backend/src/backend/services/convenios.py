@@ -8,11 +8,9 @@ from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from backend.core.roles import CodigoRol
 from backend.models.aliado import Aliado
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
-    AccionAuditoria,
     AlcanceConvenio,
     ContextoVersionConvenio,
     EstadoConvenio,
@@ -49,6 +47,7 @@ from backend.schemas.convenio import (
     ConvenioElaboracionGuardar,
     RevisionContenidoGuardar,
 )
+from backend.services.bitacora import describir_accion
 from backend.services.contenido_convenio import (
     ContenidoConvenioInvalido,
     documento_tiene_texto,
@@ -74,7 +73,6 @@ CODIGOS_ETAPAS_TABLERO = (
     "APROBACION_FIRMAS",
     CODIGO_ETAPA_FIRMA_ARCHIVO_SEGUIMIENTO,
 )
-ENTIDAD_CONVENIO = "convenio"
 
 # Campos del proyecto de convenio que se congelan al entregarlo a Jurídica. No se
 # incluyen datos de etapas posteriores (fecha_firma, porcentaje_avance) ni objetos
@@ -157,15 +155,14 @@ def validar_completitud(convenio: Convenio) -> list[CampoFaltante]:
     return faltantes
 
 
-def _a_texto(valor: object) -> str | None:
-    """Serializa un valor de campo para guardarlo en auditoria (columnas text)."""
-    if valor is None:
-        return None
-    if isinstance(valor, AlcanceConvenio):
-        return valor.value
-    if isinstance(valor, (date, datetime)):
-        return valor.isoformat()
-    return str(valor)
+def _nombre_revision_juridica(revision: RevisionConvenio) -> str:
+    """Nombre con el que la bitácora identifica una revisión jurídica."""
+    if revision.instancia_juridica is None or revision.numero_ronda is None:
+        return "la revisión jurídica"
+    return (
+        f"la revisión jurídica {revision.instancia_juridica} "
+        f"de la ronda {revision.numero_ronda}"
+    )
 
 
 class ErrorConvenio(Exception):
@@ -269,8 +266,6 @@ class ServicioConvenios:
         contenido: dict[str, object],
         usuario: Usuario,
         contexto: ContextoVersionConvenio,
-        *,
-        auditar: bool = True,
     ) -> VersionConvenio:
         try:
             validar_contenido(contenido)
@@ -289,18 +284,6 @@ class ServicioConvenios:
         )
         self.db.add(version)
         convenio.version_actual = version.numero
-        if auditar:
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad=ENTIDAD_CONVENIO,
-                    registro_id=convenio.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="contenido_proyecto",
-                    valor_anterior=f"versión {anterior}" if anterior else None,
-                    valor_nuevo=f"versión {version.numero}",
-                )
-            )
         self.db.flush()
         return version
 
@@ -400,7 +383,6 @@ class ServicioConvenios:
             contenido_inicial,
             usuario,
             ContextoVersionConvenio.INICIALIZACION,
-            auditar=False,
         )
         return convenio
 
@@ -408,6 +390,7 @@ class ServicioConvenios:
         solicitud = self.db.get(SolicitudConvenio, datos.solicitud_id)
         if solicitud is None:
             raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
+        describir_accion(self.db, usuario, "Creó el convenio")
         try:
             convenio = self._crear_en_transaccion(datos, usuario, solicitud)
             self.db.commit()
@@ -447,6 +430,7 @@ class ServicioConvenios:
             objeto=solicitud.objeto or "",
             implicacion_financiera=solicitud.implicacion_financiera,
         )
+        describir_accion(self.db, usuario, "Inició la elaboración del convenio")
         try:
             convenio = self._crear_en_transaccion(datos, usuario, solicitud)
             self.db.commit()
@@ -814,6 +798,9 @@ class ServicioConvenios:
             raise RevisionNoDisponible(
                 "No existe la transición que habilitó la revisión de contraparte"
             )
+        describir_accion(
+            self.db, usuario, "Envió el convenio a revisión de contraparte"
+        )
         revision = RevisionConvenio(
             convenio_id=convenio.id,
             tipo=TipoRevisionConvenio.CONTRAPARTE.value,
@@ -827,15 +814,6 @@ class ServicioConvenios:
         )
         self.db.add(revision)
         try:
-            self.db.flush()
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="revision_convenio",
-                    registro_id=revision.id,
-                    accion=AccionAuditoria.INSERT.value,
-                )
-            )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
@@ -1002,6 +980,9 @@ class ServicioConvenios:
             raise ConfiguracionConvenioInvalida(
                 "No existe la etapa obligatoria REVISION_FINAL"
             )
+        describir_accion(
+            self.db, usuario, "Aprobó el convenio en la revisión de contraparte"
+        )
         ahora = datetime.now(UTC)
         responsable_ori_id = revision.creada_por_id or convenio.creado_por_id
         historial = HistorialEtapa(
@@ -1019,17 +1000,6 @@ class ServicioConvenios:
         revision.resuelta_en = ahora
         revision.version_resultado_id = version.id
         convenio.etapa_actual = etapa_final
-        self.db.add(
-            Auditoria(
-                usuario_id=usuario.id,
-                entidad="revision_convenio",
-                registro_id=revision.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="resultado",
-                valor_anterior=None,
-                valor_nuevo=ResultadoRevisionConvenio.APROBADA.value,
-            )
-        )
         try:
             self.db.flush()
             self.db.add(
@@ -1077,6 +1047,11 @@ class ServicioConvenios:
         )
         if elaboracion is None:
             raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+        describir_accion(
+            self.db,
+            usuario,
+            "Devolvió el convenio con observaciones en la revisión de contraparte",
+        )
         ahora = datetime.now(UTC)
         responsable_ori_id = revision.creada_por_id or convenio.creado_por_id
         historial = HistorialEtapa(
@@ -1109,17 +1084,6 @@ class ServicioConvenios:
             revision.resuelta_en = ahora
             revision.version_resultado_id = version.id
             convenio.etapa_actual = elaboracion
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="revision_convenio",
-                    registro_id=revision.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="resultado",
-                    valor_anterior=None,
-                    valor_nuevo=ResultadoRevisionConvenio.DEVUELTA.value,
-                )
-            )
             self.db.commit()
         except SQLAlchemyError:
             self.db.rollback()
@@ -1385,9 +1349,9 @@ class ServicioConvenios:
         self,
         convenio: Convenio,
         cambios: dict[str, object],
-        usuario: Usuario,
     ) -> bool:
-        """Valida y aplica cambios con auditoría, sin cerrar la transacción."""
+        """Valida y aplica cambios sin cerrar la transacción; la bitácora
+        registra cada campo modificado al guardarse."""
         combinados = {
             "tipo_convenio_id": convenio.tipo_convenio_id,
             "alcance": convenio.alcance,
@@ -1404,17 +1368,6 @@ class ServicioConvenios:
                 continue
             cambio_realizado = True
             setattr(convenio, campo, nuevo)
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad=ENTIDAD_CONVENIO,
-                    registro_id=convenio.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo=campo,
-                    valor_anterior=_a_texto(anterior),
-                    valor_nuevo=_a_texto(nuevo),
-                )
-            )
         return cambio_realizado
 
     def guardar_elaboracion(
@@ -1450,7 +1403,10 @@ class ServicioConvenios:
         cambios_metadata = datos.model_dump(
             exclude={"contenido", "expected_version"}, exclude_unset=True
         )
-        cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata, usuario)
+        describir_accion(
+            self.db, usuario, "Guardó cambios en la elaboración del convenio"
+        )
+        cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata)
         cambio_contenido = actual is None or actual.contenido != datos.contenido
         if not cambio_metadata and not cambio_contenido:
             self.db.rollback()
@@ -1482,9 +1438,8 @@ class ServicioConvenios:
             raise ConvenioNoEditable(
                 "Solo se puede editar un convenio en etapa de Elaboración"
             )
-        self._aplicar_cambios(
-            convenio, datos.model_dump(exclude_unset=True), usuario
-        )
+        describir_accion(self.db, usuario, "Editó los datos del convenio")
+        self._aplicar_cambios(convenio, datos.model_dump(exclude_unset=True))
         try:
             self.db.commit()
         except IntegrityError as exc:
@@ -1544,8 +1499,13 @@ class ServicioConvenios:
             if datos is not None
             else {}
         )
+        describir_accion(
+            self.db,
+            usuario,
+            "Finalizó la elaboración y envió el convenio a revisión jurídica",
+        )
         try:
-            cambio_metadata = self._aplicar_cambios(convenio, cambios, usuario)
+            cambio_metadata = self._aplicar_cambios(convenio, cambios)
         except ErrorConvenio:
             self.db.rollback()
             raise
@@ -1794,6 +1754,11 @@ class ServicioConvenios:
         if actual.contenido == datos.contenido:
             self.db.commit()
             return actual
+        describir_accion(
+            self.db,
+            usuario,
+            "Corrigió el contenido del convenio durante la revisión jurídica",
+        )
         try:
             version = self._crear_version(
                 convenio,
@@ -1824,6 +1789,11 @@ class ServicioConvenios:
             raise RevisionNoDisponible(
                 "La revisión no tiene una transición de etapa asociada"
             )
+        describir_accion(
+            self.db,
+            usuario,
+            f"Registró una observación en {_nombre_revision_juridica(revision)}",
+        )
         observacion = ObservacionRevision(
             convenio_id=convenio.id,
             historial_etapa_id=revision.historial_etapa_id,
@@ -1905,22 +1875,14 @@ class ServicioConvenios:
                 )
         else:
             etapa_destino = None
+        describir_accion(
+            self.db, usuario, f"Aprobó {_nombre_revision_juridica(revision)}"
+        )
         revision.estado = EstadoRevisionConvenio.RESUELTA.value
         revision.resultado = ResultadoRevisionConvenio.APROBADA.value
         revision.resuelta_por_id = usuario.id
         revision.resuelta_en = datetime.now(UTC)
         revision.version_resultado_id = version_actual.id
-        self.db.add(
-            Auditoria(
-                usuario_id=usuario.id,
-                entidad="revision_convenio",
-                registro_id=revision.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="resultado",
-                valor_anterior=None,
-                valor_nuevo=ResultadoRevisionConvenio.APROBADA.value,
-            )
-        )
         try:
             self.db.flush()
             if revision.instancia_juridica == 1:
@@ -2006,6 +1968,9 @@ class ServicioConvenios:
         if observacion.estado != EstadoObservacionRevision.PENDIENTE.value:
             raise ObservacionNoDisponible("La observación ya fue atendida")
 
+        describir_accion(
+            self.db, usuario, "Atendió una observación y registró la corrección"
+        )
         observacion.respuesta = texto
         observacion.atendida_por = usuario
         observacion.fecha_atencion = datetime.now(UTC)
@@ -2045,6 +2010,11 @@ class ServicioConvenios:
         )
         if elaboracion is None:
             raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+        describir_accion(
+            self.db,
+            usuario,
+            f"Devolvió {_nombre_revision_juridica(revision)} con observaciones",
+        )
         historial = HistorialEtapa(
             convenio_id=convenio.id,
             etapa_origen_id=convenio.etapa_actual_id,
@@ -2072,17 +2042,6 @@ class ServicioConvenios:
             revision.resuelta_por_id = usuario.id
             revision.resuelta_en = datetime.now(UTC)
             revision.version_resultado_id = version_actual.id
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="revision_convenio",
-                    registro_id=revision.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="resultado",
-                    valor_anterior=None,
-                    valor_nuevo=ResultadoRevisionConvenio.DEVUELTA.value,
-                )
-            )
             convenio.etapa_actual = elaboracion
             self.db.commit()
         except SQLAlchemyError:
