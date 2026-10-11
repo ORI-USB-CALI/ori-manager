@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
+import { ObservacionesJuridicas } from '../components/ObservacionesJuridicas'
 import type { HistorialConvenio, RevisionConvenioTrazabilidad } from './epica02'
 
 const ETIQUETA_TIPO_REVISION: Record<string, string> = {
@@ -63,6 +64,8 @@ export function ConvenioHistorialPage() {
           Convenio #{id} · <Link to={`/convenios/${id}`}>Volver al convenio</Link>
         </p>
       </section>
+
+      <ObservacionesJuridicas revisiones={revisiones} />
 
       <section className="card">
         <h2>Cambios de etapa</h2>
