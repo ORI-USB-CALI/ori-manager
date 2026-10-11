@@ -1739,7 +1739,7 @@ def _vincular_padre_renovacion(db, escenario, crear_convenio, estado):
 
 @pytest.mark.parametrize(
     "estado_padre",
-    [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER, EstadoConvenio.VENCIDO],
+    [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER, EstadoConvenio.VENCIDO, EstadoConvenio.FINALIZADO],
 )
 def test_formalizar_renovacion_actualiza_padre_inmediato(
     client, db, escenario_final, crear_convenio, estado_padre
@@ -1834,7 +1834,7 @@ def test_formalizar_renovacion_con_padre_ya_renovado_no_duplica_efectos(
 
 @pytest.mark.parametrize(
     "estado_padre",
-    [EstadoConvenio.CANCELADO, EstadoConvenio.FINALIZADO, EstadoConvenio.EN_TRAMITE],
+    [EstadoConvenio.CANCELADO, EstadoConvenio.EN_TRAMITE],
 )
 def test_formalizar_renovacion_rechaza_estado_inesperado_del_padre(
     client, db, escenario_final, crear_convenio, estado_padre
@@ -1851,11 +1851,12 @@ def test_formalizar_renovacion_rechaza_estado_inesperado_del_padre(
     assert db.scalar(select(func.count()).select_from(HistorialEtapa)) == historial_antes
 
 
+@pytest.mark.parametrize("estado_padre", [EstadoConvenio.VIGENTE, EstadoConvenio.FINALIZADO])
 def test_formalizar_renovacion_cancelada_no_modifica_padre(
-    client, db, escenario_final, crear_convenio
+    client, db, escenario_final, crear_convenio, estado_padre
 ):
     padre = _vincular_padre_renovacion(
-        db, escenario_final, crear_convenio, EstadoConvenio.VIGENTE
+        db, escenario_final, crear_convenio, estado_padre
     )
     _proceso_listo_para_formalizar(client, db, escenario_final)
     hijo = escenario_final["convenio"]
@@ -1867,16 +1868,17 @@ def test_formalizar_renovacion_cancelada_no_modifica_padre(
 
     db.expire_all()
     assert hijo.estado == EstadoConvenio.CANCELADO.value
-    assert padre.estado == EstadoConvenio.VIGENTE.value
+    assert padre.estado == estado_padre.value
     assert padre.actualizado_en == timestamp_padre
 
 
 @pytest.mark.parametrize("tipo_error", [ErrorAliado, SQLAlchemyError, RuntimeError])
+@pytest.mark.parametrize("estado_padre", [EstadoConvenio.VENCIDO, EstadoConvenio.FINALIZADO])
 def test_formalizar_renovacion_revierte_ambos_estados_tras_fallo(
-    client, db, escenario_final, crear_convenio, monkeypatch, tipo_error
+    client, db, escenario_final, crear_convenio, monkeypatch, tipo_error, estado_padre
 ):
     padre = _vincular_padre_renovacion(
-        db, escenario_final, crear_convenio, EstadoConvenio.VENCIDO
+        db, escenario_final, crear_convenio, estado_padre
     )
     datos_proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
     hijo = escenario_final["convenio"]
@@ -1900,7 +1902,7 @@ def test_formalizar_renovacion_revierte_ambos_estados_tras_fallo(
     assert hijo.estado == EstadoConvenio.EN_TRAMITE.value
     assert hijo.fecha_firma is None
     assert hijo.etapa_actual.codigo == "APROBACION_FIRMAS"
-    assert padre.estado == EstadoConvenio.VENCIDO.value
+    assert padre.estado == estado_padre.value
     assert padre.actualizado_en == padre_timestamp
     proceso = db.get(ProcesoFirmasConvenio, datos_proceso["id"])
     assert proceso.estado == EstadoProcesoFirmasConvenio.EN_CURSO.value

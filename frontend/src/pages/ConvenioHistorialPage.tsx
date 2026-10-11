@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
 import { ObservacionesJuridicas } from '../components/ObservacionesJuridicas'
 import type { HistorialConvenio, RevisionConvenioTrazabilidad } from './epica02'
 
@@ -208,6 +209,8 @@ export function ConvenioHistorialPage() {
           )
         })}
       </section>
+
+      <EvaluacionConvenio convenioId={id} />
     </>
   )
 }
