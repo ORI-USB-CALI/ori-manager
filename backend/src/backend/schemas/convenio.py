@@ -620,3 +620,59 @@ class ConfigurarFirmaConvenio(BaseModel):
         if not normalizado:
             raise ValueError("El campo debe tener contenido")
         return normalizado
+
+
+# ---- HU-26: contrato de consulta compartido con HU-27 y HU-28 -------------
+# Este contrato (filtros + ConvenioConsultaItem/Listado) queda fijado para que
+# HU-27 y HU-28 solo le agreguen campos, sin reescribirlo.
+
+
+class EtapaConsultaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    codigo: str
+    nombre: str
+
+
+class TipoConvenioConsultaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+
+
+class ProgramaConsultaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+
+
+class ContraparteConsultaLeer(BaseModel):
+    """Contraparte del convenio: del Aliado formal si ya existe (CA-02), o de
+    los campos *_aliado_propuesto de la solicitud de origen mientras el
+    convenio está en trámite y aún no tiene aliado_id."""
+
+    nombre: str | None
+    tipo: str | None
+    identificacion: str | None
+    es_aliado_formal: bool
+
+
+class ConvenioConsultaItem(BaseModel):
+    id: int
+    codigo: str | None
+    objeto: str | None
+    estado: EstadoConvenio
+    etapa: EtapaConsultaResumen | None
+    tipo_convenio: TipoConvenioConsultaResumen | None
+    contraparte: ContraparteConsultaLeer
+    programa: ProgramaConsultaResumen | None
+    fecha_inicio: date | None
+    fecha_vencimiento: date | None
+    fecha_formalizacion: date | None
+
+
+class ConvenioConsultaListado(BaseModel):
+    items: list[ConvenioConsultaItem]
+    total: int
