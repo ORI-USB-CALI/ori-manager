@@ -49,6 +49,9 @@ class Auditoria(Base):
     campo: Mapped[str | None] = mapped_column(String(80), nullable=True)
     valor_anterior: Mapped[str | None] = mapped_column(Text, nullable=True)
     valor_nuevo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Acción de negocio que originó el cambio ("Aprobó la revisión jurídica 1 de
+    # la ronda 2"). Es nula en los cambios que no la declaran.
+    contexto: Mapped[str | None] = mapped_column(Text, nullable=True)
     direccion_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     fecha_hora: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
