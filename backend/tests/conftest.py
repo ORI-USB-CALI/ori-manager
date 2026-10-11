@@ -13,7 +13,12 @@ from backend.core.security import generar_token_sesion, hash_contrasena
 from backend.db.session import get_db
 from backend.main import app
 from backend.models.convenio import Convenio
-from backend.models.enums import AlcanceConvenio, EstadoSolicitud, TipoSolicitante
+from backend.models.enums import (
+    AlcanceConvenio,
+    EstadoConvenio,
+    EstadoSolicitud,
+    TipoSolicitante,
+)
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
@@ -203,3 +208,30 @@ def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
         fecha_inicio=date(2026, 1, 1),
         fecha_vencimiento=date(2028, 1, 1),
     )
+
+
+# ---- Fixture compartida de HU-32 (evaluación) -----------------------------
+
+
+@pytest.fixture
+def crear_convenio_finalizado(db: Session, crear_convenio) -> Callable[..., Convenio]:
+    """Convenio en estado FINALIZADO, el único evaluable hoy.
+
+    El estado se fuerza en lugar de pasar por la conciliación de
+    services/ciclo_vida_convenios.py: estas pruebas verifican las reglas de
+    evaluación, no cómo se llega a FINALIZADO, que tiene sus propias pruebas.
+    Forzarlo mantiene cada caso independiente de fechas de vencimiento.
+    """
+
+    def _crear(autor: Usuario, **cambios) -> Convenio:
+        convenio = crear_convenio(autor, **cambios)
+        convenio.estado = EstadoConvenio.FINALIZADO.value
+        db.commit()
+        return convenio
+
+    return _crear
+
+
+@pytest.fixture
+def convenio_finalizado(gestor, crear_convenio_finalizado) -> Convenio:
+    return crear_convenio_finalizado(gestor)

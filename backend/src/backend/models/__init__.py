@@ -5,6 +5,7 @@ from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.documento import Documento
 from backend.models.etapa import Etapa
+from backend.models.evaluacion_convenio import EvaluacionConvenio
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.invitacion_firma_convenio import InvitacionFirmaConvenio
@@ -34,6 +35,7 @@ __all__ = [
     "DecisionNoRenovacion",
     "Documento",
     "Etapa",
+    "EvaluacionConvenio",
     "FirmaConvenio",
     "HistorialEtapa",
     "InvitacionFirmaConvenio",
