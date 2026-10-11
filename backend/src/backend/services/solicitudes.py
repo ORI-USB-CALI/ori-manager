@@ -5,7 +5,7 @@ from pathlib import Path
 from secrets import token_hex
 
 from sqlalchemy import exists, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
@@ -15,9 +15,11 @@ from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
     AccionAuditoria,
+    EntidadNotificacion,
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
+    TipoNotificacion,
 )
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
@@ -31,6 +33,7 @@ from backend.services.documentos import (
     TIPOS_MIME_PERMITIDOS,
     AlmacenDocumentos,
 )
+from backend.services.notificaciones import ServicioNotificaciones
 
 
 class ErrorSolicitud(Exception):
@@ -279,19 +282,32 @@ class ServicioSolicitudes:
         self, solicitud_id: int, observaciones: str, actor: Usuario
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.DEVUELTA)
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="observaciones_devolucion",
-                valor_anterior=solicitud.observaciones_devolucion,
-                valor_nuevo=observaciones,
+        notificaciones = ServicioNotificaciones(self.db)
+        try:
+            self.db.add(
+                Auditoria(
+                    usuario_id=actor.id,
+                    entidad="solicitud",
+                    registro_id=solicitud.id,
+                    accion=AccionAuditoria.UPDATE.value,
+                    campo="observaciones_devolucion",
+                    valor_anterior=solicitud.observaciones_devolucion,
+                    valor_nuevo=observaciones,
+                )
             )
-        )
-        solicitud.observaciones_devolucion = observaciones
-        self.db.commit()
+            solicitud.observaciones_devolucion = observaciones
+            notificaciones.crear(
+                solicitud.solicitante_id,
+                TipoNotificacion.SOLICITUD_DEVUELTA,
+                EntidadNotificacion.SOLICITUD,
+                solicitud.id,
+                f"Su solicitud {solicitud.consecutivo} fue devuelta con observaciones.",
+            )
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        notificaciones.avisar_tiempo_real()
         return self.obtener_recibida(solicitud_id)
 
     def obtener_contenido_documento_recibido(
@@ -460,5 +476,16 @@ class ServicioSolicitudes:
         solicitud.fecha_recibido_ori = instante
         solicitud.decidida_por_id = None
         solicitud.fecha_decision = None
-        self.db.commit()
+        notificaciones = ServicioNotificaciones(self.db)
+        try:
+            notificaciones.resolver(
+                TipoNotificacion.SOLICITUD_DEVUELTA,
+                EntidadNotificacion.SOLICITUD,
+                solicitud.id,
+            )
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        notificaciones.avisar_tiempo_real()
         return self.obtener(solicitud.id, usuario)

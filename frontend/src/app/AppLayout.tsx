@@ -4,7 +4,13 @@ import { Link, Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useSesion } from '../auth/sesion'
 import { AlertasVencimiento } from '../components/AlertasVencimiento'
 import { BandejaNotificaciones } from '../components/BandejaNotificaciones'
+import { CentroNotificaciones } from '../components/CentroNotificaciones'
 import { useAlertasVencimiento } from '../pages/alertasVencimiento'
+import {
+  contarPendientes,
+  useNotificaciones,
+  useNotificacionesTiempoReal,
+} from '../pages/notificaciones'
 import { apiFetch } from './api'
 
 export function AppLayout() {
@@ -13,6 +19,9 @@ export function AppLayout() {
   const navigate = useNavigate()
   const puedeVerAlertasVencimiento = puede('convenios.ver_alertas_vencimiento')
   const alertasVencimiento = useAlertasVencimiento(puedeVerAlertasVencimiento)
+  const notificaciones = useNotificaciones(Boolean(sesion))
+  const notificacionesPendientes = contarPendientes(notificaciones.data)
+  useNotificacionesTiempoReal(Boolean(sesion))
   const logout = useMutation({
     mutationFn: () => apiFetch('/auth/logout', { method: 'POST' }),
     onSuccess: () => {
@@ -55,8 +64,22 @@ export function AppLayout() {
         </nav>
 
         <div className="user-profile">
+          <BandejaNotificaciones
+            nombre="Notificaciones de tareas pendientes"
+            contador={notificacionesPendientes}
+            onAbrir={() => {
+              void notificaciones.refetch()
+            }}
+          >
+            <CentroNotificaciones
+              notificaciones={notificaciones.data}
+              cargando={notificaciones.isPending}
+              error={notificaciones.isError}
+            />
+          </BandejaNotificaciones>
           {puedeVerAlertasVencimiento && (
             <BandejaNotificaciones
+              nombre="Alertas de vencimiento"
               contador={alertasVencimiento.data?.length ?? 0}
               onAbrir={() => {
                 void alertasVencimiento.refetch()
