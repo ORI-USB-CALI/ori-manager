@@ -129,6 +129,9 @@ export function EvaluacionConvenio({ convenioId, permitirRegistro = false }: Pro
 
   if (!puedeVer || !Number.isInteger(convenioId) || convenioId <= 0) return null
   if (consulta.isPending) return <p className="estado-pagina">Cargando evaluación del convenio…</p>
+  // El historial también lo consulta quien ya no tiene acceso operativo al
+  // convenio (HU-21): para esa persona no hay evaluación que mostrar.
+  if (consulta.error instanceof ApiError && consulta.error.status === 404) return null
   if (consulta.isError || !consulta.data) {
     return (
       <p className="alert-error" role="alert">
