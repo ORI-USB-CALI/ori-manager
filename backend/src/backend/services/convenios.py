@@ -1,4 +1,6 @@
+from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
@@ -220,6 +222,24 @@ class ElaboracionIncompleta(ErrorConvenio):
 
 class ConfiguracionConvenioInvalida(RuntimeError):
     pass
+
+
+# HU-26: contrato de filtros compartido con HU-27 (fechas) y HU-28 (avanzados).
+# Cada historia agrega sus propios campos al final, con valor por defecto
+# None, sin modificar los existentes — así las tres ramas tocan bloques
+# distintos de ServicioConvenios.consultar() y se reducen los conflictos.
+@dataclass(frozen=True)
+class FiltrosConsultaConvenio:
+    buscar: str | None = None
+    limite: int = 20
+    desplazamiento: int = 0
+
+
+# Traduce %, _ y \ a su forma escapada para ilike(..., escape="\\"), de modo
+# que un término como "100%" se busque literal y no como comodín.
+_CARACTERES_ILIKE = str.maketrans(
+    {"\\": "\\\\", "%": "\\%", "_": "\\_"}
+)
 
 
 class ServicioConvenios:
@@ -738,6 +758,65 @@ class ServicioConvenios:
                 (convenio, responsable_operativo, bool(puede_ver_detalle))
             )
         return etapas, resultado
+
+    @staticmethod
+    def _aplicar_busqueda(buscar: str | None) -> list:
+        """HU-26 BE-3. Condiciones de coincidencia parcial, insensible a
+        mayúsculas, por código, objeto, aliado (formal o propuesto) y tipo de
+        convenio. Devuelve lista vacía si no hay término (no agrega condición)."""
+        if not buscar or not buscar.strip():
+            return []
+        termino = buscar.strip().translate(_CARACTERES_ILIKE)
+        patron = f"%{termino}%"
+        return [
+            or_(
+                Convenio.codigo.ilike(patron, escape="\\"),
+                Convenio.objeto.ilike(patron, escape="\\"),
+                Aliado.nombre.ilike(patron, escape="\\"),
+                Aliado.identificacion.ilike(patron, escape="\\"),
+                SolicitudConvenio.nombre_aliado_propuesto.ilike(patron, escape="\\"),
+                SolicitudConvenio.identificacion_aliado_propuesto.ilike(
+                    patron, escape="\\"
+                ),
+                TipoConvenio.nombre.ilike(patron, escape="\\"),
+            )
+        ]
+
+    def consultar(
+        self, usuario: Usuario, filtros: FiltrosConsultaConvenio
+    ) -> tuple[Sequence[Convenio], int]:
+        """HU-26 BE-2/BE-4. Búsqueda global de convenios dentro del alcance
+        operativo del rol autenticado (misma regla que el tablero y el
+        detalle: self._filtro_alcance_operativo, no se reescribe aquí)."""
+        condiciones = [
+            self._filtro_alcance_operativo(usuario),
+            *self._aplicar_busqueda(filtros.buscar),
+        ]
+        base = (
+            select(Convenio)
+            .outerjoin(Convenio.aliado)
+            .outerjoin(Convenio.solicitud)
+            .outerjoin(Convenio.tipo_convenio)
+            .outerjoin(Convenio.etapa_actual)
+            .outerjoin(Convenio.unidad_organizacional)
+            .where(*condiciones)
+        )
+        total = self.db.scalar(
+            select(func.count()).select_from(base.subquery())
+        ) or 0
+        items = self.db.scalars(
+            base.options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.unidad_organizacional),
+            )
+            .order_by(Convenio.actualizado_en.desc(), Convenio.id.desc())
+            .limit(filtros.limite)
+            .offset(filtros.desplazamiento)
+        ).all()
+        return items, total
 
     @staticmethod
     def _destinatarios_contraparte(
