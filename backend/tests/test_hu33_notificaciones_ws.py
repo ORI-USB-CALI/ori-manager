@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
@@ -74,6 +76,71 @@ def test_ws_se_cierra_si_la_sesion_se_invalida_a_mitad_de_conexion(
         websocket.receive_text()
 
     assert exc_info.value.code == 1008
+
+
+def test_ws_desconexion_sin_notificaciones_termina_limpio(client, gestor, monkeypatch):
+    """Segunda revisión de code review, punto 1: antes, una desconexión sin
+    que mediara ninguna notificación podía dejar la tarea del servidor
+    colgada hasta el próximo intento de envío (que podía no llegar nunca).
+    Ahora debe cerrar limpio, sin necesidad de ningún evento.
+    """
+    monkeypatch.setattr(notificaciones_router, "INTERVALO_SONDEO_SEGUNDOS", 0.05)
+    ticket = _pedir_ticket(client)
+
+    inicio = time.monotonic()
+    with client.websocket_connect(f"/api/notificaciones/ws?ticket={ticket}"):
+        pass
+    duracion = time.monotonic() - inicio
+
+    assert duracion < 2
+
+
+def test_ws_detecta_desconexion_durante_la_espera_sin_agotar_el_intervalo(
+    client, gestor, monkeypatch
+):
+    """Con un intervalo de sondeo largo, si la desconexión se nota recién
+    al agotarlo, la prueba tardaría ese intervalo completo. Debe cerrar
+    mucho antes, porque la vigilancia corre en paralelo al sondeo.
+    """
+    monkeypatch.setattr(notificaciones_router, "INTERVALO_SONDEO_SEGUNDOS", 10)
+    ticket = _pedir_ticket(client)
+
+    inicio = time.monotonic()
+    with client.websocket_connect(f"/api/notificaciones/ws?ticket={ticket}"):
+        pass
+    duracion = time.monotonic() - inicio
+
+    assert duracion < 2
+
+
+def test_reconexion_no_duplica_eventos(client, db, gestor, monkeypatch):
+    """Segunda revisión de code review, punto 1: una reconexión no debe
+    dejar tareas de la conexión anterior entregando eventos por duplicado.
+    """
+    monkeypatch.setattr(notificaciones_router, "INTERVALO_SONDEO_SEGUNDOS", 0.05)
+
+    primer_ticket = _pedir_ticket(client)
+    with client.websocket_connect(f"/api/notificaciones/ws?ticket={primer_ticket}"):
+        pass  # se desconecta de inmediato, como una recarga de página
+
+    segundo_ticket = _pedir_ticket(client)
+    with client.websocket_connect(
+        f"/api/notificaciones/ws?ticket={segundo_ticket}"
+    ) as websocket:
+        servicio = ServicioNotificaciones(db)
+        servicio.crear(
+            gestor.id,
+            TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            4,
+            "Tiene una revisión jurídica pendiente",
+        )
+        servicio.avisar_tiempo_real()
+
+        mensaje = websocket.receive_json()
+        websocket.close()
+
+    assert mensaje == {"evento": "notificaciones_actualizadas"}
 
 
 def test_ws_avisa_cuando_se_crea_una_notificacion(client, db, gestor, monkeypatch):

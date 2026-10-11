@@ -87,12 +87,15 @@ export function CentroNotificaciones({
                 <article
                   className={`centro-notificacion centro-notificacion-${configuracion.variante}${
                     notificacion.leida ? '' : ' centro-notificacion-no-leida'
-                  }`}
+                  }${notificacion.resuelta ? ' centro-notificacion-atendida' : ''}`}
                 >
                   <div className="centro-notificacion-nivel">
                     <span className={`badge badge-${configuracion.variante}`}>
                       {configuracion.etiqueta}
                     </span>
+                    {notificacion.resuelta && (
+                      <span className="badge badge-neutral">Atendida</span>
+                    )}
                     <time dateTime={notificacion.creado_en}>
                       {formatearFecha(notificacion.creado_en)}
                     </time>

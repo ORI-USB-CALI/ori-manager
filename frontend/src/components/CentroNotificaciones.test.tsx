@@ -68,6 +68,19 @@ function renderizar(props: Partial<ComponentProps<typeof CentroNotificaciones>> 
   )
 }
 
+const notifResueltaNoLeida: Notificacion = {
+  id: 4,
+  tipo: 'DEVOLUCION_REVISION',
+  entidad_tipo: 'CONVENIO',
+  entidad_id: 40,
+  mensaje: 'La revisión jurídica devolvió el convenio CON-40.',
+  leida: false,
+  leida_en: null,
+  resuelta: true,
+  resuelta_en: '2026-10-07T14:00:00Z',
+  creado_en: '2026-10-07T09:00:00Z',
+}
+
 describe('CentroNotificaciones', () => {
   it('muestra el estado de carga', () => {
     renderizar({ cargando: true })
@@ -171,6 +184,33 @@ describe('CentroNotificaciones', () => {
     await usuario.click(screen.getByRole('link', { name: 'Ver' }))
 
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('una notificación resuelta muestra la etiqueta "Atendida"', () => {
+    renderizar({ notificaciones: [notifSolicitudResuelta] })
+    const item = screen.getByText(notifSolicitudResuelta.mensaje).closest('li')!
+    expect(within(item).getByText('Atendida')).toBeTruthy()
+  })
+
+  it('una notificación pendiente no muestra "Atendida"', () => {
+    renderizar({ notificaciones: [notifJuridica] })
+    const item = screen.getByText(notifJuridica.mensaje).closest('li')!
+    expect(within(item).queryByText('Atendida')).toBeNull()
+  })
+
+  it('"Atendida" y "leída" son conceptos independientes: una resuelta sin leer sigue ofreciendo marcarla como leída', () => {
+    renderizar({ notificaciones: [notifResueltaNoLeida] })
+    const item = screen.getByText(notifResueltaNoLeida.mensaje).closest('li')!
+    expect(within(item).getByText('Atendida')).toBeTruthy()
+    expect(
+      within(item).getByRole('button', { name: 'Marcar como leída' }),
+    ).toBeTruthy()
+  })
+
+  it('una notificación leída pero no resuelta no muestra "Atendida"', () => {
+    renderizar({ notificaciones: [notifContraparteLeida] })
+    const item = screen.getByText(notifContraparteLeida.mensaje).closest('li')!
+    expect(within(item).queryByText('Atendida')).toBeNull()
   })
 })
 

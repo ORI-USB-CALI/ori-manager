@@ -65,6 +65,7 @@ export function AppLayout() {
 
         <div className="user-profile">
           <BandejaNotificaciones
+            nombre="Notificaciones de tareas pendientes"
             contador={notificacionesPendientes}
             onAbrir={() => {
               void notificaciones.refetch()
@@ -78,6 +79,7 @@ export function AppLayout() {
           </BandejaNotificaciones>
           {puedeVerAlertasVencimiento && (
             <BandejaNotificaciones
+              nombre="Alertas de vencimiento"
               contador={alertasVencimiento.data?.length ?? 0}
               onAbrir={() => {
                 void alertasVencimiento.refetch()

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from typing import Annotated
 
 from fastapi import (
@@ -99,6 +100,26 @@ def _sesion_valida(sesiones: RepositorioSesiones, token: str) -> bool:
     return sesiones.obtener_por_token(token) is not None
 
 
+async def _vigilar_desconexion(websocket: WebSocket) -> None:
+    """Segunda revisión de code review, punto 1: el bucle principal solo
+    dormía y sondeaba, nunca leía del socket, así que una desconexión
+    normal del navegador no se detectaba hasta el próximo intento de
+    enviar un mensaje (que podía tardar sondeos enteros, o no llegar
+    nunca si no había notificaciones). Esta tarea corre en paralelo
+    bloqueada en `receive()`, que es la única llamada que de verdad nota
+    el cierre del socket en el momento en que ocurre.
+
+    `receive()` de Starlette no lanza excepción al desconectar: devuelve
+    un mensaje con type "websocket.disconnect". No se espera que el
+    cliente mande texto por este canal, pero si llegara algo se descarta
+    y se sigue esperando.
+    """
+    while True:
+        mensaje = await websocket.receive()
+        if mensaje["type"] == "websocket.disconnect":
+            return
+
+
 @router.websocket("/ws")
 async def notificaciones_tiempo_real(
     websocket: WebSocket,
@@ -137,18 +158,41 @@ async def notificaciones_tiempo_real(
     await websocket.accept()
     vista = gestor.version_actual(usuario_id)
     sondeos_desde_revalidacion = 0
+    tarea_desconexion = asyncio.create_task(_vigilar_desconexion(websocket))
     try:
-        while True:
-            await asyncio.sleep(INTERVALO_SONDEO_SEGUNDOS)
+        while not tarea_desconexion.done():
+            tarea_sondeo = asyncio.create_task(asyncio.sleep(INTERVALO_SONDEO_SEGUNDOS))
+            try:
+                await asyncio.wait(
+                    {tarea_desconexion, tarea_sondeo},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                if not tarea_sondeo.done():
+                    tarea_sondeo.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await tarea_sondeo
+
+            if tarea_desconexion.done():
+                break
+
             sondeos_desde_revalidacion += 1
             if sondeos_desde_revalidacion >= SONDEOS_POR_REVALIDACION:
                 sondeos_desde_revalidacion = 0
                 if not _sesion_valida(sesiones, token_sesion):
                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                    return
+                    break
             actual = gestor.version_actual(usuario_id)
             if actual != vista:
                 vista = actual
                 await websocket.send_json({"evento": "notificaciones_actualizadas"})
     except WebSocketDisconnect:
         pass
+    finally:
+        # Nunca dejar la tarea de vigilancia huérfana: si salimos del bucle
+        # por cualquier otro motivo (sesión inválida, error), se cancela
+        # aquí en vez de quedar esperando un receive() que ya no importa.
+        if not tarea_desconexion.done():
+            tarea_desconexion.cancel()
+        with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect):
+            await tarea_desconexion
