@@ -10,11 +10,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from backend.models.aliado import Aliado
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.enums import (
-    AccionAuditoria,
     EstadoConvenio,
     EstadoSeguimientoRenovacion,
     EstadoSolicitud,
@@ -24,6 +22,7 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import ConvenioCrear
+from backend.services.bitacora import describir_accion
 from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEditable,
@@ -330,21 +329,13 @@ class ServicioRenovaciones:
                 EstadoSeguimientoRenovacion.PENDIENTE_DE_DECISION
             ):
                 raise ConvenioNoEditable("El convenio no está pendiente de decisión de renovación")
+            describir_accion(self.db, usuario, "Decidió no renovar el convenio")
             decision = DecisionNoRenovacion(
                 convenio_id=origen.id,
                 fecha_vencimiento_origen=origen.fecha_vencimiento,
                 decidida_por_id=usuario.id,
             )
             self.db.add(decision)
-            self.db.flush()
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="decision_no_renovacion",
-                    registro_id=decision.id,
-                    accion=AccionAuditoria.INSERT.value,
-                )
-            )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
