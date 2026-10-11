@@ -1,7 +1,7 @@
 """HU-18 bitacora de auditoria: rol, indice por entidad y fecha, inmutabilidad
 
 Revision ID: b18a4d2c9e71
-Revises: f3a1c8e4d2b7
+Revises: 659e4e87e5ce
 """
 from collections.abc import Sequence
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b18a4d2c9e71"
-down_revision: str | Sequence[str] | None = "f3a1c8e4d2b7"
+down_revision: str | Sequence[str] | None = "659e4e87e5ce"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
