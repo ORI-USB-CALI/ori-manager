@@ -580,6 +580,52 @@ class ServicioConvenios:
         if visible is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
 
+    @staticmethod
+    def _filtro_participacion_juridica(usuario: Usuario):
+        """Evidencia persistida de que el usuario participó en una revisión
+        jurídica del convenio: la resolvió, le fue asignada o registró en ella
+        observaciones. `creada_por_id` no cuenta, porque puede corresponder al
+        Gestor que originó la revisión."""
+        revision = aliased(RevisionConvenio)
+        observacion = aliased(ObservacionRevision)
+        participo_en_revision = exists(
+            select(revision.id).where(
+                revision.convenio_id == Convenio.id,
+                revision.tipo == TipoRevisionConvenio.JURIDICA.value,
+                or_(
+                    revision.resuelta_por_id == usuario.id,
+                    revision.responsable_id == usuario.id,
+                ),
+            )
+        ).correlate(Convenio)
+        registro_observaciones = exists(
+            select(observacion.id)
+            .join(revision, revision.id == observacion.revision_convenio_id)
+            .where(
+                observacion.convenio_id == Convenio.id,
+                observacion.registrada_por_id == usuario.id,
+                revision.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+        ).correlate(Convenio)
+        return or_(participo_en_revision, registro_observaciones)
+
+    def verificar_acceso_historial(
+        self, convenio_id: int, usuario: Usuario
+    ) -> None:
+        """HU-21: autorización de solo lectura del historial, separada del
+        alcance operativo. El Revisor ORI conserva la consulta de los convenios
+        en cuya revisión jurídica participó, aunque su revisión ya esté cerrada
+        o el convenio haya cambiado de etapa; eso no le habilita ninguna acción
+        operativa sobre el convenio."""
+        alcance = self._filtro_alcance_operativo(usuario)
+        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
+            alcance = or_(alcance, self._filtro_participacion_juridica(usuario))
+        visible = self.db.scalar(
+            select(Convenio.id).where(Convenio.id == convenio_id, alcance)
+        )
+        if visible is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+
     def listar_revisiones_juridicas_pendientes(
         self, usuario: Usuario
     ) -> list[RevisionConvenio]:
