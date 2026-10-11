@@ -56,6 +56,11 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.evaluacion import (
+    EstadoEvaluacionLeer,
+    EvaluacionConvenioCrear,
+    EvaluacionConvenioLeer,
+)
 from backend.schemas.renovacion import (
     DecisionNoRenovacionLeer,
     RenovacionIniciadaLeer,
@@ -88,6 +93,11 @@ from backend.services.documentos import (
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
+)
+from backend.services.evaluaciones import (
+    ConvenioNoEvaluable,
+    ServicioEvaluaciones,
+    es_evaluable,
 )
 from backend.services.firma_electronica import (
     EntregaInvitacionesFirmaError,
@@ -123,6 +133,7 @@ PuedeRevisarContrapartePropia = Annotated[
 PuedeGestionarFirmas = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)
 ]
+PuedeEvaluar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EVALUAR)]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -143,6 +154,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
             ConvenioDuplicado,
             SolicitudNoAprobada,
             ConvenioNoEditable,
+            ConvenioNoEvaluable,
             RevisionNoDisponible,
             ObservacionNoDisponible,
         ),
@@ -409,6 +421,52 @@ def registrar_no_renovacion(
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     return DecisionNoRenovacionLeer.model_validate(decision)
+
+
+@router.post(
+    "/{convenio_id}/evaluacion",
+    response_model=EvaluacionConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_evaluacion(
+    convenio_id: int,
+    datos: EvaluacionConvenioCrear,
+    db: DatabaseSession,
+    usuario: PuedeEvaluar,
+) -> EvaluacionConvenioLeer:
+    try:
+        evaluacion = ServicioEvaluaciones(db).registrar(convenio_id, datos, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return EvaluacionConvenioLeer.model_validate(evaluacion)
+
+
+@router.get("/{convenio_id}/evaluacion", response_model=EstadoEvaluacionLeer)
+def obtener_evaluacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> EstadoEvaluacionLeer:
+    """Estado de la evaluación de un convenio.
+
+    Devuelve `evaluable` además de la evaluación para que la interfaz no
+    reimplemente la regla de elegibilidad y siga funcionando sin cambios cuando
+    se amplíen los estados evaluables.
+    """
+    try:
+        convenio = ServicioConvenios(db).obtener_en_alcance_operativo(
+            convenio_id, usuario
+        )
+        evaluacion = ServicioEvaluaciones(db).obtener(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return EstadoEvaluacionLeer(
+        evaluable=es_evaluable(convenio),
+        estado_convenio=convenio.estado,
+        evaluacion=(
+            EvaluacionConvenioLeer.model_validate(evaluacion)
+            if evaluacion is not None
+            else None
+        ),
+    )
 
 
 @router.get("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)

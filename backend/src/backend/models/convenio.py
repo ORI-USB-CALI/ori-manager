@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from backend.models.decision_no_renovacion import DecisionNoRenovacion
     from backend.models.documento import Documento
     from backend.models.etapa import Etapa
+    from backend.models.evaluacion_convenio import EvaluacionConvenio
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
     from backend.models.plantilla_convenio import PlantillaConvenio
@@ -110,6 +111,9 @@ class Convenio(Base):
     )
     documentos: Mapped[list[Documento]] = relationship(
         back_populates="convenio", foreign_keys="Documento.convenio_id"
+    )
+    evaluacion: Mapped[EvaluacionConvenio | None] = relationship(
+        back_populates="convenio", uselist=False
     )
     historial_etapas: Mapped[list[HistorialEtapa]] = relationship(
         back_populates="convenio"

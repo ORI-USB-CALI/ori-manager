@@ -113,6 +113,16 @@ def test_roles_autorizados_pueden_ejecutar_acciones(
     assert client.post(url(origen.id, accion)).status_code == 201
 
 
+@pytest.mark.parametrize("rol", list(CodigoRol))
+def test_permisos_renovacion_tardia(db, client, crear_usuario, entrar_como, origen, rol):
+    origen.estado = EstadoConvenio.FINALIZADO.value
+    db.commit()
+    tipo = TipoUsuario.EXTERNO if rol == CodigoRol.SOLICITANTE_EXTERNO else TipoUsuario.INTERNO
+    entrar_como(crear_usuario(rol, tipo))
+    esperado = 201 if rol in {CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI} else 403
+    assert client.post(url(origen.id)).status_code == esperado
+
+
 @pytest.mark.parametrize("accion", ["renovaciones", "no-renovar"])
 @pytest.mark.parametrize(
     ("rol", "tipo"),
@@ -144,11 +154,11 @@ def test_convenio_inexistente_responde_404(client, gestor, accion):
 
 @pytest.mark.parametrize(
     "estado",
-    [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER, EstadoConvenio.VENCIDO],
+    [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER, EstadoConvenio.VENCIDO, EstadoConvenio.FINALIZADO],
 )
 def test_estados_permitidos_inician_renovacion(db, client, gestor, origen, estado):
     origen.estado = estado.value
-    if estado == EstadoConvenio.VENCIDO:
+    if estado in {EstadoConvenio.VENCIDO, EstadoConvenio.FINALIZADO}:
         origen.fecha_vencimiento = FECHA_REFERENCIA - timedelta(days=10)
     db.commit()
 
@@ -159,7 +169,6 @@ def test_estados_permitidos_inician_renovacion(db, client, gestor, origen, estad
     "estado",
     [
         EstadoConvenio.RENOVADO,
-        EstadoConvenio.FINALIZADO,
         EstadoConvenio.CANCELADO,
         EstadoConvenio.EN_TRAMITE,
     ],
@@ -173,9 +182,12 @@ def test_estados_no_permitidos_rechazan_renovacion(db, client, gestor, origen, e
     assert conteos(db) == antes
 
 
+@pytest.mark.parametrize("estado", [EstadoConvenio.VIGENTE, EstadoConvenio.FINALIZADO])
 def test_crea_solicitud_elaboracion_version_e_historial_propios(
-    db, client, gestor, origen, monkeypatch
+    db, client, gestor, origen, monkeypatch, estado
 ):
+    origen.estado = estado.value
+    db.commit()
     antes = snapshot(origen)
     solicitud_original = origen.solicitud
     solicitante_id = solicitud_original.solicitante_id
@@ -298,7 +310,8 @@ def test_no_renovar_registra_decision_y_auditoria_sin_cambiar_padre(
     }
 
 
-def test_no_renovar_no_bloquea_iniciar_y_conserva_decision(db, client, gestor, origen):
+@pytest.mark.parametrize("finalizado", [False, True])
+def test_no_renovar_no_bloquea_iniciar_y_conserva_decision(db, client, gestor, origen, finalizado):
     assert client.post(url(origen.id, "no-renovar")).status_code == 201
     decision = db.scalar(
         select(DecisionNoRenovacion).where(
@@ -312,6 +325,9 @@ def test_no_renovar_no_bloquea_iniciar_y_conserva_decision(db, client, gestor, o
         decision.decidida_en,
     )
 
+    if finalizado:
+        origen.estado = EstadoConvenio.FINALIZADO.value
+        db.commit()
     assert client.post(url(origen.id)).status_code == 201
 
     db.refresh(decision)
@@ -420,12 +436,23 @@ def test_error_al_auditar_revierte_decision(db, gestor, origen, monkeypatch):
     assert conteos(db) == antes
 
 
+@pytest.mark.parametrize("estado", [EstadoConvenio.VIGENTE, EstadoConvenio.FINALIZADO])
 def test_version_vigente_ausente_rechaza_sin_dejar_parciales(
-    db, client, gestor, origen
+    db, client, gestor, origen, estado
 ):
+    origen.estado = estado.value
     origen.version_actual = 999
     db.commit()
     antes = conteos(db)
 
+    assert client.post(url(origen.id)).status_code == 409
+    assert conteos(db) == antes
+
+
+def test_finalizado_sin_fecha_rechaza_renovacion(db, client, gestor, origen):
+    origen.estado = EstadoConvenio.FINALIZADO.value
+    origen.fecha_vencimiento = None
+    db.commit()
+    antes = conteos(db)
     assert client.post(url(origen.id)).status_code == 409
     assert conteos(db) == antes
