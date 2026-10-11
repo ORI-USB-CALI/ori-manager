@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import UTC, date, datetime
+from uuid import uuid4
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
@@ -213,6 +214,14 @@ class ElaboracionIncompleta(ErrorConvenio):
     def __init__(self, faltantes: list[CampoFaltante]) -> None:
         self.faltantes = faltantes
         super().__init__("Falta información requerida para finalizar la elaboración")
+
+
+class DocumentoConvenioInvalido(ErrorConvenio):
+    pass
+
+
+class DocumentoDemasiadoGrande(ErrorConvenio):
+    pass
 
 
 class ConfiguracionConvenioInvalida(RuntimeError):
@@ -1290,6 +1299,46 @@ class ServicioConvenios:
             raise ConvenioNoEncontrado("Documento no encontrado")
         contenido = self._almacen_requerido().leer(documento.ruta_almacenamiento)
         return documento, contenido
+
+    def agregar_documento(
+        self,
+        *,
+        convenio_id: int,
+        nombre_archivo: str,
+        tipo_mime: str,
+        contenido: bytes,
+        usuario: Usuario,
+    ) -> Documento:
+        convenio = self.obtener(convenio_id)
+        LIMITE_20MB = 20 * 1024 * 1024
+        if len(contenido) > LIMITE_20MB:
+            raise DocumentoDemasiadoGrande(
+                "El archivo supera el tamaño máximo permitido (20 MB)"
+            )
+
+        nombre_lower = nombre_archivo.lower()
+        if not nombre_lower.endswith(".pdf") or not contenido.startswith(b"%PDF-"):
+            raise DocumentoConvenioInvalido(
+                "Solo se permiten documentos en formato PDF"
+            )
+
+        clave = f"convenios/{convenio.id}/documentos/{uuid4()}.pdf"
+        self._almacen_requerido().guardar(clave, contenido)
+
+        documento = Documento(
+            convenio_id=convenio.id,
+            tipo="SOPORTE",
+            nombre_archivo=nombre_archivo,
+            ruta_almacenamiento=clave,
+            tipo_mime="application/pdf",
+            tamano_bytes=len(contenido),
+            cargado_por_id=usuario.id,
+            es_vigente=True,
+        )
+        self.db.add(documento)
+        self.db.commit()
+        self.db.refresh(documento)
+        return documento
 
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""

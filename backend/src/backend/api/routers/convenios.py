@@ -66,6 +66,8 @@ from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
+    DocumentoConvenioInvalido,
+    DocumentoDemasiadoGrande,
     ElaboracionIncompleta,
     ErrorConvenio,
     ObservacionNoDisponible,
@@ -150,6 +152,12 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "message": str(exc),
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
+        ) from exc
+    if isinstance(exc, DocumentoConvenioInvalido):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if isinstance(exc, DocumentoDemasiadoGrande):
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)
         ) from exc
     if isinstance(exc, ReferenciaConvenioInvalida):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
@@ -645,6 +653,39 @@ def obtener_contenido_documento(
         media_type=documento.tipo_mime,
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
     )
+
+
+@router.post(
+    "/{convenio_id}/documentos",
+    response_model=DocumentoConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+async def cargar_documento_convenio(
+    convenio_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    usuario: PuedeEditar,
+    archivo: Annotated[UploadFile, File()],
+) -> DocumentoConvenioLeer:
+    LIMITE_20MB = 20 * 1024 * 1024
+    contenido = await archivo.read(LIMITE_20MB + 1)
+    try:
+        documento = ServicioConvenios(db, almacen=almacen).agregar_documento(
+            convenio_id=convenio_id,
+            nombre_archivo=archivo.filename or "documento.pdf",
+            tipo_mime=archivo.content_type or "application/pdf",
+            contenido=contenido,
+            usuario=usuario,
+        )
+        return DocumentoConvenioLeer.model_validate(documento)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible almacenar el documento",
+        ) from exc
+
 
 
 @router.patch(

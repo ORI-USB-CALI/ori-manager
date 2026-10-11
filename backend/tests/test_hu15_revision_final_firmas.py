@@ -508,7 +508,6 @@ def test_documento_aprobado_en_configuracion_usa_version_congelada(
     db.commit()
 
     respuesta = _obtener_documento_aprobado(client, convenio.id)
-
     assert respuesta.status_code == 200
     datos = respuesta.json()
     assert proceso["estado"] == EstadoProcesoFirmasConvenio.CONFIGURACION.value
