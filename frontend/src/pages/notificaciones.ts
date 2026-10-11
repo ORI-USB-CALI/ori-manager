@@ -53,15 +53,51 @@ export function useMarcarNotificacionLeida() {
   })
 }
 
-function urlNotificacionesWs(): string {
+/** Una tarea resuelta ya no está pendiente, aunque no se haya marcado leída. */
+export function contarPendientes(notificaciones: Notificacion[] | undefined): number {
+  return notificaciones?.filter((item) => !item.resuelta).length ?? 0
+}
+
+async function obtenerTicketWs(): Promise<string> {
+  const { ticket } = await apiFetch<{ ticket: string }>('/notificaciones/ws-ticket', {
+    method: 'POST',
+  })
+  return ticket
+}
+
+/**
+ * En Render el frontend es un static site: no puede alojar ni hacer proxy
+ * de un WebSocket, así que la conexión va directo a la URL pública del
+ * backend (`VITE_WS_BACKEND_URL`). En desarrollo local esa variable no
+ * existe y se usa el mismo origen, que el proxy de Vite sí reenvía.
+ */
+function urlNotificacionesWs(ticket: string): string {
+  const base = import.meta.env.VITE_WS_BACKEND_URL
+  const parametro = `ticket=${encodeURIComponent(ticket)}`
+  if (base) {
+    const wsBase = base.replace(/^http/, 'ws').replace(/\/$/, '')
+    return `${wsBase}/api/notificaciones/ws?${parametro}`
+  }
   const protocolo = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${protocolo}://${window.location.host}/api/notificaciones/ws`
+  return `${protocolo}://${window.location.host}/api/notificaciones/ws?${parametro}`
 }
 
 /**
  * HU-33 tarea 5: abre el WebSocket nativo de FastAPI y, cuando el backend
  * avisa un cambio, invalida la query para que se vuelva a pedir por REST.
- * Reconecta con backoff simple si el socket se cae (red, deploy, etc.).
+ * Reconecta con backoff simple si el socket se cae (red, deploy, etc.); un
+ * cierre 1008 (ticket inválido/expirado, cuenta desactivada) no reintenta.
+ *
+ * Mecanismo de recuperación (code review HU-33 PR): el servidor nunca
+ * reenvía eventos que ocurrieron mientras el socket estuvo caído, solo el
+ * último "algo cambió". Por eso, cada vez que la conexión abre (la primera
+ * vez o tras una reconexión), se invalida la query igual que si hubiera
+ * llegado un mensaje: así se recupera cualquier cambio perdido durante el
+ * tiempo que el socket estuvo desconectado, no solo los que lleguen
+ * después de reconectar.
+ *
+ * Cada conexión usa un ticket de un solo uso (ver `obtenerTicketWs`): la
+ * cookie de sesión no viaja hasta el dominio del backend en Render.
  */
 export function useNotificacionesTiempoReal(habilitada: boolean) {
   const queryClient = useQueryClient()
@@ -71,32 +107,43 @@ export function useNotificacionesTiempoReal(habilitada: boolean) {
     if (!habilitada) return
 
     let socket: WebSocket | null = null
-    let cerradoPorLimpieza = false
+    let cancelado = false
     let temporizador: number | undefined
 
     const conectar = () => {
-      socket = new WebSocket(urlNotificacionesWs())
+      void obtenerTicketWs()
+        .then((ticket) => {
+          if (cancelado) return
+          socket = new WebSocket(urlNotificacionesWs(ticket))
 
-      socket.onmessage = () => {
-        void queryClient.invalidateQueries({ queryKey: CLAVE_NOTIFICACIONES })
-      }
+          socket.onmessage = () => {
+            void queryClient.invalidateQueries({ queryKey: CLAVE_NOTIFICACIONES })
+          }
 
-      socket.onopen = () => {
-        intentoRef.current = 0
-      }
+          socket.onopen = () => {
+            intentoRef.current = 0
+            void queryClient.invalidateQueries({ queryKey: CLAVE_NOTIFICACIONES })
+          }
 
-      socket.onclose = (evento) => {
-        if (cerradoPorLimpieza || evento.code === 1008) return
-        const espera = Math.min(30_000, 1000 * 2 ** intentoRef.current)
-        intentoRef.current += 1
-        temporizador = window.setTimeout(conectar, espera)
-      }
+          socket.onclose = (evento) => {
+            if (cancelado || evento.code === 1008) return
+            const espera = Math.min(30_000, 1000 * 2 ** intentoRef.current)
+            intentoRef.current += 1
+            temporizador = window.setTimeout(conectar, espera)
+          }
+        })
+        .catch(() => {
+          if (cancelado) return
+          const espera = Math.min(30_000, 1000 * 2 ** intentoRef.current)
+          intentoRef.current += 1
+          temporizador = window.setTimeout(conectar, espera)
+        })
     }
 
     conectar()
 
     return () => {
-      cerradoPorLimpieza = true
+      cancelado = true
       window.clearTimeout(temporizador)
       socket?.close()
     }

@@ -27,10 +27,22 @@ class ServicioNotificaciones:
     crea, lista, marca como leída y resuelve filas de `Notificacion`. Quien
     detecta que ocurrió un evento del flujo (tarea 3 de la HU) es quien
     decide el tipo, la entidad y el mensaje, y llama a este servicio.
+
+    `crear()`, `crear_para_rol()` y `resolver()` nunca hacen commit ni
+    rollback: solo modifican la sesión que les pasó el llamador, para que
+    la notificación quede en la MISMA transacción que el cambio de negocio
+    que la originó (confirmación de code review: una notificación nunca
+    debe sobrevivir si la operación que la causó se revierte, ni perderse
+    si la operación sí se confirma). Es responsabilidad del llamador hacer
+    `self.db.commit()` al final de su propio bloque try/except, y llamar
+    `avisar_tiempo_real()` solo después de que ese commit haya tenido
+    éxito, para no avisar por WebSocket de un cambio que terminó
+    revirtiéndose.
     """
 
     def __init__(self, db: Session):
         self.db = db
+        self._pendientes_tiempo_real: set[int] = set()
 
     def crear(
         self,
@@ -42,6 +54,10 @@ class ServicioNotificaciones:
     ) -> Notificacion:
         """CA-01/CA-09: crea la notificación, o devuelve la que ya existía
         sin resolver para ese mismo usuario+tipo+entidad (deduplicación).
+
+        El intento de inserción corre en un SAVEPOINT: si choca con el
+        índice único parcial, solo se deshace ese SAVEPOINT, no el resto de
+        la transacción en curso del llamador.
         """
         notificacion = Notificacion(
             usuario_id=usuario_id,
@@ -50,11 +66,11 @@ class ServicioNotificaciones:
             entidad_id=entidad_id,
             mensaje=mensaje,
         )
-        self.db.add(notificacion)
         try:
-            self.db.commit()
+            with self.db.begin_nested():
+                self.db.add(notificacion)
+                self.db.flush()
         except IntegrityError:
-            self.db.rollback()
             existente = self.db.scalar(
                 select(Notificacion).where(
                     Notificacion.usuario_id == usuario_id,
@@ -67,7 +83,7 @@ class ServicioNotificaciones:
             if existente is None:
                 raise
             return existente
-        gestor_notificaciones_tiempo_real.marcar_cambio(usuario_id)
+        self._pendientes_tiempo_real.add(usuario_id)
         return notificacion
 
     def crear_para_rol(
@@ -81,6 +97,10 @@ class ServicioNotificaciones:
         """CA-03/CA-06: estas revisiones no están asignadas a una persona
         específica (cualquier usuario con el rol puede atenderlas), así que
         se notifica a todos los usuarios activos de ese rol.
+
+        Al no haber commits intermedios, la entrega a todos los
+        destinatarios queda atada a la misma transacción: o el llamador
+        confirma y todos quedan notificados, o revierte y ninguno lo está.
         """
         usuarios_ids = self.db.scalars(
             select(Usuario.id)
@@ -91,6 +111,17 @@ class ServicioNotificaciones:
             self.crear(usuario_id, tipo, entidad_tipo, entidad_id, mensaje)
             for usuario_id in usuarios_ids
         ]
+
+    def avisar_tiempo_real(self) -> None:
+        """Llamar únicamente después de que el commit del llamador tuvo
+        éxito. Avisa por WebSocket a cada usuario que recibió una
+        notificación nueva o una resolución durante esta instancia del
+        servicio, y limpia la cola para no re-avisar en una llamada
+        posterior sobre la misma instancia.
+        """
+        for usuario_id in self._pendientes_tiempo_real:
+            gestor_notificaciones_tiempo_real.marcar_cambio(usuario_id)
+        self._pendientes_tiempo_real.clear()
 
     def listar_para_usuario(self, usuario: Usuario) -> list[Notificacion]:
         """CA-02: únicamente las notificaciones del usuario autenticado.
@@ -130,7 +161,8 @@ class ServicioNotificaciones:
     ) -> None:
         """CA-09: cuando la acción pendiente ya se completó, deja de
         presentarse como pendiente a todos sus destinatarios (puede haber
-        varios, si se generó por rol vía `crear_para_rol`).
+        varios, si se generó por rol vía `crear_para_rol`). No hace commit:
+        queda sujeto a la transacción del llamador, igual que `crear()`.
         """
         pendientes = self.db.scalars(
             select(Notificacion).where(
@@ -141,12 +173,7 @@ class ServicioNotificaciones:
             )
         )
         ahora = datetime.now(UTC)
-        afectados: list[int] = []
         for notificacion in pendientes:
             notificacion.resuelta = True
             notificacion.resuelta_en = ahora
-            afectados.append(notificacion.usuario_id)
-        if afectados:
-            self.db.commit()
-            for usuario_id in afectados:
-                gestor_notificaciones_tiempo_real.marcar_cambio(usuario_id)
+            self._pendientes_tiempo_real.add(notificacion.usuario_id)

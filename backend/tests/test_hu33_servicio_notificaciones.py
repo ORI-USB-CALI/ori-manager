@@ -1,10 +1,13 @@
 """HU-33 tarea 7: permisos, lectura, resolución y duplicados a nivel de servicio."""
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.enums import EntidadNotificacion, TipoNotificacion
 from backend.models.notificacion import Notificacion
+from backend.services.convenios import ServicioConvenios
 from backend.services.notificaciones import ServicioNotificaciones
 
 
@@ -159,3 +162,116 @@ def test_resolver_no_afecta_una_entidad_distinta(db, gestor):
 
     db.refresh(de_otro_convenio)
     assert de_otro_convenio.resuelta is False
+
+
+# ---- Consistencia transaccional (code review HU-33 PR) --------------------
+
+
+def test_crear_no_sobrevive_si_la_transaccion_del_llamador_revierte(db, gestor):
+    """crear() nunca hace commit por su cuenta: si quien la llamó revierte
+    su propia transacción, la notificación desaparece con ella.
+    """
+    servicio = ServicioNotificaciones(db)
+
+    try:
+        servicio.crear(
+            gestor.id,
+            TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            123,
+            "mensaje",
+        )
+        raise RuntimeError("fallo simulado antes del commit del llamador")
+    except RuntimeError:
+        db.rollback()
+
+    filas = list(
+        db.scalars(select(Notificacion).where(Notificacion.entidad_id == 123))
+    )
+    assert filas == []
+
+
+def test_fallo_real_de_persistencia_no_rompe_la_sesion_del_llamador(db):
+    """Un fallo genuino (no de deduplicación, p. ej. una FK inválida) debe
+    propagarse, pero sin dejar la sesión del llamador inutilizable: el
+    SAVEPOINT de crear() se revierte solo, no toda la transacción.
+    """
+    servicio = ServicioNotificaciones(db)
+
+    with pytest.raises(IntegrityError):
+        servicio.crear(
+            999_999_999,  # usuario_id inexistente: viola la FK, no es duplicado
+            TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            1,
+            "mensaje",
+        )
+
+    # La sesión sigue utilizable tras el fallo: una consulta normal no rompe.
+    assert (
+        db.scalar(
+            select(Notificacion).where(Notificacion.entidad_id == 1)
+        )
+        is None
+    )
+
+
+def test_crear_para_rol_es_todo_o_nada_si_la_transaccion_revierte(
+    db, revisor, crear_usuario
+):
+    """Si la transacción del llamador revierte después de crear_para_rol(),
+    ningún destinatario queda notificado (no hay entregas parciales).
+    """
+    otro_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    servicio = ServicioNotificaciones(db)
+
+    try:
+        servicio.crear_para_rol(
+            CodigoRol.REVISOR_ORI,
+            TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+            EntidadNotificacion.CONVENIO,
+            55,
+            "mensaje",
+        )
+        raise RuntimeError("fallo simulado antes del commit del llamador")
+    except RuntimeError:
+        db.rollback()
+
+    for destinatario in (revisor, otro_revisor):
+        filas = list(
+            db.scalars(
+                select(Notificacion).where(
+                    Notificacion.usuario_id == destinatario.id,
+                    Notificacion.entidad_id == 55,
+                )
+            )
+        )
+        assert filas == []
+
+
+def test_finalizar_elaboracion_revierte_notificaciones_si_falla_antes_del_commit(
+    db, gestor, revisor, convenio_listo, monkeypatch
+):
+    """Prueba de extremo a extremo: si algo falla dentro de la transacción
+    de negocio después de generar las notificaciones pero antes del
+    commit, ni el cambio de etapa ni las notificaciones quedan.
+    """
+
+    def _resolver_que_falla(self, *args, **kwargs):
+        raise RuntimeError("fallo simulado de persistencia")
+
+    monkeypatch.setattr(ServicioNotificaciones, "resolver", _resolver_que_falla)
+
+    with pytest.raises(RuntimeError):
+        ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    db.rollback()
+
+    assert not list(
+        db.scalars(
+            select(Notificacion).where(
+                Notificacion.entidad_id == convenio_listo.id
+            )
+        )
+    )
+    db.refresh(convenio_listo)
+    assert convenio_listo.etapa_actual.codigo == "ELABORACION"

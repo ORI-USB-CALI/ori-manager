@@ -110,3 +110,10 @@ projects:
             envVars:
               - key: NODE_VERSION
                 value: 24.21.0
+
+              # Render static sites no pueden alojar ni hacer proxy de
+              # WebSocket (solo HTTP vía rewrites). El cliente conecta el
+              # WebSocket de notificaciones directo a la URL pública del
+              # backend en vez de a través del rewrite /api/*.
+              - key: VITE_WS_BACKEND_URL
+                value: https://ori-manager-backend-production.onrender.com
