@@ -10,11 +10,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
-    AccionAuditoria,
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
@@ -24,6 +22,7 @@ from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
+from backend.services.bitacora import describir_accion
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -66,6 +65,12 @@ class SolicitudNoRevisable(ErrorSolicitud):
 ESTADOS_PENDIENTES_REVISION = frozenset(
     {EstadoSolicitud.RADICADA.value, EstadoSolicitud.EN_ESTUDIO.value}
 )
+
+ACCION_POR_DECISION = {
+    EstadoSolicitud.APROBADA: "Aceptó la solicitud",
+    EstadoSolicitud.RECHAZADA: "Rechazó la solicitud",
+    EstadoSolicitud.DEVUELTA: "Devolvió la solicitud al Solicitante para corrección",
+}
 
 
 class ServicioSolicitudes:
@@ -246,17 +251,7 @@ class ServicioSolicitudes:
             raise SolicitudNoRevisable(
                 f"La solicitud está {solicitud.estado} y ya no admite decisión"
             )
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="estado",
-                valor_anterior=solicitud.estado,
-                valor_nuevo=estado.value,
-            )
-        )
+        describir_accion(self.db, actor, ACCION_POR_DECISION[estado])
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
         solicitud.fecha_decision = datetime.now(UTC)
@@ -279,17 +274,6 @@ class ServicioSolicitudes:
         self, solicitud_id: int, observaciones: str, actor: Usuario
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.DEVUELTA)
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="observaciones_devolucion",
-                valor_anterior=solicitud.observaciones_devolucion,
-                valor_nuevo=observaciones,
-            )
-        )
         solicitud.observaciones_devolucion = observaciones
         self.db.commit()
         return self.obtener_recibida(solicitud_id)
