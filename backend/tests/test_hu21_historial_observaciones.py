@@ -238,16 +238,129 @@ def test_revisor_con_revision_juridica_asignada_consulta_las_observaciones_previ
     assert revisiones[(2, 1)]["resultado"] is None
 
 
-def test_revisor_sin_revision_juridica_asignada_no_consulta_el_historial(
+def test_revisor_con_revision_pendiente_consulta_el_historial(
+    client, db, gestor, crear_usuario, convenio_listo, entrar_como
+) -> None:
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO))
+
+    revisiones = _revisiones_juridicas(client, convenio_listo.id)
+
+    assert [(r["numero_ronda"], r["resultado"]) for r in revisiones] == [(1, None)]
+
+
+def test_revisor_que_registro_observaciones_conserva_el_acceso_al_cerrarse_la_revision(
+    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
+) -> None:
+    base = f"/api/convenios/{convenio_listo.id}"
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    rj1 = _pendiente(db, convenio_listo.id)
+    entrar_como(revisor)
+    assert client.post(
+        f"{base}/revisiones/{rj1.id}/observaciones",
+        json={"descripcion": OBSERVACIONES_RONDA_1[0]},
+    ).status_code == 201
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO))
+    assert client.post(
+        f"{base}/revisiones/{rj1.id}/devolver",
+        json={
+            "expected_version": convenio_listo.version_actual,
+            "observaciones": [OBSERVACIONES_RONDA_1[1]],
+        },
+    ).status_code == 200
+
+    entrar_como(revisor)
+    (revision,) = _revisiones_juridicas(client, convenio_listo.id)
+
+    assert revision["resultado"] == "DEVUELTA"
+    assert revision["resuelta_por"]["id"] != revisor.id
+    assert [o["descripcion"] for o in revision["observaciones"]] == (
+        OBSERVACIONES_RONDA_1
+    )
+
+
+def test_revisor_que_aprobo_sin_observaciones_conserva_el_acceso_al_cambiar_de_etapa(
+    client, db, gestor, revisor, crear_usuario, convenio_listo, entrar_como
+) -> None:
+    base = f"/api/convenios/{convenio_listo.id}"
+    segundo_revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    db.refresh(convenio_listo)
+    for actor in (revisor, segundo_revisor):
+        entrar_como(actor)
+        assert client.post(
+            f"{base}/revisiones/{_pendiente(db, convenio_listo.id).id}/aprobar",
+            json={"expected_version": convenio_listo.version_actual},
+        ).status_code == 200
+    db.refresh(convenio_listo)
+    assert convenio_listo.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+
+    for actor in (revisor, segundo_revisor):
+        entrar_como(actor)
+        revisiones = _revisiones_juridicas(client, convenio_listo.id)
+        assert [(r["instancia_juridica"], r["resultado"]) for r in revisiones] == [
+            (1, "APROBADA"),
+            (2, "APROBADA"),
+        ]
+
+
+def test_revisor_que_participo_ve_tambien_lo_registrado_por_otros_revisores(
     client, entrar_como, historial_juridico
 ) -> None:
     entrar_como(historial_juridico["revisor"])
+
+    revisiones = _por_ronda_e_instancia(
+        _revisiones_juridicas(client, historial_juridico["convenio"].id)
+    )
+
+    assert [o["descripcion"] for o in revisiones[(2, 2)]["observaciones"]] == [
+        OBSERVACION_RJ2
+    ]
+    assert (
+        revisiones[(2, 2)]["observaciones"][0]["registrada_por"]["id"]
+        == historial_juridico["segundo_revisor"].id
+    )
+
+
+def test_revisor_que_nunca_participo_no_consulta_el_historial(
+    client, crear_usuario, entrar_como, historial_juridico
+) -> None:
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO))
 
     respuesta = client.get(
         f"/api/convenios/{historial_juridico['convenio'].id}/revisiones"
     )
 
     assert respuesta.status_code == 404
+
+
+def test_el_acceso_historico_no_habilita_acciones_operativas(
+    client, db, entrar_como, historial_juridico
+) -> None:
+    convenio = historial_juridico["convenio"]
+    base = f"/api/convenios/{convenio.id}"
+    entrar_como(historial_juridico["revisor"])
+    revisiones = _por_ronda_e_instancia(_revisiones_juridicas(client, convenio.id))
+    cerrada = revisiones[(2, 1)]["id"]
+    antes = client.get(f"{base}/revisiones").json()
+
+    assert client.get(base).status_code == 404
+    assert client.post(
+        f"{base}/revisiones/{cerrada}/observaciones",
+        json={"descripcion": "Observación fuera del flujo"},
+    ).status_code == 409
+    assert client.post(
+        f"{base}/revisiones/{cerrada}/aprobar",
+        json={"expected_version": convenio.version_actual},
+    ).status_code == 409
+    assert client.post(
+        f"{base}/revisiones/{cerrada}/devolver",
+        json={
+            "expected_version": convenio.version_actual,
+            "observaciones": ["Devolución fuera del flujo"],
+        },
+    ).status_code == 409
+    assert client.get(f"{base}/revisiones").json() == antes
 
 
 @pytest.mark.parametrize(
