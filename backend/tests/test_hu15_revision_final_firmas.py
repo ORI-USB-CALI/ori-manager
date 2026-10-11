@@ -246,8 +246,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
         )
         sesion.execute(
             delete(Auditoria).where(
-                Auditoria.entidad == "proceso_firmas_convenio",
-                Auditoria.registro_id.in_(proceso_ids),
+                Auditoria.usuario_id.in_(
+                    (int(escenario["gestor_id"]), int(escenario["revisor_id"]))
+                )
             )
         )
         sesion.execute(
@@ -641,6 +642,7 @@ def test_cambio_sustancial_en_configuracion_cancela_y_registra_trazabilidad(
         select(Auditoria).where(
             Auditoria.entidad == "proceso_firmas_convenio",
             Auditoria.registro_id == proceso["id"],
+            Auditoria.campo == "estado",
         )
     )
     assert auditoria is not None
