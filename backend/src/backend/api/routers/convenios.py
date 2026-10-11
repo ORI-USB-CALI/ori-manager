@@ -575,10 +575,14 @@ def obtener_historial_convenio(
     misma transacción, `now()` en Postgres devuelve siempre el mismo valor
     para todas las filas insertadas, así que `creado_en`/`fecha_cambio`
     pueden empatar entre sí y no garantizan el orden real de inserción.
+
+    HU-21: la consulta usa la autorización de solo lectura del historial, no
+    el alcance operativo, para que el Revisor ORI conserve el acceso a los
+    convenios en cuya revisión jurídica participó.
     """
     try:
         servicio = ServicioConvenios(db)
-        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        servicio.verificar_acceso_historial(convenio_id, usuario)
         convenio = servicio.obtener_historial(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
