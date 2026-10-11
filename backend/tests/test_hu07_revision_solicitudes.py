@@ -158,18 +158,23 @@ def test_devolver_registra_decision_observaciones_auditoria_y_no_crea_convenio(
             )
         )
     )
-    assert {
-        (item.campo, item.valor_anterior, item.valor_nuevo, item.usuario_id)
+    por_campo = {
+        item.campo: (item.valor_anterior, item.valor_nuevo, item.usuario_id)
         for item in auditorias
-    } == {
-        ("estado", "EN_ESTUDIO", "DEVUELTA", gestor.id),
-        (
-            "observaciones_devolucion",
-            None,
-            "Corregir la vigencia y los soportes",
-            gestor.id,
-        ),
     }
+    assert set(por_campo) == {
+        "estado",
+        "observaciones_devolucion",
+        "decidida_por_id",
+        "fecha_decision",
+    }
+    assert por_campo["estado"] == ("EN_ESTUDIO", "DEVUELTA", gestor.id)
+    assert por_campo["observaciones_devolucion"] == (
+        None,
+        "Corregir la vigencia y los soportes",
+        gestor.id,
+    )
+    assert por_campo["decidida_por_id"] == (None, str(gestor.id), gestor.id)
     assert (
         db.scalar(select(Convenio).where(Convenio.solicitud_id == solicitud.id)) is None
     )
