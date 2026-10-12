@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, NoReturn
+from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -65,6 +65,7 @@ from backend.schemas.renovacion import (
     RenovacionIniciadaLeer,
     SeguimientoRenovacionLeer,
 )
+from backend.schemas.soporte_convenio import SoporteConvenioLeer
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ConflictoVersionConvenio,
@@ -104,6 +105,10 @@ from backend.services.renovaciones import (
     ServicioRenovaciones,
     listar_seguimiento_renovaciones,
 )
+from backend.services.soportes_convenio import (
+    ConvenioNoAdmiteSoportes,
+    ServicioSoportesConvenio,
+)
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -129,6 +134,10 @@ PuedeGestionarFirmas = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)
 ]
 PuedeEvaluar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EVALUAR)]
+# Guard de CA-04 de HU-22C: solo Gestor ORI y Administrador ORI; otro rol, 403.
+PuedeGestionarSoportes = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_SOPORTES)
+]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -163,7 +172,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
         ) from exc
-    if isinstance(exc, ReferenciaConvenioInvalida):
+    if isinstance(exc, (ReferenciaConvenioInvalida, ConvenioNoAdmiteSoportes)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -706,6 +715,55 @@ def obtener_contenido_documento(
         content=contenido,
         media_type=documento.tipo_mime,
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+    )
+
+
+@router.get("/{convenio_id}/documentos", response_model=list[SoporteConvenioLeer])
+def listar_soportes(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarSoportes
+) -> list[SoporteConvenioLeer]:
+    """CA-03 de HU-22C: soportes vigentes del convenio, del más reciente al
+    más antiguo."""
+    try:
+        documentos = ServicioSoportesConvenio(db).listar(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return [SoporteConvenioLeer.desde_documento(documento) for documento in documentos]
+
+
+@router.get("/{convenio_id}/documentos/{documento_id}/descargar")
+def descargar_soporte(
+    convenio_id: int,
+    documento_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    _: PuedeGestionarSoportes,
+    disposicion: Literal["inline", "attachment"] = "attachment",
+) -> Response:
+    """CA-03 de HU-22C: entrega el soporte por el backend; `inline` lo abre en
+    el navegador y `attachment` lo descarga."""
+    try:
+        documento, contenido = ServicioSoportesConvenio(db).obtener_contenido(
+            convenio_id, documento_id, almacen
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible recuperar el documento almacenado",
+        ) from exc
+    nombre = quote(documento.nombre_archivo, safe="")
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            # Sin sniffing el navegador respeta el tipo declarado, y sin caché
+            # el soporte no queda guardado en proxies ni en equipos compartidos.
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
     )
 
 
