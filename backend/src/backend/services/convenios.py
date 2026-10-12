@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from backend.core.roles import CodigoRol
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
@@ -26,6 +27,7 @@ from backend.models.enums import (
     EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
+    TipoAliado,
     TipoNotificacion,
     TipoRevisionConvenio,
 )
@@ -253,6 +255,11 @@ class FiltrosConsultaConvenio:
     tipo_fecha: TipoFiltroFecha | None = None
     fecha_desde: date | None = None
     fecha_hasta: date | None = None
+    # HU-28 BE-2/BE-3
+    estados: tuple[EstadoConvenio, ...] | None = None
+    tipos_contraparte: tuple[TipoAliado, ...] | None = None
+    programa_id: int | None = None
+    alcance: AlcanceConvenio | None = None
 
 
 # HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
@@ -889,6 +896,40 @@ class ServicioConvenios:
             )
         return condiciones
 
+    @staticmethod
+    def _aplicar_filtros_avanzados(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-28 BE-2/BE-3. Estado, tipo de contraparte y programa académico.
+        RN-03: dentro de un mismo filtro de selección múltiple los valores se
+        combinan con O (.in_()); entre filtros distintos, con Y (se
+        concatenan como condiciones separadas en consultar())."""
+        condiciones: list = []
+        if filtros.estados:
+            condiciones.append(
+                Convenio.estado.in_([estado.value for estado in filtros.estados])
+            )
+        if filtros.tipos_contraparte:
+            # CA-03: coalesce porque un convenio en trámite puede no tener
+            # aliado formal todavía (misma regla de contraparte que HU-26
+            # BE-1: Aliado si existe, si no la solicitud de origen).
+            condiciones.append(
+                func.coalesce(
+                    Aliado.tipo, SolicitudConvenio.tipo_aliado_propuesto
+                ).in_([tipo.value for tipo in filtros.tipos_contraparte])
+            )
+        if filtros.programa_id is not None:
+            condiciones.extend([
+                Convenio.alcance == AlcanceConvenio.PROGRAMA.value,
+                Convenio.unidad_organizacional_id == filtros.programa_id,
+                Convenio.unidad_organizacional.has(
+                    UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value
+                ),
+            ])
+        if filtros.alcance is not None:
+            # La ausencia de programa no determina el alcance: también
+            # existe información aún sin definir durante la elaboración.
+            condiciones.append(Convenio.alcance == filtros.alcance.value)
+        return condiciones
+
     def consultar(
         self, usuario: Usuario, filtros: FiltrosConsultaConvenio
     ) -> tuple[Sequence[tuple[Convenio, bool]], int]:
@@ -898,10 +939,15 @@ class ServicioConvenios:
         acceso al detalle sigue usando el alcance operativo existente.
         """
         self._validar_rango_fechas(filtros)
+        if filtros.alcance == AlcanceConvenio.INSTITUCIONAL and filtros.programa_id is not None:
+            raise FiltroConsultaInvalido(
+                "No se puede combinar el alcance institucional con un programa académico."
+            )
         condiciones = [
             self._filtro_alcance_consulta(usuario),
             *self._aplicar_busqueda(filtros.buscar),
             *self._aplicar_filtro_fechas(filtros),
+            *self._aplicar_filtros_avanzados(filtros),
         ]
         base = (
             select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
