@@ -19,6 +19,7 @@ from backend.models.documento import Documento
 from backend.models.enums import AlcanceConvenio, EstadoSolicitud, TipoSolicitante
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.invitacion_revision_contraparte import InvitacionRevisionContraparte
+from backend.models.notificacion import Notificacion
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.respuesta_revision_contraparte import RespuestaRevisionContraparte
 from backend.models.revision_convenio import RevisionConvenio
@@ -172,6 +173,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict) -> None:
         ))
         sesion.execute(delete(Auditoria).where(
             Auditoria.usuario_id.in_(escenario["usuario_ids"])
+        ))
+        sesion.execute(delete(Notificacion).where(
+            Notificacion.usuario_id.in_(escenario["usuario_ids"])
         ))
         sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
         sesion.execute(delete(SolicitudConvenio).where(

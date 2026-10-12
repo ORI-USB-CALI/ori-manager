@@ -8,6 +8,7 @@ import { useSesion } from '../auth/sesion'
 import { CargarDocumentoModal } from '../components/CargarDocumentoModal'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
 import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
@@ -360,6 +361,7 @@ export function ConvenioDetallePage() {
           <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
         </>
       )}
+      <EvaluacionConvenio convenioId={id} permitirRegistro />
       <div className="page-toolbar"><Link className="btn btn-outline" to={`/convenios/${datos.id}/historial`}>Ver historial y trazabilidad</Link></div>
 
       {confirmarEnvio && (

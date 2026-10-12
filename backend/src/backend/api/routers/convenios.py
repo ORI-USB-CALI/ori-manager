@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, NoReturn
+from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -55,11 +55,17 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.evaluacion import (
+    EstadoEvaluacionLeer,
+    EvaluacionConvenioCrear,
+    EvaluacionConvenioLeer,
+)
 from backend.schemas.renovacion import (
     DecisionNoRenovacionLeer,
     RenovacionIniciadaLeer,
     SeguimientoRenovacionLeer,
 )
+from backend.schemas.soporte_convenio import SoporteConvenioLeer
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ConflictoVersionConvenio,
@@ -87,6 +93,11 @@ from backend.services.documentos import (
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
 )
+from backend.services.evaluaciones import (
+    ConvenioNoEvaluable,
+    ServicioEvaluaciones,
+    es_evaluable,
+)
 from backend.services.firma_electronica import (
     EntregaInvitacionesFirmaError,
     ServicioFirmaElectronica,
@@ -95,6 +106,10 @@ from backend.services.firmas import ServicioFirmas
 from backend.services.renovaciones import (
     ServicioRenovaciones,
     listar_seguimiento_renovaciones,
+)
+from backend.services.soportes_convenio import (
+    ConvenioNoAdmiteSoportes,
+    ServicioSoportesConvenio,
 )
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
@@ -120,6 +135,11 @@ PuedeRevisarContrapartePropia = Annotated[
 PuedeGestionarFirmas = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)
 ]
+PuedeEvaluar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EVALUAR)]
+# Guard de CA-04 de HU-22C: solo Gestor ORI y Administrador ORI; otro rol, 403.
+PuedeGestionarSoportes = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_SOPORTES)
+]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -140,6 +160,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
             ConvenioDuplicado,
             SolicitudNoAprobada,
             ConvenioNoEditable,
+            ConvenioNoEvaluable,
             RevisionNoDisponible,
             ObservacionNoDisponible,
         ),
@@ -159,7 +180,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)
         ) from exc
-    if isinstance(exc, ReferenciaConvenioInvalida):
+    if isinstance(exc, (ReferenciaConvenioInvalida, ConvenioNoAdmiteSoportes)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -414,6 +435,52 @@ def registrar_no_renovacion(
     return DecisionNoRenovacionLeer.model_validate(decision)
 
 
+@router.post(
+    "/{convenio_id}/evaluacion",
+    response_model=EvaluacionConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_evaluacion(
+    convenio_id: int,
+    datos: EvaluacionConvenioCrear,
+    db: DatabaseSession,
+    usuario: PuedeEvaluar,
+) -> EvaluacionConvenioLeer:
+    try:
+        evaluacion = ServicioEvaluaciones(db).registrar(convenio_id, datos, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return EvaluacionConvenioLeer.model_validate(evaluacion)
+
+
+@router.get("/{convenio_id}/evaluacion", response_model=EstadoEvaluacionLeer)
+def obtener_evaluacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> EstadoEvaluacionLeer:
+    """Estado de la evaluación de un convenio.
+
+    Devuelve `evaluable` además de la evaluación para que la interfaz no
+    reimplemente la regla de elegibilidad y siga funcionando sin cambios cuando
+    se amplíen los estados evaluables.
+    """
+    try:
+        convenio = ServicioConvenios(db).obtener_en_alcance_operativo(
+            convenio_id, usuario
+        )
+        evaluacion = ServicioEvaluaciones(db).obtener(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return EstadoEvaluacionLeer(
+        evaluable=es_evaluable(convenio),
+        estado_convenio=convenio.estado,
+        evaluacion=(
+            EvaluacionConvenioLeer.model_validate(evaluacion)
+            if evaluacion is not None
+            else None
+        ),
+    )
+
+
 @router.get("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)
 def obtener_elaboracion(
     convenio_id: int, db: DatabaseSession, usuario: PuedeVer
@@ -525,10 +592,14 @@ def obtener_historial_convenio(
     misma transacción, `now()` en Postgres devuelve siempre el mismo valor
     para todas las filas insertadas, así que `creado_en`/`fecha_cambio`
     pueden empatar entre sí y no garantizan el orden real de inserción.
+
+    HU-21: la consulta usa la autorización de solo lectura del historial, no
+    el alcance operativo, para que el Revisor ORI conserve el acceso a los
+    convenios en cuya revisión jurídica participó.
     """
     try:
         servicio = ServicioConvenios(db)
-        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        servicio.verificar_acceso_historial(convenio_id, usuario)
         convenio = servicio.obtener_historial(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
@@ -686,6 +757,54 @@ async def cargar_documento_convenio(
             "No fue posible almacenar el documento",
         ) from exc
 
+
+@router.get("/{convenio_id}/documentos", response_model=list[SoporteConvenioLeer])
+def listar_soportes(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarSoportes
+) -> list[SoporteConvenioLeer]:
+    """CA-03 de HU-22C: soportes vigentes del convenio, del más reciente al
+    más antiguo."""
+    try:
+        documentos = ServicioSoportesConvenio(db).listar(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return [SoporteConvenioLeer.desde_documento(documento) for documento in documentos]
+
+
+@router.get("/{convenio_id}/documentos/{documento_id}/descargar")
+def descargar_soporte(
+    convenio_id: int,
+    documento_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    _: PuedeGestionarSoportes,
+    disposicion: Literal["inline", "attachment"] = "attachment",
+) -> Response:
+    """CA-03 de HU-22C: entrega el soporte por el backend; `inline` lo abre en
+    el navegador y `attachment` lo descarga."""
+    try:
+        documento, contenido = ServicioSoportesConvenio(db).obtener_contenido(
+            convenio_id, documento_id, almacen
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible recuperar el documento almacenado",
+        ) from exc
+    nombre = quote(documento.nombre_archivo, safe="")
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            # Sin sniffing el navegador respeta el tipo declarado, y sin caché
+            # el soporte no queda guardado en proxies ni en equipos compartidos.
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.patch(
