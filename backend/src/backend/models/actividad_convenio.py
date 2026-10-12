@@ -37,6 +37,13 @@ class ActividadConvenio(Base):
     existe ningún punto de entrada para crearlas, los convenios reportados
     aparecerán todos sin actividades hasta que HU-35 se implemente — eso es
     exactamente lo que CA-03 de HU-34 espera que el reporte maneje.
+
+    PROVISIONAL: la rama de HU-35 usa una entidad distinta
+    (`actividad_utilizacion`) para el mismo concepto. El equipo técnico
+    acordó que debe existir una única entidad canónica compartida por
+    HU-34 y HU-35, pendiente de definir con el responsable de HU-35. Hasta
+    que ese contrato se cierre, esta tabla no se renombra ni se fusiona por
+    cuenta propia y el PR de HU-34 no se integra a `develop`.
     """
 
     __tablename__ = "actividad_convenio"

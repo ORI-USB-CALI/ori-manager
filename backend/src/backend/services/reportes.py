@@ -3,12 +3,13 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from html import escape as _escapar
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import select
@@ -18,16 +19,14 @@ from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
 
-# HU-34, CA-01: "activo" es cualquier convenio que no esté en trámite,
-# finalizado o cancelado (decisión confirmada con el cliente en reuniones
-# posteriores a la redacción del CA). POR_VENCER, VENCIDO y RENOVADO se
-# consideran convenios cuya ejecución sigue vigente o acaba de concluir y
-# por eso siguen siendo relevantes para este reporte.
+# HU-34, CA-01: "activo" es el convenio cuya ejecución sigue en curso hoy,
+# alineado con el ciclo de vida de PR #111. VIGENTE y POR_VENCER son los
+# únicos estados que representan eso. VENCIDO es un estado heredado (ya no
+# está en ejecución) y RENOVADO no implica por sí mismo que ESTE convenio
+# siga activo, así que ninguno de los dos se incluye automáticamente.
 ESTADOS_CONVENIO_ACTIVO = (
     EstadoConvenio.VIGENTE,
     EstadoConvenio.POR_VENCER,
-    EstadoConvenio.VENCIDO,
-    EstadoConvenio.RENOVADO,
 )
 
 
@@ -77,6 +76,7 @@ class ServicioReportes:
                 )
                 .options(
                     joinedload(Convenio.aliado),
+                    joinedload(Convenio.solicitud),
                     joinedload(Convenio.tipo_convenio),
                     joinedload(Convenio.unidad_organizacional),
                     joinedload(Convenio.creado_por),
@@ -90,13 +90,29 @@ class ServicioReportes:
         return [_a_reporte(convenio) for convenio in convenios]
 
 
+def identificacion(convenio_id: int, codigo: str | None) -> str:
+    """CA-02: identificación consistente en pantalla, PDF y Excel. Nunca se
+    deja un "—" como único identificador: si no hay código asignado todavía,
+    se usa el id del convenio."""
+    return codigo if codigo else f"Convenio #{convenio_id}"
+
+
+def _contraparte(convenio: Convenio) -> str | None:
+    """Muestra el aliado formal cuando ya existe; si el convenio todavía no
+    tiene aliado formal asociado, usa la contraparte propuesta registrada en
+    la solicitud de origen en vez de dejar el dato vacío."""
+    if convenio.aliado:
+        return convenio.aliado.nombre
+    return convenio.solicitud.nombre_aliado_propuesto if convenio.solicitud else None
+
+
 def _a_reporte(convenio: Convenio) -> ConvenioReporteActivo:
     return ConvenioReporteActivo(
         id=convenio.id,
         codigo=convenio.codigo,
         objeto=convenio.objeto,
         estado=convenio.estado,
-        aliado=convenio.aliado.nombre if convenio.aliado else None,
+        aliado=_contraparte(convenio),
         tipo_convenio=convenio.tipo_convenio.nombre if convenio.tipo_convenio else None,
         unidad_organizacional=(
             convenio.unidad_organizacional.nombre
@@ -121,7 +137,7 @@ def _actividad_a_resumen(actividad: ActividadConvenio) -> ActividadResumen:
 
 
 _ENCABEZADOS = (
-    "Código",
+    "Convenio",
     "Objeto",
     "Aliado",
     "Tipo de convenio",
@@ -132,6 +148,9 @@ _ENCABEZADOS = (
     "Actividades",
 )
 
+# Suman el ancho útil de una página carta con márgenes de 1.5cm (527pt).
+_ANCHOS_COLUMNAS_CM = (1.9, 3.4, 2.4, 1.9, 2.1, 1.9, 1.5, 1.6, 1.5)
+
 
 def _texto_actividades(convenio: ConvenioReporteActivo) -> str:
     if not convenio.actividades:
@@ -139,9 +158,9 @@ def _texto_actividades(convenio: ConvenioReporteActivo) -> str:
     return f"{len(convenio.actividades)} registrada(s)"
 
 
-def _fila(convenio: ConvenioReporteActivo) -> list[str]:
-    return [
-        convenio.codigo or "—",
+def _fila(convenio: ConvenioReporteActivo, estilo_celda) -> list:
+    valores = [
+        identificacion(convenio.id, convenio.codigo),
         convenio.objeto or "—",
         convenio.aliado or "—",
         convenio.tipo_convenio or "—",
@@ -151,6 +170,63 @@ def _fila(convenio: ConvenioReporteActivo) -> list[str]:
         convenio.fecha_vencimiento.isoformat() if convenio.fecha_vencimiento else "—",
         _texto_actividades(convenio),
     ]
+    # Cada celda se envuelve en un Paragraph para que reportlab ajuste el
+    # texto largo dentro del ancho de la columna en vez de desbordarlo. Se
+    # escapa el texto porque Paragraph interpreta un mini-XML propio.
+    return [Paragraph(_escapar(str(valor)), estilo_celda) for valor in valores]
+
+
+def _tabla_convenios(convenios: list[ConvenioReporteActivo], estilo_celda) -> Table:
+    datos = [list(_ENCABEZADOS)] + [_fila(c, estilo_celda) for c in convenios]
+    tabla = Table(datos, repeatRows=1, colWidths=[a * cm for a in _ANCHOS_COLUMNAS_CM])
+    tabla.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F36C21")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+            ]
+        )
+    )
+    return tabla
+
+
+def _tabla_actividades(convenio: ConvenioReporteActivo, estilo_celda) -> Table:
+    encabezados = ["Actividad", "Estado", "Fecha planificada", "Fecha ejecución"]
+    filas = [
+        [
+            Paragraph(_escapar(actividad.titulo), estilo_celda),
+            Paragraph(_escapar(actividad.estado), estilo_celda),
+            Paragraph(
+                actividad.fecha_planificada.isoformat() if actividad.fecha_planificada else "—",
+                estilo_celda,
+            ),
+            Paragraph(
+                actividad.fecha_ejecucion.isoformat() if actividad.fecha_ejecucion else "—",
+                estilo_celda,
+            ),
+        ]
+        for actividad in convenio.actividades
+    ]
+    tabla = Table(
+        [encabezados] + filas,
+        colWidths=[a * cm for a in (6.0, 4.0, 4.0, 4.0)],
+    )
+    tabla.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#64748B")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return tabla
 
 
 def generar_pdf_convenios_activos(convenios: list[ConvenioReporteActivo]) -> bytes:
@@ -163,8 +239,14 @@ def generar_pdf_convenios_activos(convenios: list[ConvenioReporteActivo]) -> byt
         rightMargin=1.5 * cm,
         topMargin=1.5 * cm,
         bottomMargin=1.5 * cm,
+        # Sin comprimir: reportes pequeños, y permite inspeccionar/validar
+        # el texto real del PDF (incluido en pruebas) sin herramientas extra.
+        pageCompression=0,
     )
     estilos = getSampleStyleSheet()
+    estilo_celda = ParagraphStyle(
+        "CeldaReporte", parent=estilos["Normal"], fontSize=7, leading=8.5
+    )
     elementos = [
         Paragraph("ORI USB Cali — Reporte de convenios activos", estilos["Title"]),
         Paragraph(
@@ -176,21 +258,21 @@ def generar_pdf_convenios_activos(convenios: list[ConvenioReporteActivo]) -> byt
     if not convenios:
         elementos.append(Paragraph("No hay convenios activos para mostrar.", estilos["Normal"]))
     else:
-        datos = [list(_ENCABEZADOS)] + [_fila(c) for c in convenios]
-        tabla = Table(datos, repeatRows=1)
-        tabla.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F36C21")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                    ("FONTSIZE", (0, 0), (-1, -1), 7),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-                ]
+        elementos.append(_tabla_convenios(convenios, estilo_celda))
+        elementos.append(Spacer(1, 0.8 * cm))
+        elementos.append(Paragraph("Actividades por convenio", estilos["Heading2"]))
+        for convenio in convenios:
+            elementos.append(Spacer(1, 0.3 * cm))
+            elementos.append(
+                Paragraph(
+                    _escapar(identificacion(convenio.id, convenio.codigo)),
+                    estilos["Heading3"],
+                )
             )
-        )
-        elementos.append(tabla)
+            if convenio.actividades:
+                elementos.append(_tabla_actividades(convenio, estilo_celda))
+            else:
+                elementos.append(Paragraph("Sin actividades registradas.", estilos["Normal"]))
     documento.build(elementos)
     return buffer.getvalue()
 
@@ -208,7 +290,7 @@ def generar_excel_convenios_activos(convenios: list[ConvenioReporteActivo]) -> b
     for convenio in convenios:
         hoja_convenios.append(
             [
-                convenio.codigo,
+                identificacion(convenio.id, convenio.codigo),
                 convenio.objeto,
                 convenio.aliado,
                 convenio.tipo_convenio,
@@ -227,7 +309,7 @@ def generar_excel_convenios_activos(convenios: list[ConvenioReporteActivo]) -> b
     for celda in hoja_actividades[1]:
         celda.font = Font(bold=True)
     for convenio in convenios:
-        identificador = convenio.codigo or f"#{convenio.id}"
+        identificador = identificacion(convenio.id, convenio.codigo)
         for actividad in convenio.actividades:
             hoja_actividades.append(
                 [

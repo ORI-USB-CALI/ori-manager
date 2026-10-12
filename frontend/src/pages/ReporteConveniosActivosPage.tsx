@@ -48,8 +48,8 @@ export function ReporteConveniosActivosPage() {
       <section className="header-banner">
         <h1>Reporte de convenios activos</h1>
         <p>
-          Información consolidada de los convenios vigentes, por vencer, vencidos y
-          renovados, con sus actividades registradas durante la vigencia.
+          Información consolidada de los convenios vigentes y por vencer, con sus
+          actividades registradas durante la vigencia.
         </p>
       </section>
 
