@@ -1,7 +1,7 @@
 """HT-02 versiones radicadas de la solicitud y sus documentos.
 
 Revision ID: 21fb929bf614
-Revises: a2b6f4d9c1e8
+Revises: b337c7245190
 Create Date: 2026-10-12 19:36:07.439789
 
 """
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '21fb929bf614'
-down_revision: str | Sequence[str] | None = 'a2b6f4d9c1e8'
+down_revision: str | Sequence[str] | None = 'b337c7245190'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
