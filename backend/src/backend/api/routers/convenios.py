@@ -3,7 +3,7 @@ from typing import Annotated, NoReturn
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -163,14 +163,6 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
             detail={
                 "message": str(exc),
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
-            },
-        ) from exc
-    if isinstance(exc, ErrorValidacionExportacion):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "message": str(exc),
-                "faltantes": exc.faltantes,
             },
         ) from exc
     if isinstance(exc, ReferenciaConvenioInvalida):
@@ -1109,6 +1101,13 @@ def exportar_convenio(
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
             },
+        )
+    except ErrorValidacionExportacion as exc:
+        # CA-03 de HU-24: el contrato pide el error en el nivel superior del
+        # cuerpo, no dentro de "detail".
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content=exc.como_respuesta(),
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)

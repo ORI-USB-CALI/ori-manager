@@ -2,12 +2,12 @@ from backend.core.roles import CodigoRol
 
 
 def test_exportar_convenio_pdf_exitoso(
-    client, convenio_listo, entrar_como, gestor
+    client, convenio_exportable, entrar_como, gestor
 ) -> None:
     entrar_como(gestor)
 
     # Probar endpoint BE-04 (/api/v1/convenios/{id}/exportar)
-    response = client.get(f"/api/v1/convenios/{convenio_listo.id}/exportar?formato=pdf")
+    response = client.get(f"/api/v1/convenios/{convenio_exportable.id}/exportar?formato=pdf")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert 'attachment; filename="Convenio_' in response.headers["content-disposition"]
@@ -16,19 +16,19 @@ def test_exportar_convenio_pdf_exitoso(
 
     # Probar compatibilidad con /api/convenios/{id}/exportar
     response_api = client.get(
-        f"/api/convenios/{convenio_listo.id}/exportar?formato=pdf"
+        f"/api/convenios/{convenio_exportable.id}/exportar?formato=pdf"
     )
     assert response_api.status_code == 200
     assert response_api.content.startswith(b"%PDF-")
 
 
 def test_exportar_convenio_excel_exitoso(
-    client, convenio_listo, entrar_como, gestor
+    client, convenio_exportable, entrar_como, gestor
 ) -> None:
     entrar_como(gestor)
 
     response = client.get(
-        f"/api/v1/convenios/{convenio_listo.id}/exportar?formato=excel"
+        f"/api/v1/convenios/{convenio_exportable.id}/exportar?formato=excel"
     )
     assert response.status_code == 200
     assert (
@@ -92,5 +92,5 @@ def test_exportar_convenio_datos_insuficientes_ca03(
     response = client.get(f"/api/v1/convenios/{convenio.id}/exportar?formato=pdf")
     assert response.status_code == 422
     data = response.json()
-    assert "faltantes" in data["detail"]
-    assert "objeto" in data["detail"]["faltantes"]
+    assert data["error"] == "CONVENIO_INCOMPLETO"
+    assert "objeto" in data["campos_faltantes"]

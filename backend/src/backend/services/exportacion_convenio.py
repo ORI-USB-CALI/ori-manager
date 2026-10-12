@@ -13,18 +13,33 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.models.convenio import Convenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.schemas.exportacion import FormatoExportacion
 from backend.services.convenios import ConvenioNoEncontrado, ErrorConvenio
 from backend.services.excel_convenio import ServicioExcelConvenio
 from backend.services.pdf_convenio import ServicioPdfConvenio
+from backend.services.validador_exportacion_convenio import ConvenioExportValidator
+
+MENSAJE_CONVENIO_INCOMPLETO = (
+    "No es posible generar el documento oficial. Faltan datos obligatorios."
+)
 
 
 class ErrorValidacionExportacion(ErrorConvenio):
-    """Excepción lanzada cuando el convenio no cuenta con datos mínimos requeridos para su exportación (CA-03)."""
+    """El convenio no tiene los datos obligatorios para un documento oficial (CA-03)."""
 
-    def __init__(self, mensaje: str, faltantes: list[str] | None = None) -> None:
-        self.faltantes = faltantes or []
-        super().__init__(mensaje)
+    codigo = "CONVENIO_INCOMPLETO"
+
+    def __init__(self, campos_faltantes: list[str]) -> None:
+        self.campos_faltantes = campos_faltantes
+        super().__init__(MENSAJE_CONVENIO_INCOMPLETO)
+
+    def como_respuesta(self) -> dict[str, object]:
+        return {
+            "error": self.codigo,
+            "message": str(self),
+            "campos_faltantes": self.campos_faltantes,
+        }
 
 
 class ServicioExportacionConvenio:
@@ -45,26 +60,24 @@ class ServicioExportacionConvenio:
             .options(
                 joinedload(Convenio.tipo_convenio),
                 joinedload(Convenio.unidad_organizacional),
+                joinedload(Convenio.aliado),
                 selectinload(Convenio.solicitud),
+                selectinload(Convenio.versiones),
+                selectinload(Convenio.procesos_firmas).selectinload(
+                    ProcesoFirmasConvenio.firmas
+                ),
             )
             .where(Convenio.id == convenio_id)
         )
         convenio = db.scalar(stmt)
         if convenio is None:
-            raise ConvenioNoEncontrado(convenio_id)
+            raise ConvenioNoEncontrado("Convenio no encontrado")
 
-        faltantes: list[str] = []
-        if not convenio.objeto or not convenio.objeto.strip():
-            faltantes.append("objeto")
-
-        if convenio.tipo_convenio_id is None and convenio.tipo_convenio is None:
-            faltantes.append("tipo_convenio")
-
+        # Se valida antes de renderizar: un convenio incompleto no llega a
+        # generar ni a guardar ningún archivo.
+        faltantes = ConvenioExportValidator().campos_faltantes(convenio)
         if faltantes:
-            raise ErrorValidacionExportacion(
-                f"El convenio no cuenta con información suficiente para su exportación: faltan campos obligatorios ({', '.join(faltantes)})",
-                faltantes=faltantes,
-            )
+            raise ErrorValidacionExportacion(faltantes)
 
         return convenio
 
