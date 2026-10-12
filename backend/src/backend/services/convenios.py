@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from enum import StrEnum
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
@@ -224,6 +225,21 @@ class ConfiguracionConvenioInvalida(RuntimeError):
     pass
 
 
+class FiltroConsultaInvalido(ErrorConvenio):
+    """HU-27 BE-1: rango de fechas inválido (fecha_desde posterior a
+    fecha_hasta). _lanzar_http() la traduce a 422."""
+
+
+
+class TipoFiltroFecha(StrEnum):
+    """HU-27: a qué fecha del convenio aplica el rango fecha_desde/fecha_hasta.
+    No se persiste, así que vive junto a FiltrosConsultaConvenio y no en
+    models/enums.py."""
+
+    FORMALIZACION = "FORMALIZACION"
+    VIGENCIA = "VIGENCIA"
+
+
 # HU-26: contrato de filtros compartido con HU-27 (fechas) y HU-28 (avanzados).
 # Cada historia agrega sus propios campos al final, con valor por defecto
 # None, sin modificar los existentes — así las tres ramas tocan bloques
@@ -233,6 +249,21 @@ class FiltrosConsultaConvenio:
     buscar: str | None = None
     limite: int = 20
     desplazamiento: int = 0
+    # HU-27 BE-1
+    tipo_fecha: TipoFiltroFecha | None = None
+    fecha_desde: date | None = None
+    fecha_hasta: date | None = None
+
+
+# HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
+# no está EN_TRAMITE ni CANCELADO (RN-03/RN-04). fecha_firma por sí sola no
+# basta: también se puede diligenciar a mano durante la elaboración
+# (ConvenioCamposEditables), antes de completar el proceso de firmas.
+ESTADOS_SIN_FORMALIZAR = (EstadoConvenio.EN_TRAMITE.value, EstadoConvenio.CANCELADO.value)
+
+
+def convenio_esta_formalizado(convenio: Convenio) -> bool:
+    return convenio.fecha_firma is not None and convenio.estado not in ESTADOS_SIN_FORMALIZAR
 
 
 # Traduce %, _ y \ a su forma escapada para ilike(..., escape="\\"), de modo
@@ -782,15 +813,67 @@ class ServicioConvenios:
             )
         ]
 
+    @staticmethod
+    def _validar_rango_fechas(filtros: FiltrosConsultaConvenio) -> None:
+        """HU-27 BE-1 (CA-05). fecha_desde posterior a fecha_hasta es un
+        rango inválido: no se aplica el filtro, se informa con un 422."""
+        if (
+            filtros.fecha_desde is not None
+            and filtros.fecha_hasta is not None
+            and filtros.fecha_desde > filtros.fecha_hasta
+        ):
+            raise FiltroConsultaInvalido("El rango de fechas no es válido")
+
+    @staticmethod
+    def _aplicar_filtro_fechas(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-27 BE-1/BE-2/BE-3. Condiciones del filtro de fechas, según
+        filtros.tipo_fecha (CA-04). Sin tipo_fecha, o sin ningún extremo del
+        rango, no agrega condición."""
+        if filtros.tipo_fecha is None:
+            return []
+        if filtros.fecha_desde is None and filtros.fecha_hasta is None:
+            return []
+
+        if filtros.tipo_fecha == TipoFiltroFecha.FORMALIZACION:
+            # BE-2: Convenio.fecha_firma es la fuente de verdad (RN-03),
+            # pero solo cuenta como formalizado fuera de EN_TRAMITE/CANCELADO
+            # (RN-04); ver convenio_esta_formalizado().
+            condiciones = [
+                Convenio.fecha_firma.is_not(None),
+                Convenio.estado.not_in(ESTADOS_SIN_FORMALIZAR),
+            ]
+            if filtros.fecha_desde is not None:
+                condiciones.append(Convenio.fecha_firma >= filtros.fecha_desde)
+            if filtros.fecha_hasta is not None:
+                condiciones.append(Convenio.fecha_firma <= filtros.fecha_hasta)
+            return condiciones
+
+        # BE-3: TipoFiltroFecha.VIGENCIA. Solapamiento de rangos con bordes
+        # inclusivos (RN-05/RN-06): cada periodo empieza antes de que termine
+        # el otro. Sin fecha_vencimiento se trata como vigencia indefinida.
+        condiciones = [Convenio.fecha_inicio.is_not(None)]
+        if filtros.fecha_hasta is not None:
+            condiciones.append(Convenio.fecha_inicio <= filtros.fecha_hasta)
+        if filtros.fecha_desde is not None:
+            condiciones.append(
+                or_(
+                    Convenio.fecha_vencimiento.is_(None),
+                    Convenio.fecha_vencimiento >= filtros.fecha_desde,
+                )
+            )
+        return condiciones
+
     def consultar(
         self, usuario: Usuario, filtros: FiltrosConsultaConvenio
     ) -> tuple[Sequence[Convenio], int]:
         """HU-26 BE-2/BE-4. Búsqueda global de convenios dentro del alcance
         operativo del rol autenticado (misma regla que el tablero y el
         detalle: self._filtro_alcance_operativo, no se reescribe aquí)."""
+        self._validar_rango_fechas(filtros)
         condiciones = [
             self._filtro_alcance_operativo(usuario),
             *self._aplicar_busqueda(filtros.buscar),
+            *self._aplicar_filtro_fechas(filtros),
         ]
         base = (
             select(Convenio)

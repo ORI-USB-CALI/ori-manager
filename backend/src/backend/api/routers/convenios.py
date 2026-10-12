@@ -86,12 +86,15 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ElaboracionIncompleta,
     ErrorConvenio,
+    FiltroConsultaInvalido,
     FiltrosConsultaConvenio,
     ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
+    TipoFiltroFecha,
+    convenio_esta_formalizado,
 )
 from backend.services.correo import (
     EnviadorCorreo,
@@ -177,7 +180,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
         ) from exc
-    if isinstance(exc, ReferenciaConvenioInvalida):
+    if isinstance(exc, (ReferenciaConvenioInvalida, FiltroConsultaInvalido)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -233,9 +236,11 @@ def _a_item_consulta(convenio: Convenio) -> ConvenioConsultaItem:
         programa=_programa_de(convenio),
         fecha_inicio=convenio.fecha_inicio,
         fecha_vencimiento=convenio.fecha_vencimiento,
-        # "Formalizado" todavía no tiene una regla propia (la define HU-27
-        # BE-2): por ahora es tautológico con que exista fecha_firma.
-        fecha_formalizacion=convenio.fecha_firma,
+        # HU-27 BE-2: null cuando el convenio no está formalizado, para que
+        # la tabla no muestre fechas de firma diligenciadas a mano.
+        fecha_formalizacion=(
+            convenio.fecha_firma if convenio_esta_formalizado(convenio) else None
+        ),
     )
 
 
@@ -246,11 +251,22 @@ def consultar_convenios(
     buscar: Annotated[str | None, Query(max_length=200)] = None,
     limite: Annotated[int, Query(ge=1, le=100)] = 20,
     desplazamiento: Annotated[int, Query(ge=0)] = 0,
+    tipo_fecha: Annotated[TipoFiltroFecha | None, Query()] = None,
+    fecha_desde: Annotated[date | None, Query()] = None,
+    fecha_hasta: Annotated[date | None, Query()] = None,
 ) -> ConvenioConsultaListado:
     filtros = FiltrosConsultaConvenio(
-        buscar=buscar, limite=limite, desplazamiento=desplazamiento
+        buscar=buscar,
+        limite=limite,
+        desplazamiento=desplazamiento,
+        tipo_fecha=tipo_fecha,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
-    items, total = ServicioConvenios(db).consultar(usuario, filtros)
+    try:
+        items, total = ServicioConvenios(db).consultar(usuario, filtros)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
     return ConvenioConsultaListado(
         items=[_a_item_consulta(convenio) for convenio in items], total=total
     )
