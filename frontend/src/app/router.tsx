@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { RequierePermiso } from '../auth/RequierePermiso'
 import { AliadoDetallePage } from '../pages/AliadoDetallePage'
 import { AliadosPage } from '../pages/AliadosPage'
+import { ConsultaConveniosPage } from '../pages/ConsultaConveniosPage'
 import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
 import { ConvenioHistorialPage } from '../pages/ConvenioHistorialPage'
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
         { path: '/ori/solicitudes/:solicitudId', element: <SolicitudRecibidaPage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
+        { path: '/convenios', element: <ConsultaConveniosPage /> },
         { path: '/convenios/tablero', element: <TableroConveniosPage /> },
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
