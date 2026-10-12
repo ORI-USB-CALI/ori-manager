@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
-import { apiFetch } from '../app/api'
+import { ApiError, apiFetch } from '../app/api'
 import type { EstadoConvenio, TipoAliado } from './epica02'
 
 export interface EtapaConsultaResumen {
@@ -59,7 +59,10 @@ export interface FiltrosConsultaConvenio {
   fecha_hasta?: string
   estados?: EstadoConvenio[]
   tipos_contraparte?: TipoAliado[]
-  programa_id?: number
+  // Conserva también los valores de URL sin convertirlos: el backend
+  // valida los parámetros y un valor inválido nunca significa sin filtro.
+  programa_id?: number | string
+  alcance?: string
 }
 
 export function construirQuery(filtros: FiltrosConsultaConvenio): string {
@@ -78,7 +81,13 @@ export function construirQuery(filtros: FiltrosConsultaConvenio): string {
   // HU-28: estado y tipo_contraparte son listas repetibles (?estado=A&estado=B).
   filtros.estados?.forEach((estado) => parametros.append('estado', estado))
   filtros.tipos_contraparte?.forEach((tipo) => parametros.append('tipo_contraparte', tipo))
-  if (filtros.programa_id) parametros.set('programa_id', String(filtros.programa_id))
+  if (filtros.programa_id !== undefined) {
+    if (typeof filtros.programa_id === 'number' && !Number.isFinite(filtros.programa_id)) {
+      throw new ApiError(422, 'El identificador de programa no es válido.')
+    }
+    parametros.set('programa_id', String(filtros.programa_id))
+  }
+  if (filtros.alcance !== undefined) parametros.set('alcance', filtros.alcance)
   return parametros.toString()
 }
 

@@ -68,9 +68,18 @@ export function FiltrosAvanzados({
         label="Programa académico"
         value={programaId}
         opciones={[
-          { value: '', label: 'Todos los programas' },
+          { value: '', label: 'Todos los convenios' },
+          { value: 'PROGRAMA', label: 'Todos los convenios de alcance por programa' },
+          { value: 'INSTITUCIONAL', label: 'Alcance institucional / sin programa' },
+          ...(programaId === 'URL_INVALIDA'
+            ? [{ value: programaId, label: 'Combinación de alcance y programa inválida' }]
+            : programaId.startsWith('programa:') && !catalogos?.programas.some(
+                (programa) => `programa:${programa.id}` === programaId,
+              )
+              ? [{ value: programaId, label: `Programa solicitado: ${programaId.slice(9) || '(vacío)'}` }]
+              : []),
           ...(catalogos?.programas ?? []).map((programa) => ({
-            value: String(programa.id),
+            value: `programa:${programa.id}`,
             label: programa.nombre,
           })),
         ]}

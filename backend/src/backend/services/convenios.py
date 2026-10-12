@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from backend.core.roles import CodigoRol
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
@@ -258,6 +259,7 @@ class FiltrosConsultaConvenio:
     estados: tuple[EstadoConvenio, ...] | None = None
     tipos_contraparte: tuple[TipoAliado, ...] | None = None
     programa_id: int | None = None
+    alcance: AlcanceConvenio | None = None
 
 
 # HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
@@ -915,9 +917,17 @@ class ServicioConvenios:
                 ).in_([tipo.value for tipo in filtros.tipos_contraparte])
             )
         if filtros.programa_id is not None:
-            # Los convenios de alcance INSTITUCIONAL no tienen programa y
-            # quedan fuera de este filtro (no hay fila que compare igual).
-            condiciones.append(Convenio.unidad_organizacional_id == filtros.programa_id)
+            condiciones.extend([
+                Convenio.alcance == AlcanceConvenio.PROGRAMA.value,
+                Convenio.unidad_organizacional_id == filtros.programa_id,
+                Convenio.unidad_organizacional.has(
+                    UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value
+                ),
+            ])
+        if filtros.alcance is not None:
+            # La ausencia de programa no determina el alcance: también
+            # existe información aún sin definir durante la elaboración.
+            condiciones.append(Convenio.alcance == filtros.alcance.value)
         return condiciones
 
     def consultar(
@@ -929,6 +939,10 @@ class ServicioConvenios:
         acceso al detalle sigue usando el alcance operativo existente.
         """
         self._validar_rango_fechas(filtros)
+        if filtros.alcance == AlcanceConvenio.INSTITUCIONAL and filtros.programa_id is not None:
+            raise FiltroConsultaInvalido(
+                "No se puede combinar el alcance institucional con un programa académico."
+            )
         condiciones = [
             self._filtro_alcance_consulta(usuario),
             *self._aplicar_busqueda(filtros.buscar),

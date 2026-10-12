@@ -6,6 +6,7 @@ import type { Mock } from 'vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ConsultaConveniosPage } from './ConsultaConveniosPage'
+import { construirQuery } from './consultaConvenios'
 
 afterEach(() => {
   cleanup()
@@ -64,10 +65,21 @@ function ultimaConsulta(fetchMock: Mock) {
 
 function NavegacionPrueba() {
   const navegar = useNavigate()
-  return <button onClick={() => navegar(-1)}>Volver atrás</button>
+  return <>
+    <button onClick={() => navegar(-1)}>Volver atrás</button>
+    <button onClick={() => navegar(1)}>Ir adelante</button>
+  </>
 }
 
 function renderPagina(entrada = '/convenios') {
+  // Los casos de HU-26/HU-27 simulan la consulta. El catálogo usa una ruta
+  // distinta y no debe recibir accidentalmente esa respuesta del listado.
+  const consultar = globalThis.fetch
+  vi.stubGlobal('fetch', (url: RequestInfo | URL, init?: RequestInit) =>
+    String(url).includes('/convenios/catalogos/consulta')
+      ? respuesta(catalogo)
+      : consultar(url, init),
+  )
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
@@ -177,6 +189,7 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
 
     renderPagina()
     const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Más filtros' }))
     expect(
       (screen.getByLabelText('Fecha de formalización') as HTMLInputElement).checked,
     ).toBe(true)
@@ -203,6 +216,7 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
 
     renderPagina()
     const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Más filtros' }))
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-30' } })
     fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '2026-06-01' } })
 
@@ -224,6 +238,7 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
 
     renderPagina()
     const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Más filtros' }))
     await usuario.type(screen.getByLabelText('Código, objeto, aliado o NIT'), 'movilidad')
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-01' } })
     await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
@@ -366,7 +381,9 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     expect(screen.getByLabelText('Por vencer')).toBeTruthy()
     expect(screen.getByLabelText('Entidad gubernamental')).toBeTruthy()
     const programa = screen.getByLabelText('Programa académico')
-    expect(within(programa).getByRole('option', { name: 'Todos los programas' })).toBeTruthy()
+    expect(within(programa).getByRole('option', { name: 'Todos los convenios' })).toBeTruthy()
+    expect(within(programa).getByRole('option', { name: 'Todos los convenios de alcance por programa' })).toBeTruthy()
+    expect(within(programa).getByRole('option', { name: 'Alcance institucional / sin programa' })).toBeTruthy()
     expect(within(programa).getByRole('option', { name: 'Programa de Derecho' })).toBeTruthy()
   })
 
@@ -379,14 +396,15 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     await usuario.click(await screen.findByLabelText('Vigente'))
     await usuario.click(screen.getByLabelText('Por vencer'))
     await usuario.click(screen.getByLabelText('Colegio'))
-    await usuario.selectOptions(screen.getByLabelText('Programa académico'), '50')
+    await usuario.selectOptions(screen.getByLabelText('Programa académico'), 'programa:50')
     await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
 
     await waitFor(() => {
       const url = ultimaConsulta(fetchMock)
-      expect(url).toContain('estado=VIGENTE&estado=POR_VENCER')
+      expect(new URL(url, 'http://localhost').searchParams.getAll('estado').sort()).toEqual(['POR_VENCER', 'VIGENTE'])
       expect(url).toContain('tipo_contraparte=COLEGIO')
       expect(url).toContain('programa_id=50')
+      expect(url).toContain('alcance=PROGRAMA')
     })
   })
 
@@ -444,5 +462,310 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     })
     expect(screen.queryByRole('list', { name: 'Filtros activos' })).toBeNull()
     expect((screen.getByLabelText('Cancelado') as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('selecciona alcance institucional, reinicia página y permite quitarlo por chip', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?buscar=SOL-77&programa_id=49&pagina=2')
+    const usuario = userEvent.setup()
+    await usuario.selectOptions(await screen.findByLabelText('Programa académico'), 'INSTITUCIONAL')
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.get('buscar')).toBe('SOL-77')
+      expect(parametros.get('alcance')).toBe('INSTITUCIONAL')
+      expect(parametros.has('programa_id')).toBe(false)
+      expect(parametros.has('desplazamiento')).toBe(false)
+    })
+    expect(screen.getByText('Página 1 de 3')).toBeTruthy()
+    await usuario.click(screen.getByRole('button', { name: 'Quitar filtro: Alcance institucional / sin programa' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toBe('/api/convenios?buscar=SOL-77&limite=20'))
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', '')
+  })
+
+  it('restaura todos los criterios y la consulta al navegar Atrás y Adelante', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?buscar=SOL-77&estado=VIGENTE&estado=VENCIDO&tipo_contraparte=EMPRESA&programa_id=49&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01&pagina=2')
+    const usuario = userEvent.setup()
+    await usuario.click(await screen.findByLabelText('Vencido'))
+    await usuario.click(screen.getByLabelText('Cancelado'))
+    await usuario.click(screen.getByLabelText('Empresa'))
+    await usuario.click(screen.getByLabelText('Colegio'))
+    await usuario.selectOptions(screen.getByLabelText('Programa académico'), 'INSTITUCIONAL')
+    await usuario.click(screen.getByLabelText('Fecha de formalización'))
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-15' } })
+    fireEvent.change(screen.getByLabelText('Código, objeto, aliado o NIT'), { target: { value: '#88' } })
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toContain('alcance=INSTITUCIONAL'))
+    await usuario.click(screen.getByRole('button', { name: 'Volver atrás' }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.get('buscar')).toBe('SOL-77')
+      expect(parametros.getAll('estado')).toEqual(['VENCIDO', 'VIGENTE'])
+      expect(parametros.getAll('tipo_contraparte')).toEqual(['EMPRESA'])
+      expect(parametros.get('programa_id')).toBe('49')
+      expect(parametros.get('tipo_fecha')).toBe('VIGENCIA')
+      expect(parametros.get('fecha_desde')).toBe('2026-06-01')
+      expect(parametros.get('desplazamiento')).toBe('20')
+      expect(parametros.has('alcance')).toBe(false)
+    })
+    expect(screen.getByLabelText('Vencido')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Cancelado')).toHaveProperty('checked', false)
+    expect(screen.getByLabelText('Empresa')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Colegio')).toHaveProperty('checked', false)
+    expect(screen.getByLabelText('Vigencia')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Desde')).toHaveProperty('value', '2026-06-01')
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'programa:49')
+    await usuario.click(screen.getByRole('button', { name: 'Ir adelante' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toContain('alcance=INSTITUCIONAL'))
+    expect(screen.getByLabelText('Cancelado')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Vencido')).toHaveProperty('checked', false)
+    expect(screen.getByLabelText('Colegio')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Empresa')).toHaveProperty('checked', false)
+    expect(screen.getByLabelText('Desde')).toHaveProperty('value', '2026-06-15')
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'INSTITUCIONAL')
+    expect(screen.getByLabelText('Fecha de formalización')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Código, objeto, aliado o NIT')).toHaveProperty('value', '#88')
+  })
+
+  it.each([
+    ['estado', 'Vigente'], ['tipo_contraparte', 'Empresa'],
+    ['programa_id', 'Programa de Ingeniería de Sistemas'],
+    ['fecha_desde', 'Vigencia: 01/06/2026 – …'], ['buscar', 'Búsqueda: «SOL-77»'],
+  ])('quitar el chip %s conserva otros filtros y borradores, reinicia página y hace una sola consulta', async (campo, etiqueta) => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?buscar=SOL-77&estado=VIGENTE&tipo_contraparte=EMPRESA&programa_id=49&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01&pagina=2')
+    const usuario = userEvent.setup()
+    await usuario.click(await screen.findByLabelText('Finalizado'))
+    await usuario.click(screen.getByLabelText('Colegio'))
+    const consultasAntes = fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/convenios?')).length
+    await usuario.click(await screen.findByRole('button', { name: `Quitar filtro: ${etiqueta}` }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.has(campo)).toBe(false)
+      expect(parametros.has('desplazamiento')).toBe(false)
+      if (campo !== 'estado') expect(parametros.getAll('estado')).toEqual(['VIGENTE'])
+      if (campo !== 'tipo_contraparte') expect(parametros.getAll('tipo_contraparte')).toEqual(['EMPRESA'])
+      if (campo !== 'programa_id') expect(parametros.get('programa_id')).toBe('49')
+      if (campo !== 'fecha_desde') expect(parametros.get('fecha_desde')).toBe('2026-06-01')
+      if (campo !== 'buscar') expect(parametros.get('buscar')).toBe('SOL-77')
+    })
+    expect(screen.getByLabelText('Finalizado')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Colegio')).toHaveProperty('checked', true)
+    expect(screen.getByText('Página 1 de 3')).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/convenios?'))).toHaveLength(consultasAntes + 1)
+  })
+
+  it('paginar conserva todos los filtros aplicados y no aplica borradores', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?buscar=SOL-77&estado=VIGENTE&tipo_contraparte=EMPRESA&alcance=INSTITUCIONAL&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01')
+    const usuario = userEvent.setup()
+    await usuario.click(await screen.findByLabelText('Finalizado'))
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-07-01' } })
+    const consultasAntes = fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/convenios?')).length
+    await usuario.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.get('desplazamiento')).toBe('20')
+      expect(parametros.get('buscar')).toBe('SOL-77')
+      expect(parametros.getAll('estado')).toEqual(['VIGENTE'])
+      expect(parametros.getAll('tipo_contraparte')).toEqual(['EMPRESA'])
+      expect(parametros.get('alcance')).toBe('INSTITUCIONAL')
+      expect(parametros.get('tipo_fecha')).toBe('VIGENCIA')
+      expect(parametros.get('fecha_desde')).toBe('2026-06-01')
+    })
+    expect(screen.getByLabelText('Finalizado')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Desde')).toHaveProperty('value', '2026-07-01')
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/convenios?'))).toHaveLength(consultasAntes + 1)
+  })
+
+  it('limpia todos los criterios, el alcance institucional y la página', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?buscar=SOL-77&estado=VIGENTE&tipo_contraparte=EMPRESA&alcance=INSTITUCIONAL&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01&pagina=2')
+    await screen.findByLabelText('Vigente')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Limpiar filtros' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toBe('/api/convenios?limite=20'))
+    expect(screen.queryByRole('list', { name: 'Filtros activos' })).toBeNull()
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Vigente')).toHaveProperty('checked', false)
+    expect(screen.getByLabelText('Empresa')).toHaveProperty('checked', false)
+    expect(screen.getByLabelText('Desde')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Código, objeto, aliado o NIT')).toHaveProperty('value', '')
+    expect(screen.getByText('Página 1 de 3')).toBeTruthy()
+  })
+
+  it('mantiene Ver historial cuando hay filtros avanzados y fechas', async () => {
+    mockFetch({ items: [{ ...itemReal, puede_ver_detalle: false }], total: 1 })
+    renderPagina('/convenios?estado=VIGENTE&tipo_contraparte=EMPRESA&alcance=INSTITUCIONAL&fecha_desde=2026-06-01&tipo_fecha=FORMALIZACION')
+    expect((await screen.findByRole('link', { name: 'Ver historial' })).getAttribute('href')).toBe('/convenios/77/historial')
+    expect(screen.queryByRole('link', { name: 'Ver' })).toBeNull()
+  })
+
+  it('representa alcance PROGRAMA y Buscar sin cambios conserva el filtro sin otra consulta', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?alcance=PROGRAMA&buscar=SOL-77')
+    await screen.findByText('41 resultados')
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'PROGRAMA')
+    expect(screen.getByRole('button', { name: 'Quitar filtro: Todos los convenios de alcance por programa' })).toBeTruthy()
+    const consultasAntes = fetchMock.mock.calls.length
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Buscar' }))
+    expect(new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams.get('alcance')).toBe('PROGRAMA')
+    expect(fetchMock.mock.calls).toHaveLength(consultasAntes)
+  })
+
+  it('cambia entre las cuatro opciones y elimina solo los parámetros de programa incompatibles', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?alcance=PROGRAMA&buscar=SOL-77&estado=VIGENTE&fecha_desde=2026-06-01&tipo_fecha=VIGENCIA&pagina=2')
+    const usuario = userEvent.setup()
+    await screen.findByLabelText('Vigente')
+    for (const [opcion, alcance, programa] of [
+      ['INSTITUCIONAL', 'INSTITUCIONAL', null],
+      ['programa:50', 'PROGRAMA', '50'], ['', null, null], ['PROGRAMA', 'PROGRAMA', null],
+    ]) {
+      await usuario.selectOptions(screen.getByLabelText('Programa académico'), opcion as string)
+      await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+      await waitFor(() => {
+        const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+        expect(parametros.get('alcance')).toBe(alcance)
+        expect(parametros.get('programa_id')).toBe(programa)
+        expect(parametros.get('buscar')).toBe('SOL-77')
+        expect(parametros.getAll('estado')).toEqual(['VIGENTE'])
+        expect(parametros.get('fecha_desde')).toBe('2026-06-01')
+        expect(parametros.has('desplazamiento')).toBe(false)
+      })
+    }
+  })
+
+  it('restaura todos los programas, un programa específico e institucional con Atrás/Adelante', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 1 })
+    renderPagina('/convenios?alcance=PROGRAMA')
+    const usuario = userEvent.setup()
+    await screen.findByLabelText('Vigente')
+    await usuario.selectOptions(screen.getByLabelText('Programa académico'), 'programa:49')
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toContain('programa_id=49'))
+    await usuario.selectOptions(screen.getByLabelText('Programa académico'), 'INSTITUCIONAL')
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toContain('alcance=INSTITUCIONAL'))
+    await usuario.click(screen.getByRole('button', { name: 'Volver atrás' }))
+    await waitFor(() => expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'programa:49'))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toContain('programa_id=49'))
+    await usuario.click(screen.getByRole('button', { name: 'Volver atrás' }))
+    await waitFor(() => expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'PROGRAMA'))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.get('alcance')).toBe('PROGRAMA')
+      expect(parametros.has('programa_id')).toBe(false)
+    })
+    await usuario.click(screen.getByRole('button', { name: 'Ir adelante' }))
+    await waitFor(() => expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'programa:49'))
+    await usuario.click(screen.getByRole('button', { name: 'Ir adelante' }))
+    await waitFor(() => expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'INSTITUCIONAL'))
+  })
+
+  it('pagina y quita alcance PROGRAMA preservando los otros filtros y borradores', async () => {
+    const fetchMock = mockFetch({ items: [itemReal], total: 41 })
+    renderPagina('/convenios?alcance=PROGRAMA&buscar=SOL-77&estado=VIGENTE&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01')
+    const usuario = userEvent.setup()
+    await usuario.click(await screen.findByLabelText('Finalizado'))
+    await usuario.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.get('alcance')).toBe('PROGRAMA')
+      expect(parametros.get('desplazamiento')).toBe('20')
+      expect(parametros.getAll('estado')).toEqual(['VIGENTE'])
+    })
+    await usuario.click(screen.getByRole('button', { name: 'Quitar filtro: Todos los convenios de alcance por programa' }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.has('alcance')).toBe(false)
+      expect(parametros.has('programa_id')).toBe(false)
+      expect(parametros.has('desplazamiento')).toBe(false)
+      expect(parametros.get('buscar')).toBe('SOL-77')
+      expect(parametros.get('fecha_desde')).toBe('2026-06-01')
+      expect(parametros.getAll('estado')).toEqual(['VIGENTE'])
+    })
+    expect(screen.getByLabelText('Finalizado')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', '')
+  })
+
+  it.each(['0', 'abc', '', '-1', '1.5'])('programa_id=%s llega intacto al backend, muestra 422 y se puede quitar', async (identificador) => {
+    const fetchMock = vi.fn((url: string) => {
+      const parametros = new URL(url, 'http://localhost').searchParams
+      if (parametros.has('programa_id')) {
+        return Promise.resolve({
+          ok: false, status: 422,
+          json: async () => ({ detail: [{ loc: ['query', 'programa_id'], msg: 'Invalid integer' }] }),
+        })
+      }
+      return respuesta({ items: [itemReal], total: 41 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPagina(`/convenios?buscar=SOL-77&estado=VIGENTE&programa_id=${encodeURIComponent(identificador)}`)
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent',
+      'El identificador de programa no es válido. Selecciona otro programa o quita el filtro.')
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', `programa:${identificador}`)
+    expect(screen.queryByText('41 resultados')).toBeNull()
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => expect(ultimaConsulta(fetchMock)).toContain('alcance=PROGRAMA'))
+    // Todas las consultas antes de quitar explícitamente el filtro lo
+    // contienen, incluyendo valores vacíos, sin conversiones a NaN.
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(url, 'http://localhost').searchParams.get('programa_id')).toBe(identificador)
+      expect(url).not.toContain('NaN')
+    }
+    await usuario.click(screen.getByRole('button', { name: `Quitar filtro: Programa solicitado: ${identificador || '(vacío)'}` }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.has('programa_id')).toBe(false)
+      expect(parametros.has('alcance')).toBe(false)
+      expect(parametros.get('buscar')).toBe('SOL-77')
+      expect(parametros.getAll('estado')).toEqual(['VIGENTE'])
+    })
+    expect(await screen.findByText('41 resultados')).toBeTruthy()
+  })
+
+  it.each([
+    ['INSTITUCIONAL', '49'], ['OTRO', '49'], ['', '49'],
+  ])('alcance=%s con programa_id=%s permanece inválido hasta una elección explícita', async (alcance, programa) => {
+    const fetchMock = vi.fn((url: string) => {
+      const parametros = new URL(url, 'http://localhost').searchParams
+      if (parametros.get('alcance') === alcance) {
+        return Promise.resolve({ ok: false, status: 422,
+          json: async () => ({ detail: 'La combinación de alcance y programa no es válida.' }),
+        })
+      }
+      return respuesta({ items: [itemReal], total: 1 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPagina(`/convenios?alcance=${alcance}&programa_id=${programa}&buscar=SOL-77`)
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'La combinación de alcance y programa no es válida.')
+    expect(screen.getByLabelText('Programa académico')).toHaveProperty('value', 'URL_INVALIDA')
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    for (const [url] of fetchMock.mock.calls) {
+      const parametros = new URL(url, 'http://localhost').searchParams
+      expect(parametros.get('alcance')).toBe(alcance)
+      expect(parametros.get('programa_id')).toBe(programa)
+    }
+    await usuario.selectOptions(screen.getByLabelText('Programa académico'), 'PROGRAMA')
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => {
+      const parametros = new URL(ultimaConsulta(fetchMock), 'http://localhost').searchParams
+      expect(parametros.get('alcance')).toBe('PROGRAMA')
+      expect(parametros.has('programa_id')).toBe(false)
+      expect(parametros.get('buscar')).toBe('SOL-77')
+    })
+  })
+
+  it('construirQuery preserva IDs inválidos y rechaza números no finitos antes de crear una URL', () => {
+    for (const programa_id of [0, '0', 'abc', '']) {
+      const parametros = new URLSearchParams(construirQuery({ limite: 20, desplazamiento: 0, programa_id }))
+      expect(parametros.get('programa_id')).toBe(String(programa_id))
+    }
+    for (const programa_id of [NaN, Infinity]) {
+      expect(() => construirQuery({ limite: 20, desplazamiento: 0, programa_id })).toThrow('El identificador de programa no es válido.')
+    }
   })
 })

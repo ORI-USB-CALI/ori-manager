@@ -22,7 +22,12 @@ from backend.core.permisos import Permiso
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoConvenio, EstadoSeguimientoRenovacion, TipoAliado
+from backend.models.enums import (
+    AlcanceConvenio,
+    EstadoConvenio,
+    EstadoSeguimientoRenovacion,
+    TipoAliado,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
@@ -258,7 +263,8 @@ def consultar_convenios(
     fecha_hasta: Annotated[date | None, Query()] = None,
     estado: Annotated[list[EstadoConvenio] | None, Query()] = None,
     tipo_contraparte: Annotated[list[TipoAliado] | None, Query()] = None,
-    programa_id: Annotated[int | None, Query()] = None,
+    programa_id: Annotated[int | None, Query(ge=1)] = None,
+    alcance: Annotated[AlcanceConvenio | None, Query()] = None,
 ) -> ConvenioConsultaListado:
     filtros = FiltrosConsultaConvenio(
         buscar=buscar,
@@ -271,6 +277,7 @@ def consultar_convenios(
         estados=tuple(estado) if estado else None,
         tipos_contraparte=tuple(tipo_contraparte) if tipo_contraparte else None,
         programa_id=programa_id,
+        alcance=alcance,
     )
     try:
         items, total = ServicioConvenios(db).consultar(usuario, filtros)

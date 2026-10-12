@@ -29,6 +29,32 @@ function esTipoFiltroFecha(valor: string | null): valor is TipoFiltroFecha {
 
 const LIMITE = 20
 
+function seleccionProgramaEnURL(programaId: string | null, alcance: string | null) {
+  if ((alcance !== null && alcance !== 'PROGRAMA' && alcance !== 'INSTITUCIONAL') ||
+      (alcance === 'INSTITUCIONAL' && programaId !== null)) return 'URL_INVALIDA'
+  if (programaId !== null) return `programa:${programaId}`
+  return alcance ?? ''
+}
+
+function mensajeErrorConsulta(error: unknown) {
+  if (!(error instanceof ApiError)) return 'No se pudo cargar el listado.'
+  if (error.status === 422 && Array.isArray(error.detail) && error.detail.some(
+    (detalle) => Array.isArray(detalle?.loc) && detalle.loc.includes('programa_id'),
+  )) return 'El identificador de programa no es válido. Selecciona otro programa o quita el filtro.'
+  return error.message
+}
+
+function claveFiltrosEnURL(parametros: URLSearchParams) {
+  return JSON.stringify([
+    parametros.get('buscar') ?? '',
+    esTipoFiltroFecha(parametros.get('tipo_fecha')) ? parametros.get('tipo_fecha') : TIPO_FECHA_DEFECTO,
+    parametros.get('fecha_desde') ?? '', parametros.get('fecha_hasta') ?? '',
+    [...new Set(parametros.getAll('estado'))].sort(),
+    [...new Set(parametros.getAll('tipo_contraparte'))].sort(),
+    parametros.get('programa_id'), parametros.get('alcance'),
+  ])
+}
+
 function contraparte(convenio: ConvenioConsulta) {
   const { contraparte: datos } = convenio
   if (!datos.nombre) return 'Contraparte por definir'
@@ -47,14 +73,16 @@ export function ConsultaConveniosPage() {
   // getAll() crea un arreglo nuevo en cada render; se memoiza por URL para
   // que `filtros` (y la query key) solo cambie cuando cambia la URL.
   const estadosActivos = useMemo(
-    () => parametros.getAll('estado') as EstadoConvenio[],
+    () => [...new Set(parametros.getAll('estado'))].sort() as EstadoConvenio[],
     [parametros],
   )
   const tiposContraparteActivos = useMemo(
-    () => parametros.getAll('tipo_contraparte') as TipoAliado[],
+    () => [...new Set(parametros.getAll('tipo_contraparte'))].sort() as TipoAliado[],
     [parametros],
   )
-  const programaIdActivo = parametros.get('programa_id') ?? ''
+  const programaIdActivo = parametros.get('programa_id')
+  const alcanceActivo = parametros.get('alcance')
+  const programaSeleccionado = seleccionProgramaEnURL(programaIdActivo, alcanceActivo)
   const pagina = Math.max(1, Number(parametros.get('pagina') ?? '1') || 1)
   const [buscarInput, setBuscarInput] = useState(buscarActivo)
   const [tipoFechaInput, setTipoFechaInput] = useState<TipoFiltroFecha>(tipoFechaActivo)
@@ -62,30 +90,36 @@ export function ConsultaConveniosPage() {
   const [fechaHastaInput, setFechaHastaInput] = useState(fechaHastaActivo)
   const [estadosInput, setEstadosInput] = useState<EstadoConvenio[]>(estadosActivos)
   const [tiposContraparteInput, setTiposContraparteInput] = useState<TipoAliado[]>(tiposContraparteActivos)
-  const [programaIdInput, setProgramaIdInput] = useState(programaIdActivo)
-  const claveFiltros = JSON.stringify([
-    buscarActivo, tipoFechaActivo, fechaDesdeActivo, fechaHastaActivo,
-    estadosActivos, tiposContraparteActivos, programaIdActivo,
-  ])
-  const [claveAnterior, setClaveAnterior] = useState(claveFiltros)
-  if (claveAnterior !== claveFiltros) {
-    setClaveAnterior(claveFiltros)
-    setBuscarInput(buscarActivo)
-    setTipoFechaInput(tipoFechaActivo)
-    setFechaDesdeInput(fechaDesdeActivo)
-    setFechaHastaInput(fechaHastaActivo)
-    setEstadosInput(estadosActivos)
-    setTiposContraparteInput(tiposContraparteActivos)
-    setProgramaIdInput(programaIdActivo)
-  }
+  const [programaIdInput, setProgramaIdInput] = useState(programaSeleccionado)
+  const claveFiltros = claveFiltrosEnURL(parametros)
+  const [sincronizacion, setSincronizacion] = useState({
+    clave: claveFiltros,
+    conservarBorradoresEn: null as string | null,
+  })
   const catalogos = useCatalogosConsulta()
   // Fechas y filtros avanzados van plegados; se abren solos si la URL ya trae alguno.
   const cantidadFiltrosAdicionales =
     (fechaDesdeActivo || fechaHastaActivo ? 1 : 0) +
     estadosActivos.length +
     tiposContraparteActivos.length +
-    (programaIdActivo ? 1 : 0)
+    (programaIdActivo !== null || alcanceActivo !== null ? 1 : 0)
   const [mostrarFiltros, setMostrarFiltros] = useState(cantidadFiltrosAdicionales > 0)
+
+  // Sincroniza Atrás/Adelante y los filtros recién aplicados. La página no
+  // forma parte de la clave: paginar conserva los borradores del formulario.
+  if (sincronizacion.clave !== claveFiltros) {
+    setSincronizacion({ clave: claveFiltros, conservarBorradoresEn: null })
+    if (sincronizacion.conservarBorradoresEn !== claveFiltros) {
+      setBuscarInput(buscarActivo)
+      setTipoFechaInput(tipoFechaActivo)
+      setFechaDesdeInput(fechaDesdeActivo)
+      setFechaHastaInput(fechaHastaActivo)
+      setEstadosInput(estadosActivos)
+      setTiposContraparteInput(tiposContraparteActivos)
+      setProgramaIdInput(programaSeleccionado)
+      if (cantidadFiltrosAdicionales > 0) setMostrarFiltros(true)
+    }
+  }
 
   // CA-05/RN-07: desde > hasta no se envía ni se refleja en la URL.
   const rangoInvalido = Boolean(
@@ -102,7 +136,8 @@ export function ConsultaConveniosPage() {
       fecha_hasta: fechaHastaActivo || undefined,
       estados: estadosActivos.length > 0 ? estadosActivos : undefined,
       tipos_contraparte: tiposContraparteActivos.length > 0 ? tiposContraparteActivos : undefined,
-      programa_id: programaIdActivo ? Number(programaIdActivo) : undefined,
+      programa_id: programaIdActivo ?? undefined,
+      alcance: alcanceActivo ?? undefined,
     }),
     [
       buscarActivo,
@@ -113,6 +148,7 @@ export function ConsultaConveniosPage() {
       estadosActivos,
       tiposContraparteActivos,
       programaIdActivo,
+      alcanceActivo,
     ],
   )
   const consulta = useConsultaConvenios(filtros)
@@ -123,7 +159,7 @@ export function ConsultaConveniosPage() {
       fechaHastaActivo ||
       estadosActivos.length > 0 ||
       tiposContraparteActivos.length > 0 ||
-      programaIdActivo,
+      programaIdActivo !== null || alcanceActivo !== null,
   )
   const total = consulta.data?.total ?? 0
   const totalPaginas = Math.max(1, Math.ceil(total / LIMITE))
@@ -151,8 +187,18 @@ export function ConsultaConveniosPage() {
       estadosInput.forEach((estado) => siguientes.append('estado', estado))
       siguientes.delete('tipo_contraparte')
       tiposContraparteInput.forEach((tipo) => siguientes.append('tipo_contraparte', tipo))
-      if (programaIdInput) siguientes.set('programa_id', programaIdInput)
-      else siguientes.delete('programa_id')
+      // Los parámetros incoherentes se mantienen hasta que el usuario
+      // elija otra opción o los quite; Buscar nunca los amplía por omisión.
+      if (programaIdInput !== 'URL_INVALIDA') {
+        siguientes.delete('programa_id')
+        siguientes.delete('alcance')
+        if (programaIdInput === 'PROGRAMA' || programaIdInput === 'INSTITUCIONAL') {
+          siguientes.set('alcance', programaIdInput)
+        } else if (programaIdInput.startsWith('programa:')) {
+          siguientes.set('alcance', 'PROGRAMA')
+          siguientes.set('programa_id', programaIdInput.slice(9))
+        }
+      }
       siguientes.delete('pagina')
       return siguientes
     })
@@ -171,13 +217,27 @@ export function ConsultaConveniosPage() {
 
   // FE-5: cada chip se quita de inmediato (sin pasar por el botón Buscar),
   // igual que quitarFechas — RN-08: es una relectura, no una escritura.
+  function quitarFiltroAplicado(actualizar: (siguientes: URLSearchParams) => void) {
+    const siguientes = new URLSearchParams(parametros)
+    actualizar(siguientes)
+    siguientes.delete('pagina')
+    // Cada manejador limpia solo su borrador. Los demás cambios pendientes
+    // se conservan, sin aplicarlos ni reemplazarlos por los valores de la URL.
+    // La navegación puede entrar en una transición de React. La clave
+    // actual se mantiene hasta recibir la nueva URL, evitando sincronizar
+    // prematuramente el formulario con los parámetros anteriores.
+    const claveSiguiente = claveFiltrosEnURL(siguientes)
+    setSincronizacion((actual) => ({
+      ...actual,
+      conservarBorradoresEn: claveSiguiente === actual.clave ? null : claveSiguiente,
+    }))
+    setParametros(siguientes)
+  }
+
   function quitarBusqueda() {
     setBuscarInput('')
-    setParametros((previos) => {
-      const siguientes = new URLSearchParams(previos)
+    quitarFiltroAplicado((siguientes) => {
       siguientes.delete('buscar')
-      siguientes.delete('pagina')
-      return siguientes
     })
   }
 
@@ -186,34 +246,26 @@ export function ConsultaConveniosPage() {
   function quitarEstado(estado: EstadoConvenio) {
     const restantes = estadosActivos.filter((item) => item !== estado)
     setEstadosInput((actuales) => actuales.filter((item) => item !== estado))
-    setParametros((previos) => {
-      const siguientes = new URLSearchParams(previos)
+    quitarFiltroAplicado((siguientes) => {
       siguientes.delete('estado')
       restantes.forEach((item) => siguientes.append('estado', item))
-      siguientes.delete('pagina')
-      return siguientes
     })
   }
 
   function quitarTipoContraparte(tipo: TipoAliado) {
     const restantes = tiposContraparteActivos.filter((item) => item !== tipo)
     setTiposContraparteInput((actuales) => actuales.filter((item) => item !== tipo))
-    setParametros((previos) => {
-      const siguientes = new URLSearchParams(previos)
+    quitarFiltroAplicado((siguientes) => {
       siguientes.delete('tipo_contraparte')
       restantes.forEach((item) => siguientes.append('tipo_contraparte', item))
-      siguientes.delete('pagina')
-      return siguientes
     })
   }
 
   function quitarPrograma() {
     setProgramaIdInput('')
-    setParametros((previos) => {
-      const siguientes = new URLSearchParams(previos)
+    quitarFiltroAplicado((siguientes) => {
       siguientes.delete('programa_id')
-      siguientes.delete('pagina')
-      return siguientes
+      siguientes.delete('alcance')
     })
   }
 
@@ -224,13 +276,10 @@ export function ConsultaConveniosPage() {
     setTipoFechaInput(TIPO_FECHA_DEFECTO)
     setFechaDesdeInput('')
     setFechaHastaInput('')
-    setParametros((previos) => {
-      const siguientes = new URLSearchParams(previos)
+    quitarFiltroAplicado((siguientes) => {
       siguientes.delete('tipo_fecha')
       siguientes.delete('fecha_desde')
       siguientes.delete('fecha_hasta')
-      siguientes.delete('pagina')
-      return siguientes
     })
   }
 
@@ -271,10 +320,16 @@ export function ConsultaConveniosPage() {
       onRemove: () => quitarTipoContraparte(tipo),
     })
   })
-  if (programaIdActivo) {
+  if (programaIdActivo !== null || alcanceActivo !== null) {
     chips.push({
       key: 'programa',
-      label: programaActivo?.nombre ?? 'Programa',
+      label: programaSeleccionado === 'URL_INVALIDA'
+        ? 'Combinación de alcance y programa inválida'
+        : programaIdActivo !== null
+          ? programaActivo?.nombre ?? `Programa solicitado: ${programaIdActivo || '(vacío)'}`
+          : alcanceActivo === 'INSTITUCIONAL'
+            ? 'Alcance institucional / sin programa'
+            : 'Todos los convenios de alcance por programa',
       onRemove: quitarPrograma,
     })
   }
@@ -385,6 +440,7 @@ export function ConsultaConveniosPage() {
                 />
               </div>
               <div className="consulta-fila consulta-fila-avanzados">
+                {catalogos.isError && <p role="alert">No se pudieron cargar las opciones de filtros avanzados.</p>}
                 <FiltrosAvanzados
                   catalogos={catalogos.data}
                   estados={estadosInput}
@@ -421,7 +477,7 @@ export function ConsultaConveniosPage() {
       {consulta.isPending && <p className="estado-pagina">Cargando convenios…</p>}
       {consulta.isError && (
         <p className="alert-error" role="alert">
-          {consulta.error instanceof ApiError ? consulta.error.message : 'No se pudo cargar el listado.'}
+          {mensajeErrorConsulta(consulta.error)}
         </p>
       )}
 
@@ -433,7 +489,9 @@ export function ConsultaConveniosPage() {
               buscarActivo
                 ? `No se encontraron convenios que coincidan con «${buscarActivo}».`
                 : hayFiltros
-                  ? 'No hay convenios que cumplan los filtros seleccionados.'
+                  ? estadosActivos.length || tiposContraparteActivos.length || programaIdActivo !== null || alcanceActivo !== null
+                    ? 'No hay convenios que cumplan los filtros seleccionados.'
+                    : 'No se encontraron convenios que coincidan con el rango de fechas.'
                   : 'No hay convenios visibles para tu rol.'
             }
             onClear={hayFiltros ? limpiarFiltros : undefined}
