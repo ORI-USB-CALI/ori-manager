@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Table,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -47,6 +48,13 @@ class SolicitudVersion(Base):
     __table_args__ = (
         UniqueConstraint("solicitud_id", "numero", name="uq_solicitud_version_numero"),
         CheckConstraint("numero > 0", name="ck_solicitud_version_numero"),
+        CheckConstraint(
+            "(devuelta_en IS NULL AND devuelta_por_id IS NULL"
+            " AND observaciones_devolucion IS NULL)"
+            " OR (devuelta_en IS NOT NULL AND devuelta_por_id IS NOT NULL"
+            " AND observaciones_devolucion IS NOT NULL)",
+            name="ck_solicitud_version_devolucion_completa",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -65,9 +73,19 @@ class SolicitudVersion(Base):
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # CA-05: si esta radicación fue devuelta, aquí queda la devolución. La versión
+    # corregida es la siguiente (numero + 1).
+    observaciones_devolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    devuelta_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
+    )
+    devuelta_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     solicitud: Mapped[SolicitudConvenio] = relationship(back_populates="versiones")
     radicada_por: Mapped[Usuario] = relationship(foreign_keys=[radicada_por_id])
+    devuelta_por: Mapped[Usuario | None] = relationship(foreign_keys=[devuelta_por_id])
     documentos: Mapped[list[Documento]] = relationship(
         secondary=solicitud_version_documento, order_by="Documento.id"
     )

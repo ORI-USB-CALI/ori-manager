@@ -30,9 +30,12 @@ from backend.models.solicitud_version import (
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.solicitud import (
+    DevolucionSolicitudLeer,
+    HistorialSolicitudLeer,
     SolicitudActualizar,
     SolicitudCampos,
     SolicitudCrear,
+    VersionSolicitudHistorialLeer,
 )
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
@@ -249,6 +252,40 @@ class ServicioSolicitudes:
             raise SolicitudNoEncontrada("Solicitud recibida no encontrada")
         return solicitud
 
+    def historial(self, solicitud: SolicitudConvenio) -> HistorialSolicitudLeer:
+        """HT-02 CA-05: cada radicación con su devolución y la versión que la corrigió."""
+        versiones = self.db.scalars(
+            select(SolicitudVersion)
+            .where(SolicitudVersion.solicitud_id == solicitud.id)
+            .options(selectinload(SolicitudVersion.devuelta_por))
+            .order_by(SolicitudVersion.numero)
+        ).all()
+        numeros = {version.numero for version in versiones}
+        return HistorialSolicitudLeer(
+            solicitud_id=solicitud.id,
+            consecutivo=solicitud.consecutivo,
+            estado=solicitud.estado,
+            versiones=[
+                VersionSolicitudHistorialLeer(
+                    numero=version.numero,
+                    radicada_en=version.radicada_en,
+                    devolucion=None
+                    if version.devuelta_en is None
+                    else DevolucionSolicitudLeer(
+                        observaciones=version.observaciones_devolucion,
+                        devuelta_por_nombre=version.devuelta_por.nombre_completo,
+                        devuelta_en=version.devuelta_en,
+                        corregida_en_version=(
+                            version.numero + 1
+                            if version.numero + 1 in numeros
+                            else None
+                        ),
+                    ),
+                )
+                for version in versiones
+            ],
+        )
+
     def _decidir(
         self, solicitud_id: int, actor: Usuario, estado: EstadoSolicitud
     ) -> SolicitudConvenio:
@@ -304,6 +341,17 @@ class ServicioSolicitudes:
                 )
             )
             solicitud.observaciones_devolucion = observaciones
+            version = self.db.scalar(
+                select(SolicitudVersion)
+                .where(SolicitudVersion.solicitud_id == solicitud.id)
+                .order_by(SolicitudVersion.numero.desc())
+                .limit(1)
+            )
+            # Las solicitudes radicadas antes de HT-02 no tienen versión que marcar.
+            if version is not None:
+                version.observaciones_devolucion = observaciones
+                version.devuelta_por_id = actor.id
+                version.devuelta_en = solicitud.fecha_decision
             notificaciones.crear(
                 solicitud.solicitante_id,
                 TipoNotificacion.SOLICITUD_DEVUELTA,

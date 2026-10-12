@@ -18,6 +18,7 @@ from backend.schemas.convenio import ConvenioLeer
 from backend.schemas.solicitud import (
     CatalogosSolicitud,
     DocumentoSolicitudLeer,
+    HistorialSolicitudLeer,
     PerfilSolicitante,
     SolicitudActualizar,
     SolicitudCrear,
@@ -203,6 +204,19 @@ def obtener_solicitud_recibida(
 
 
 @router.get(
+    "/recibidas/{solicitud_id}/historial", response_model=HistorialSolicitudLeer
+)
+def obtener_historial_solicitud_recibida(
+    solicitud_id: int, db: DatabaseSession, _: PuedeVerRecibidas
+) -> HistorialSolicitudLeer:
+    try:
+        servicio = ServicioSolicitudes(db)
+        return servicio.historial(servicio.obtener_recibida(solicitud_id))
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
     "/recibidas/{solicitud_id}/documentos/{documento_id}/contenido"
 )
 def obtener_documento_solicitud_recibida(
@@ -292,6 +306,17 @@ def iniciar_elaboracion_solicitud(
 def obtener_solicitud(solicitud_id: int, db: DatabaseSession, usuario: PuedeVerPropias):
     try:
         return ServicioSolicitudes(db).obtener(solicitud_id, usuario)
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.get("/{solicitud_id}/historial", response_model=HistorialSolicitudLeer)
+def obtener_historial_solicitud(
+    solicitud_id: int, db: DatabaseSession, usuario: PuedeVerPropias
+) -> HistorialSolicitudLeer:
+    try:
+        servicio = ServicioSolicitudes(db)
+        return servicio.historial(servicio.obtener(solicitud_id, usuario))
     except ErrorSolicitud as exc:
         _lanzar_http(exc)
 
