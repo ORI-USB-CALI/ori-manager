@@ -56,6 +56,9 @@ export interface FiltrosConsultaConvenio {
   tipo_fecha?: TipoFiltroFecha
   fecha_desde?: string
   fecha_hasta?: string
+  estados?: EstadoConvenio[]
+  tipos_contraparte?: TipoAliado[]
+  programa_id?: number
 }
 
 export function construirQuery(filtros: FiltrosConsultaConvenio): string {
@@ -71,6 +74,10 @@ export function construirQuery(filtros: FiltrosConsultaConvenio): string {
     if (filtros.fecha_desde) parametros.set('fecha_desde', filtros.fecha_desde)
     if (filtros.fecha_hasta) parametros.set('fecha_hasta', filtros.fecha_hasta)
   }
+  // HU-28: estado y tipo_contraparte son listas repetibles (?estado=A&estado=B).
+  filtros.estados?.forEach((estado) => parametros.append('estado', estado))
+  filtros.tipos_contraparte?.forEach((tipo) => parametros.append('tipo_contraparte', tipo))
+  if (filtros.programa_id) parametros.set('programa_id', String(filtros.programa_id))
   return parametros.toString()
 }
 
@@ -79,6 +86,33 @@ export function useConsultaConvenios(filtros: FiltrosConsultaConvenio) {
     queryKey: ['convenios', 'consulta', filtros],
     queryFn: () => apiFetch<ConvenioConsultaListado>(`/convenios?${construirQuery(filtros)}`),
     placeholderData: keepPreviousData,
+  })
+}
+
+// HU-28 BE-1: catálogo de opciones para los filtros avanzados (espejo de
+// UnidadOrganizacionalResumen en schemas/convenio.py).
+export interface ProgramaCatalogo {
+  id: number
+  codigo: string
+  nombre: string
+  tipo: string
+}
+
+export interface CatalogosConsulta {
+  estados: EstadoConvenio[]
+  tipos_contraparte: TipoAliado[]
+  programas: ProgramaCatalogo[]
+}
+
+const DIEZ_MINUTOS_MS = 10 * 60 * 1000
+
+export function useCatalogosConsulta() {
+  return useQuery({
+    queryKey: ['convenios', 'catalogos', 'consulta'],
+    queryFn: () => apiFetch<CatalogosConsulta>('/convenios/catalogos/consulta'),
+    // HU-28 FE-1: el catálogo casi no cambia, no hace falta revalidarlo en
+    // cada render de la página.
+    staleTime: DIEZ_MINUTOS_MS,
   })
 }
 

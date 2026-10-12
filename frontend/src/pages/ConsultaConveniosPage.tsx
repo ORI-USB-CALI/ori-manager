@@ -9,11 +9,17 @@ import {
   type DataTableColumn,
 } from '../components/DataTable'
 import { FiltroFechas } from '../components/FiltroFechas'
+import { FiltrosAvanzados } from '../components/FiltrosAvanzados'
 import { TableFilters } from '../components/TableFilters'
 import { StatusBadge } from '../components/tablePresentation'
-import { formatDate } from '../components/tableFormatters'
-import { type ConvenioConsulta, type TipoFiltroFecha, useConsultaConvenios } from './consultaConvenios'
-import { ETIQUETA_TIPO } from './epica02'
+import { enumLabel, formatDate } from '../components/tableFormatters'
+import {
+  type ConvenioConsulta,
+  type TipoFiltroFecha,
+  useCatalogosConsulta,
+  useConsultaConvenios,
+} from './consultaConvenios'
+import { ETIQUETA_TIPO, type EstadoConvenio, type TipoAliado } from './epica02'
 
 const TIPO_FECHA_DEFECTO: TipoFiltroFecha = 'FORMALIZACION'
 
@@ -38,11 +44,33 @@ export function ConsultaConveniosPage() {
     : TIPO_FECHA_DEFECTO
   const fechaDesdeActivo = parametros.get('fecha_desde') ?? ''
   const fechaHastaActivo = parametros.get('fecha_hasta') ?? ''
+  // getAll() crea un arreglo nuevo en cada render; se memoiza por URL para
+  // que `filtros` (y la query key) solo cambie cuando cambia la URL.
+  const estadosActivos = useMemo(
+    () => parametros.getAll('estado') as EstadoConvenio[],
+    [parametros],
+  )
+  const tiposContraparteActivos = useMemo(
+    () => parametros.getAll('tipo_contraparte') as TipoAliado[],
+    [parametros],
+  )
+  const programaIdActivo = parametros.get('programa_id') ?? ''
   const pagina = Math.max(1, Number(parametros.get('pagina') ?? '1') || 1)
   const [buscarInput, setBuscarInput] = useState(buscarActivo)
   const [tipoFechaInput, setTipoFechaInput] = useState<TipoFiltroFecha>(tipoFechaActivo)
   const [fechaDesdeInput, setFechaDesdeInput] = useState(fechaDesdeActivo)
   const [fechaHastaInput, setFechaHastaInput] = useState(fechaHastaActivo)
+  const [estadosInput, setEstadosInput] = useState<EstadoConvenio[]>(estadosActivos)
+  const [tiposContraparteInput, setTiposContraparteInput] = useState<TipoAliado[]>(tiposContraparteActivos)
+  const [programaIdInput, setProgramaIdInput] = useState(programaIdActivo)
+  const catalogos = useCatalogosConsulta()
+  // Fechas y filtros avanzados van plegados; se abren solos si la URL ya trae alguno.
+  const cantidadFiltrosAdicionales =
+    (fechaDesdeActivo || fechaHastaActivo ? 1 : 0) +
+    estadosActivos.length +
+    tiposContraparteActivos.length +
+    (programaIdActivo ? 1 : 0)
+  const [mostrarFiltros, setMostrarFiltros] = useState(cantidadFiltrosAdicionales > 0)
 
   // CA-05/RN-07: desde > hasta no se envía ni se refleja en la URL.
   const rangoInvalido = Boolean(
@@ -57,12 +85,31 @@ export function ConsultaConveniosPage() {
       tipo_fecha: tipoFechaActivo,
       fecha_desde: fechaDesdeActivo || undefined,
       fecha_hasta: fechaHastaActivo || undefined,
+      estados: estadosActivos.length > 0 ? estadosActivos : undefined,
+      tipos_contraparte: tiposContraparteActivos.length > 0 ? tiposContraparteActivos : undefined,
+      programa_id: programaIdActivo ? Number(programaIdActivo) : undefined,
     }),
-    [buscarActivo, pagina, tipoFechaActivo, fechaDesdeActivo, fechaHastaActivo],
+    [
+      buscarActivo,
+      pagina,
+      tipoFechaActivo,
+      fechaDesdeActivo,
+      fechaHastaActivo,
+      estadosActivos,
+      tiposContraparteActivos,
+      programaIdActivo,
+    ],
   )
   const consulta = useConsultaConvenios(filtros)
 
-  const hayFiltros = Boolean(buscarActivo || fechaDesdeActivo || fechaHastaActivo)
+  const hayFiltros = Boolean(
+    buscarActivo ||
+      fechaDesdeActivo ||
+      fechaHastaActivo ||
+      estadosActivos.length > 0 ||
+      tiposContraparteActivos.length > 0 ||
+      programaIdActivo,
+  )
   const total = consulta.data?.total ?? 0
   const totalPaginas = Math.max(1, Math.ceil(total / LIMITE))
 
@@ -85,6 +132,12 @@ export function ConsultaConveniosPage() {
         siguientes.delete('fecha_desde')
         siguientes.delete('fecha_hasta')
       }
+      siguientes.delete('estado')
+      estadosInput.forEach((estado) => siguientes.append('estado', estado))
+      siguientes.delete('tipo_contraparte')
+      tiposContraparteInput.forEach((tipo) => siguientes.append('tipo_contraparte', tipo))
+      if (programaIdInput) siguientes.set('programa_id', programaIdInput)
+      else siguientes.delete('programa_id')
       siguientes.delete('pagina')
       return siguientes
     })
@@ -95,7 +148,58 @@ export function ConsultaConveniosPage() {
     setTipoFechaInput(TIPO_FECHA_DEFECTO)
     setFechaDesdeInput('')
     setFechaHastaInput('')
+    setEstadosInput([])
+    setTiposContraparteInput([])
+    setProgramaIdInput('')
     setParametros({})
+  }
+
+  // FE-5: cada chip se quita de inmediato (sin pasar por el botón Buscar),
+  // igual que quitarFechas — RN-08: es una relectura, no una escritura.
+  function quitarBusqueda() {
+    setBuscarInput('')
+    setParametros((previos) => {
+      const siguientes = new URLSearchParams(previos)
+      siguientes.delete('buscar')
+      siguientes.delete('pagina')
+      return siguientes
+    })
+  }
+
+  // La URL se recalcula desde los filtros aplicados (no desde las casillas):
+  // quitar un chip no debe aplicar casillas marcadas sin pulsar Buscar.
+  function quitarEstado(estado: EstadoConvenio) {
+    const restantes = estadosActivos.filter((item) => item !== estado)
+    setEstadosInput((actuales) => actuales.filter((item) => item !== estado))
+    setParametros((previos) => {
+      const siguientes = new URLSearchParams(previos)
+      siguientes.delete('estado')
+      restantes.forEach((item) => siguientes.append('estado', item))
+      siguientes.delete('pagina')
+      return siguientes
+    })
+  }
+
+  function quitarTipoContraparte(tipo: TipoAliado) {
+    const restantes = tiposContraparteActivos.filter((item) => item !== tipo)
+    setTiposContraparteInput((actuales) => actuales.filter((item) => item !== tipo))
+    setParametros((previos) => {
+      const siguientes = new URLSearchParams(previos)
+      siguientes.delete('tipo_contraparte')
+      restantes.forEach((item) => siguientes.append('tipo_contraparte', item))
+      siguientes.delete('pagina')
+      return siguientes
+    })
+  }
+
+  function quitarPrograma() {
+    setProgramaIdInput('')
+    setParametros((previos) => {
+      const siguientes = new URLSearchParams(previos)
+      siguientes.delete('programa_id')
+      siguientes.delete('pagina')
+      return siguientes
+    })
   }
 
   // FE-4: "Quitar fechas" solo limpia el rango (no el término de búsqueda) y
@@ -121,6 +225,42 @@ export function ConsultaConveniosPage() {
       if (nueva <= 1) siguientes.delete('pagina')
       else siguientes.set('pagina', String(nueva))
       return siguientes
+    })
+  }
+
+  // HU-28 FE-5: un chip por filtro activo, cada uno removible individualmente.
+  const programaActivo = catalogos.data?.programas.find(
+    (programa) => String(programa.id) === programaIdActivo,
+  )
+  const chips: { key: string; label: string; onRemove: () => void }[] = []
+  if (buscarActivo) {
+    chips.push({ key: 'buscar', label: `Búsqueda: «${buscarActivo}»`, onRemove: quitarBusqueda })
+  }
+  if (fechaDesdeActivo || fechaHastaActivo) {
+    const criterio = tipoFechaActivo === 'FORMALIZACION' ? 'Formalización' : 'Vigencia'
+    chips.push({
+      key: 'fechas',
+      label: `${criterio}: ${fechaDesdeActivo ? formatDate(fechaDesdeActivo) : '…'} – ${
+        fechaHastaActivo ? formatDate(fechaHastaActivo) : '…'
+      }`,
+      onRemove: quitarFechas,
+    })
+  }
+  estadosActivos.forEach((estado) => {
+    chips.push({ key: `estado-${estado}`, label: enumLabel(estado), onRemove: () => quitarEstado(estado) })
+  })
+  tiposContraparteActivos.forEach((tipo) => {
+    chips.push({
+      key: `tipo-${tipo}`,
+      label: ETIQUETA_TIPO[tipo],
+      onRemove: () => quitarTipoContraparte(tipo),
+    })
+  })
+  if (programaIdActivo) {
+    chips.push({
+      key: 'programa',
+      label: programaActivo?.nombre ?? 'Programa',
+      onRemove: quitarPrograma,
     })
   }
 
@@ -180,35 +320,83 @@ export function ConsultaConveniosPage() {
       </section>
       <form onSubmit={buscar}>
         <TableFilters hasActiveFilters={hayFiltros} onClear={limpiarFiltros}>
-          <div className="form-group">
-            <label className="form-label" htmlFor="buscar-convenio">
-              Código, objeto, aliado o NIT
-            </label>
-            <input
-              id="buscar-convenio"
-              type="search"
-              className="form-control"
-              value={buscarInput}
-              onChange={(event) => setBuscarInput(event.target.value)}
-            />
-          </div>
-          <FiltroFechas
-            tipoFecha={tipoFechaInput}
-            fechaDesde={fechaDesdeInput}
-            fechaHasta={fechaHastaInput}
-            invalido={rangoInvalido}
-            onTipoFechaChange={setTipoFechaInput}
-            onFechaDesdeChange={setFechaDesdeInput}
-            onFechaHastaChange={setFechaHastaInput}
-            onQuitarFechas={quitarFechas}
-          />
-          <div className="form-group table-filter-submit">
+          {/* Tres filas a todo el ancho: la grilla automática de TableFilters
+              apretaba los filtros de HU-27/HU-28 en columnas de 160px. */}
+          <div className="consulta-fila consulta-fila-busqueda">
+            <div className="form-group">
+              <label className="form-label" htmlFor="buscar-convenio">
+                Código, objeto, aliado o NIT
+              </label>
+              <input
+                id="buscar-convenio"
+                type="search"
+                className="form-control"
+                value={buscarInput}
+                onChange={(event) => setBuscarInput(event.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline"
+              aria-expanded={mostrarFiltros}
+              aria-controls="consulta-filtros-adicionales"
+              onClick={() => setMostrarFiltros((abierto) => !abierto)}
+            >
+              {mostrarFiltros ? 'Menos filtros' : 'Más filtros'}
+              {cantidadFiltrosAdicionales > 0 && ` (${cantidadFiltrosAdicionales})`}
+            </button>
             <button className="btn btn-primary" type="submit" disabled={rangoInvalido}>
               Buscar
             </button>
           </div>
+          {/* Un rango inválido deja Buscar deshabilitado: el error no puede quedar oculto. */}
+          {(mostrarFiltros || rangoInvalido) && (
+            <div id="consulta-filtros-adicionales" className="consulta-filtros-adicionales">
+              <div className="consulta-fila">
+                <FiltroFechas
+                  tipoFecha={tipoFechaInput}
+                  fechaDesde={fechaDesdeInput}
+                  fechaHasta={fechaHastaInput}
+                  invalido={rangoInvalido}
+                  onTipoFechaChange={setTipoFechaInput}
+                  onFechaDesdeChange={setFechaDesdeInput}
+                  onFechaHastaChange={setFechaHastaInput}
+                  onQuitarFechas={quitarFechas}
+                />
+              </div>
+              <div className="consulta-fila consulta-fila-avanzados">
+                <FiltrosAvanzados
+                  catalogos={catalogos.data}
+                  estados={estadosInput}
+                  tiposContraparte={tiposContraparteInput}
+                  programaId={programaIdInput}
+                  onEstadosChange={setEstadosInput}
+                  onTiposContraparteChange={setTiposContraparteInput}
+                  onProgramaIdChange={setProgramaIdInput}
+                />
+              </div>
+            </div>
+          )}
         </TableFilters>
       </form>
+
+      {chips.length > 0 && (
+        <ul className="filtros-chips" aria-label="Filtros activos">
+          {chips.map((chip) => (
+            <li key={chip.key} className="filtro-chip">
+              {chip.label}
+              <button
+                type="button"
+                className="filtro-chip-quitar"
+                aria-label={`Quitar filtro: ${chip.label}`}
+                onClick={chip.onRemove}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {consulta.isPending && <p className="estado-pagina">Cargando convenios…</p>}
       {consulta.isError && (
@@ -222,9 +410,11 @@ export function ConsultaConveniosPage() {
           <ResultsCount count={0} />
           <TableEmptyState
             message={
-              hayFiltros
+              buscarActivo
                 ? `No se encontraron convenios que coincidan con «${buscarActivo}».`
-                : 'No hay convenios visibles para tu rol.'
+                : hayFiltros
+                  ? 'No hay convenios que cumplan los filtros seleccionados.'
+                  : 'No hay convenios visibles para tu rol.'
             }
             onClear={hayFiltros ? limpiarFiltros : undefined}
           />
