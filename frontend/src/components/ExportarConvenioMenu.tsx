@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { ApiError, apiFetchArchivo } from '../app/api'
+import { descargarBlob } from '../app/descargas'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { ModalDatosIncompletosExportacion } from './ModalDatosIncompletosExportacion'
 
@@ -8,6 +10,15 @@ interface Props {
 }
 
 type FormatoExportacion = 'pdf' | 'excel'
+
+/** Campos pendientes del error de exportación: `campos_faltantes` (HU-24) o `faltantes`. */
+function camposFaltantesDe(detalle: unknown): string[] {
+  if (!detalle || typeof detalle !== 'object') return []
+  const lista = 'campos_faltantes' in detalle ? detalle.campos_faltantes
+    : 'faltantes' in detalle ? detalle.faltantes
+      : null
+  return Array.isArray(lista) ? lista.filter((campo): campo is string => typeof campo === 'string') : []
+}
 
 export function ExportarConvenioMenu({ convenioId }: Props) {
   const [abierto, setAbierto] = useState(false)
@@ -50,83 +61,35 @@ export function ExportarConvenioMenu({ convenioId }: Props) {
     setAbierto(false)
 
     try {
-      const respuesta = await fetch(`/api/v1/convenios/${convenioId}/exportar?formato=${formato}`, {
-        credentials: 'include',
-      })
-
-      if (!respuesta.ok) {
-        // En caso de error, el backend envía un JSON informativo
-        const cuerpoTexto = await respuesta.text()
-        let datosError: Record<string, unknown> | null = null
-        try {
-          datosError = JSON.parse(cuerpoTexto) as Record<string, unknown>
-        } catch {
-          // El cuerpo no era JSON
-        }
-
-        // TAREA FE-03 (CA-03): Interceptar error 422/400 de datos incompletos
-        if (respuesta.status === 422 || respuesta.status === 400) {
-          const detalle = datosError && typeof datosError === 'object' && 'detail' in datosError
-            ? datosError.detail
-            : datosError
-
-          const faltantes = (detalle && typeof detalle === 'object' && 'faltantes' in detalle && Array.isArray((detalle as { faltantes: unknown }).faltantes)
-            ? (detalle as { faltantes: string[] }).faltantes
-            : (detalle && typeof detalle === 'object' && 'campos_faltantes' in detalle && Array.isArray((detalle as { campos_faltantes: unknown }).campos_faltantes)
-              ? (detalle as { campos_faltantes: string[] }).campos_faltantes
-              : null))
-
-          if (faltantes && faltantes.length > 0) {
-            setCamposFaltantes(faltantes)
-            setModalErrorAbierto(true)
-            return
-          }
-        }
-
-        if (respuesta.status === 403) {
-          notify({ type: 'error', message: 'No cuenta con permisos para exportar este convenio.' })
-          return
-        }
-
-        const mensaje = (datosError && typeof datosError.detail === 'string'
-          ? datosError.detail
-          : (datosError && typeof datosError.detail === 'object' && datosError.detail && 'message' in datosError.detail
-            ? String((datosError.detail as { message: unknown }).message)
-            : `Error al generar el documento (${respuesta.status})`))
-
-        notify({ type: 'error', message: mensaje })
+      const { blob, nombreArchivo } = await apiFetchArchivo(
+        `/convenios/${convenioId}/exportar?formato=${formato}`,
+      )
+      // FE-02: nombre de Content-Disposition o, si no viene, la convención estándar.
+      descargarBlob(blob, nombreArchivo ?? `Convenio_${convenioId}.${formato === 'excel' ? 'xlsx' : 'pdf'}`)
+      notify({ type: 'success', message: 'Documento generado y descargado correctamente' })
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        notify({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Error inesperado al descargar el archivo.',
+        })
         return
       }
 
-      // Descargar el archivo binario (PDF o Excel)
-      const blob = await respuesta.blob()
-      const disposition = respuesta.headers.get('Content-Disposition')
-      let nombreArchivo = `Convenio_${convenioId}.${formato === 'excel' ? 'xlsx' : 'pdf'}`
-      if (disposition) {
-        const match = /filename=["']?([^"';]+)["']?/i.exec(disposition)
-        if (match && match[1]) {
-          nombreArchivo = match[1]
-        }
+      // TAREA FE-03 (CA-03): Interceptar error 422/400 de datos incompletos
+      const faltantes = camposFaltantesDe(error.detail)
+      if ((error.status === 422 || error.status === 400) && faltantes.length > 0) {
+        setCamposFaltantes(faltantes)
+        setModalErrorAbierto(true)
+        return
       }
 
-      const urlDescarga = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = urlDescarga
-      link.download = nombreArchivo
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(urlDescarga)
+      if (error.status === 403) {
+        notify({ type: 'error', message: 'No cuenta con permisos para exportar este convenio.' })
+        return
+      }
 
-      notify({
-        type: 'success',
-        message: `Convenio exportado en ${formato.toUpperCase()} correctamente.`,
-      })
-    } catch (error) {
-      notify({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Error inesperado al descargar el archivo.',
-      })
+      notify({ type: 'error', message: error.message || `Error al generar el documento (${error.status})` })
     } finally {
       setDescargando(false)
       setFormatoActivo(null)

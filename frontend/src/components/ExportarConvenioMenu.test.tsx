@@ -78,7 +78,7 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/v1/convenios/10/exportar?formato=pdf',
+        '/api/convenios/10/exportar?formato=pdf',
         { credentials: 'include' },
       )
     })
@@ -87,7 +87,7 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
       expect(notify).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'success',
-          message: expect.stringMatching(/pdf/i),
+          message: 'Documento generado y descargado correctamente',
         }),
       )
     })
@@ -118,7 +118,7 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/v1/convenios/10/exportar?formato=excel',
+        '/api/convenios/10/exportar?formato=excel',
         { credentials: 'include' },
       )
     })
@@ -127,7 +127,7 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
       expect(notify).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'success',
-          message: expect.stringMatching(/excel/i),
+          message: 'Documento generado y descargado correctamente',
         }),
       )
     })
@@ -183,6 +183,34 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     })
+  })
+
+  it('abre el modal con el 422 de nivel superior de HU-24 (campos_faltantes)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            error: 'CONVENIO_INCOMPLETO',
+            message: 'No es posible generar el documento oficial. Faltan datos obligatorios.',
+            campos_faltantes: ['objeto', 'fecha_fin_vigencia'],
+          }),
+        ),
+    }))
+
+    const { notify } = renderizarMenu(15)
+
+    fireEvent.click(screen.getByRole('button', { name: /exportar o generar documento/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /exportar como excel/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    })
+    expect(screen.getByText('Objeto del convenio')).toBeTruthy()
+    expect(screen.getByText('Fecha fin vigencia')).toBeTruthy()
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }))
   })
 
   it('notifica error 403 cuando el usuario no tiene permisos', async () => {
