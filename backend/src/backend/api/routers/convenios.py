@@ -2,7 +2,16 @@ from datetime import date
 from typing import Annotated, NoReturn
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +19,7 @@ from sqlalchemy.orm import Session
 from backend.api.deps import requiere
 from backend.core.config import settings
 from backend.core.permisos import Permiso
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoSeguimientoRenovacion
@@ -22,6 +32,9 @@ from backend.schemas.convenio import (
     AtenderObservacion,
     CatalogosElaboracionLeer,
     ConfigurarFirmaConvenio,
+    ContraparteConsultaLeer,
+    ConvenioConsultaItem,
+    ConvenioConsultaListado,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
@@ -73,6 +86,7 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ElaboracionIncompleta,
     ErrorConvenio,
+    FiltrosConsultaConvenio,
     ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
@@ -176,6 +190,75 @@ def crear_convenio(
         return ServicioConvenios(db).crear(datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+def _contraparte_de(convenio: Convenio) -> ContraparteConsultaLeer:
+    """HU-26 BE-1: del Aliado formal si ya existe; si no (convenio en
+    trámite, sin aliado_id todavía), de los *_aliado_propuesto de la
+    solicitud de origen."""
+    if convenio.aliado is not None:
+        return ContraparteConsultaLeer(
+            nombre=convenio.aliado.nombre,
+            tipo=convenio.aliado.tipo,
+            identificacion=convenio.aliado.identificacion,
+            es_aliado_formal=True,
+        )
+    solicitud = convenio.solicitud
+    return ContraparteConsultaLeer(
+        nombre=solicitud.nombre_aliado_propuesto if solicitud else None,
+        tipo=solicitud.tipo_aliado_propuesto if solicitud else None,
+        identificacion=solicitud.identificacion_aliado_propuesto if solicitud else None,
+        es_aliado_formal=False,
+    )
+
+
+def _programa_de(convenio: Convenio):
+    """HU-26 BE-1: solo se llena cuando la unidad organizacional del
+    convenio es de tipo PROGRAMA; en otro caso va null."""
+    unidad = convenio.unidad_organizacional
+    if unidad is not None and unidad.tipo == TipoUnidad.PROGRAMA.value:
+        return unidad
+    return None
+
+
+def _a_item_consulta(convenio: Convenio,puede_ver_detalle: bool) -> ConvenioConsultaItem:
+    return ConvenioConsultaItem(
+        id=convenio.id,
+        codigo=convenio.codigo,
+        objeto=convenio.objeto,
+        estado=convenio.estado,
+        etapa=convenio.etapa_actual,
+        tipo_convenio=convenio.tipo_convenio,
+        contraparte=_contraparte_de(convenio),
+        programa=_programa_de(convenio),
+        fecha_inicio=convenio.fecha_inicio,
+        fecha_vencimiento=convenio.fecha_vencimiento,
+        # "Formalizado" todavía no tiene una regla propia (la define HU-27
+        # BE-2): por ahora es tautológico con que exista fecha_firma.
+        fecha_formalizacion=convenio.fecha_firma,
+        puede_ver_detalle=puede_ver_detalle,
+    )
+
+
+@router.get("", response_model=ConvenioConsultaListado)
+def consultar_convenios(
+    db: DatabaseSession,
+    usuario: PuedeVer,
+    buscar: Annotated[str | None, Query(max_length=200)] = None,
+    limite: Annotated[int, Query(ge=1, le=100)] = 20,
+    desplazamiento: Annotated[int, Query(ge=0)] = 0,
+) -> ConvenioConsultaListado:
+    filtros = FiltrosConsultaConvenio(
+        buscar=buscar, limite=limite, desplazamiento=desplazamiento
+    )
+    items, total = ServicioConvenios(db).consultar(usuario, filtros)
+    return ConvenioConsultaListado(
+    items=[
+        _a_item_consulta(convenio, bool(puede_ver_detalle))
+        for convenio, puede_ver_detalle in items
+    ],
+    total=total,
+)
 
 
 @router.get("/catalogos/elaboracion", response_model=CatalogosElaboracionLeer)

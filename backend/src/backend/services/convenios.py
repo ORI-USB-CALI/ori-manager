@@ -1,4 +1,6 @@
+from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
@@ -220,6 +222,24 @@ class ElaboracionIncompleta(ErrorConvenio):
 
 class ConfiguracionConvenioInvalida(RuntimeError):
     pass
+
+
+# HU-26: contrato de filtros compartido con HU-27 (fechas) y HU-28 (avanzados).
+# Cada historia agrega sus propios campos al final, con valor por defecto
+# None, sin modificar los existentes — así las tres ramas tocan bloques
+# distintos de ServicioConvenios.consultar() y se reducen los conflictos.
+@dataclass(frozen=True)
+class FiltrosConsultaConvenio:
+    buscar: str | None = None
+    limite: int = 20
+    desplazamiento: int = 0
+
+
+# Traduce %, _ y \ a su forma escapada para ilike(..., escape="\\"), de modo
+# que un término como "100%" se busque literal y no como comodín.
+_CARACTERES_ILIKE = str.maketrans(
+    {"\\": "\\\\", "%": "\\%", "_": "\\_"}
+)
 
 
 class ServicioConvenios:
@@ -612,6 +632,25 @@ class ServicioConvenios:
         ).correlate(Convenio)
         return or_(participo_en_revision, registro_observaciones)
 
+
+    @classmethod
+    def _filtro_alcance_consulta(cls, usuario: Usuario):
+        """Incluye el acceso operativo y la consulta histórica autorizada.
+
+        Para el Revisor ORI, HU-21 permite consultar convenios en cuya
+        revisión jurídica participó, incluso después de cambiar de etapa.
+        Esto no concede acceso al detalle operativo ni a modificaciones.
+        """
+        alcance = cls._filtro_alcance_operativo(usuario)
+
+        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
+            return or_(
+                alcance,
+                cls._filtro_participacion_juridica(usuario),
+            )
+
+        return alcance
+
     def verificar_acceso_historial(
         self, convenio_id: int, usuario: Usuario
     ) -> None:
@@ -620,9 +659,7 @@ class ServicioConvenios:
         en cuya revisión jurídica participó, aunque su revisión ya esté cerrada
         o el convenio haya cambiado de etapa; eso no le habilita ninguna acción
         operativa sobre el convenio."""
-        alcance = self._filtro_alcance_operativo(usuario)
-        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
-            alcance = or_(alcance, self._filtro_participacion_juridica(usuario))
+        alcance = self._filtro_alcance_consulta(usuario)
         visible = self.db.scalar(
             select(Convenio.id).where(Convenio.id == convenio_id, alcance)
         )
@@ -738,6 +775,74 @@ class ServicioConvenios:
                 (convenio, responsable_operativo, bool(puede_ver_detalle))
             )
         return etapas, resultado
+
+    @staticmethod
+    def _aplicar_busqueda(buscar: str | None) -> list:
+        """Busca convenios por texto, consecutivo de solicitud o ID."""
+        if not buscar or not buscar.strip():
+            return []
+
+        termino_original = buscar.strip()
+        termino = termino_original.translate(_CARACTERES_ILIKE)
+        patron = f"%{termino}%"
+
+        coincidencias = [
+            Convenio.codigo.ilike(patron, escape="\\"),
+            Convenio.objeto.ilike(patron, escape="\\"),
+            Aliado.nombre.ilike(patron, escape="\\"),
+            Aliado.identificacion.ilike(patron, escape="\\"),
+            SolicitudConvenio.nombre_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.identificacion_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.consecutivo.ilike(patron, escape="\\"),
+            TipoConvenio.nombre.ilike(patron, escape="\\"),
+        ]
+
+        # Acepta tanto "26" como "#26" para buscar el ID exacto.
+        identificador = termino_original.removeprefix("#")
+        if identificador.isascii() and identificador.isdecimal():
+            coincidencias.append(Convenio.id == int(identificador))
+
+        return [or_(*coincidencias)]
+
+    def consultar(
+        self, usuario: Usuario, filtros: FiltrosConsultaConvenio
+    ) -> tuple[Sequence[Convenio,bool], int]:
+        """HU-26 BE-2/BE-4. Búsqueda global de convenios dentro del alcance
+        operativo del rol autenticado (misma regla que el tablero y el
+        detalle: self._filtro_alcance_operativo, no se reescribe aquí)."""
+        condiciones = [
+            self._filtro_alcance_consulta(usuario),
+            *self._aplicar_busqueda(filtros.buscar),
+        ]
+        base = (
+            select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
+            .outerjoin(Convenio.aliado)
+            .outerjoin(Convenio.solicitud)
+            .outerjoin(Convenio.tipo_convenio)
+            .outerjoin(Convenio.etapa_actual)
+            .outerjoin(Convenio.unidad_organizacional)
+            .where(*condiciones)
+        )
+        total = self.db.scalar(
+            select(func.count()).select_from(base.subquery())
+        ) or 0
+        items = self.db.execute(
+            base.options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.unidad_organizacional),
+            )
+            .order_by(Convenio.actualizado_en.desc(), Convenio.id.desc())
+            .limit(filtros.limite)
+            .offset(filtros.desplazamiento)
+        ).all()
+        return items, total
 
     @staticmethod
     def _destinatarios_contraparte(
