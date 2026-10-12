@@ -1169,6 +1169,27 @@ a:hover {
   margin-top: 16px;
 }
 
+.convenio-objeto {
+  display: -webkit-box;
+  min-width: 200px;
+  max-width: 320px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.table-pagination-info {
+  color: var(--text-secondary);
+}
+
 .tablero-convenios {
   display: grid;
   grid-template-columns: repeat(7, minmax(280px, 1fr));
