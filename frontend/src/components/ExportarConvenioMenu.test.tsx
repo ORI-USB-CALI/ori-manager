@@ -78,7 +78,7 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/convenios/10/exportar?formato=pdf',
+        '/api/v1/convenios/10/exportar?formato=pdf',
         { credentials: 'include' },
       )
     })
@@ -118,7 +118,7 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/convenios/10/exportar?formato=excel',
+        '/api/v1/convenios/10/exportar?formato=excel',
         { credentials: 'include' },
       )
     })
