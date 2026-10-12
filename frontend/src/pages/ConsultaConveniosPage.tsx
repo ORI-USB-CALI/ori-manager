@@ -63,6 +63,21 @@ export function ConsultaConveniosPage() {
   const [estadosInput, setEstadosInput] = useState<EstadoConvenio[]>(estadosActivos)
   const [tiposContraparteInput, setTiposContraparteInput] = useState<TipoAliado[]>(tiposContraparteActivos)
   const [programaIdInput, setProgramaIdInput] = useState(programaIdActivo)
+  const claveFiltros = JSON.stringify([
+    buscarActivo, tipoFechaActivo, fechaDesdeActivo, fechaHastaActivo,
+    estadosActivos, tiposContraparteActivos, programaIdActivo,
+  ])
+  const [claveAnterior, setClaveAnterior] = useState(claveFiltros)
+  if (claveAnterior !== claveFiltros) {
+    setClaveAnterior(claveFiltros)
+    setBuscarInput(buscarActivo)
+    setTipoFechaInput(tipoFechaActivo)
+    setFechaDesdeInput(fechaDesdeActivo)
+    setFechaHastaInput(fechaHastaActivo)
+    setEstadosInput(estadosActivos)
+    setTiposContraparteInput(tiposContraparteActivos)
+    setProgramaIdInput(programaIdActivo)
+  }
   const catalogos = useCatalogosConsulta()
   // Fechas y filtros avanzados van plegados; se abren solos si la URL ya trae alguno.
   const cantidadFiltrosAdicionales =
@@ -305,8 +320,13 @@ export function ConsultaConveniosPage() {
       id: 'acciones',
       header: 'Acciones',
       render: (convenio) => (
-        <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`}>
-          Ver
+        <Link
+          className="btn btn-outline btn-small"
+          to={convenio.puede_ver_detalle
+            ? `/convenios/${convenio.id}`
+            : `/convenios/${convenio.id}/historial`}
+        >
+          {convenio.puede_ver_detalle ? 'Ver' : 'Ver historial'}
         </Link>
       ),
     },

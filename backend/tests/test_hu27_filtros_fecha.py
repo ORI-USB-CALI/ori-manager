@@ -3,12 +3,17 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
+from backend.models.historial_etapa import HistorialEtapa
+from backend.models.observacion_revision import ObservacionRevision
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.usuario import Usuario
+from backend.services.convenios import ServicioConvenios
 
 URL_CONVENIOS = "/api/convenios"
 
@@ -272,3 +277,203 @@ def test_ca07_revisor_no_ve_formalizados_fuera_de_su_alcance(
 
     cuerpo = respuesta.json()
     assert formalizado.id not in {item["id"] for item in cuerpo["items"]}
+
+
+@pytest.mark.parametrize("tipo_fecha", ["FORMALIZACION", "VIGENCIA"])
+@pytest.mark.parametrize("identificador", ["codigo", "id", "consecutivo", "identificacion"])
+def test_fechas_se_combinan_con_identificadores_hu26(
+    db, client, administrador, autor, formalizar, tipo_fecha, identificador
+) -> None:
+    convenio = formalizar(
+        autor,
+        fecha_firma=date(2026, 6, 15),
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2026, 12, 31),
+    )
+    convenio.codigo = f"HU27-{uuid4().hex[:10]}"
+    convenio.solicitud.identificacion_aliado_propuesto = uuid4().hex[:12]
+    db.commit()
+    termino = {
+        "codigo": convenio.codigo,
+        "id": f"#{convenio.id}",
+        "consecutivo": convenio.solicitud.consecutivo,
+        "identificacion": convenio.solicitud.identificacion_aliado_propuesto,
+    }[identificador]
+
+    respuesta = client.get(URL_CONVENIOS, params={
+        "buscar": termino, "tipo_fecha": tipo_fecha,
+        "fecha_desde": "2026-06-01", "fecha_hasta": "2026-06-30",
+    })
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["total"] == 1
+    assert respuesta.json()["items"][0]["id"] == convenio.id
+    assert respuesta.json()["items"][0]["puede_ver_detalle"] is True
+
+
+@pytest.mark.parametrize("tipo_fecha", ["FORMALIZACION", "VIGENCIA"])
+@pytest.mark.parametrize("participacion", ["resuelta", "asignada", "observacion"])
+def test_fechas_preservan_acceso_historico_sin_ampliar_permisos(
+    db, client, crear_usuario, entrar_como, autor, formalizar,
+    tipo_fecha, participacion,
+) -> None:
+    termino = f"historico-hu27-{uuid4().hex[:8]}"
+    revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    tercero = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    convenio = formalizar(
+        autor, fecha_firma=date(2026, 6, 15), objeto=termino,
+        fecha_inicio=date(2026, 1, 1), fecha_vencimiento=None,
+    )
+    ajeno = formalizar(
+        autor, fecha_firma=date(2026, 6, 15), objeto=termino,
+        fecha_inicio=date(2026, 1, 1), fecha_vencimiento=None,
+    )
+    revision = RevisionConvenio(
+        convenio_id=convenio.id, tipo="JURIDICA", estado="RESUELTA",
+        resultado="APROBADA", creada_por_id=tercero.id,
+        resuelta_por_id=revisor.id if participacion == "resuelta" else autor.id,
+        responsable_id=revisor.id if participacion == "asignada" else None,
+    )
+    db.add(revision)
+    db.flush()
+    if participacion == "observacion":
+        historial_id = db.scalar(select(HistorialEtapa.id).where(
+            HistorialEtapa.convenio_id == convenio.id,
+        ))
+        db.add(ObservacionRevision(
+            convenio_id=convenio.id, historial_etapa_id=historial_id,
+            revision_convenio_id=revision.id, origen="REVISOR_ORI",
+            registrada_por_id=revisor.id, descripcion="Participación histórica",
+        ))
+    db.commit()
+    parametros = {
+        "buscar": termino, "tipo_fecha": tipo_fecha,
+        "fecha_desde": "2026-06-01", "fecha_hasta": "2026-06-30",
+        "limite": 1,
+    }
+
+    entrar_como(revisor)
+    respuesta = client.get(URL_CONVENIOS, params=parametros)
+    assert respuesta.status_code == 200
+    assert respuesta.json()["total"] == 1
+    assert [item["id"] for item in respuesta.json()["items"]] == [convenio.id]
+    assert respuesta.json()["items"][0]["puede_ver_detalle"] is False
+    assert ajeno.id != convenio.id
+    assert client.get(f"{URL_CONVENIOS}/{convenio.id}/revisiones").status_code == 200
+    assert client.get(f"{URL_CONVENIOS}/{convenio.id}").status_code == 404
+
+    entrar_como(tercero)
+    respuesta = client.get(URL_CONVENIOS, params=parametros)
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"items": [], "total": 0}
+    assert client.get(f"{URL_CONVENIOS}/{convenio.id}/revisiones").status_code == 404
+
+
+def test_vigencia_preserva_acceso_operativo_del_revisor(
+    db, client, crear_usuario, entrar_como, gestor, convenio_listo
+) -> None:
+    convenio = convenio_listo
+    ServicioConvenios(db).finalizar_elaboracion(convenio.id, gestor)
+    revisor = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(revisor)
+    respuesta = client.get(URL_CONVENIOS, params={
+        "buscar": f"#{convenio.id}", "tipo_fecha": "VIGENCIA",
+        "fecha_desde": "2026-06-01", "fecha_hasta": "2026-06-30",
+    })
+    assert respuesta.status_code == 200
+    assert respuesta.json()["total"] == 1
+    assert respuesta.json()["items"][0]["puede_ver_detalle"] is True
+    assert client.get(f"{URL_CONVENIOS}/{convenio.id}").status_code == 200
+
+
+@pytest.mark.parametrize("tipo_fecha", ["FORMALIZACION", "VIGENCIA"])
+def test_fechas_y_busqueda_paginan_sobre_el_mismo_total(
+    client, administrador, autor, formalizar, tipo_fecha
+) -> None:
+    termino = f"pagina-hu27-{uuid4().hex[:8]}"
+    convenios = [formalizar(
+        autor, fecha_firma=date(2026, 6, 15), objeto=termino,
+        fecha_inicio=date(2026, 1, 1), fecha_vencimiento=date(2026, 12, 31),
+    ) for _ in range(3)]
+    formalizar(
+        autor, fecha_firma=date(2025, 1, 1), objeto=termino,
+        fecha_inicio=date(2025, 1, 1), fecha_vencimiento=date(2025, 12, 31),
+    )
+    for desplazamiento, convenio in enumerate(reversed(convenios)):
+        respuesta = client.get(URL_CONVENIOS, params={
+            "buscar": termino, "tipo_fecha": tipo_fecha,
+            "fecha_desde": "2026-06-01", "fecha_hasta": "2026-06-30",
+            "limite": 1, "desplazamiento": desplazamiento,
+        })
+        assert respuesta.status_code == 200
+        assert respuesta.json()["total"] == 3
+        assert [item["id"] for item in respuesta.json()["items"]] == [convenio.id]
+
+
+@pytest.mark.parametrize("tipo_fecha", ["FORMALIZACION", "VIGENCIA"])
+@pytest.mark.parametrize("extremos", [
+    {"fecha_desde": "2026-06-15"},
+    {"fecha_hasta": "2026-06-15"},
+    {"fecha_desde": "2026-06-15", "fecha_hasta": "2026-06-15"},
+])
+def test_extremos_inclusivos_y_rangos_abiertos(
+    client, administrador, autor, formalizar, tipo_fecha, extremos
+) -> None:
+    convenio = formalizar(
+        autor, fecha_firma=date(2026, 6, 15),
+        fecha_inicio=date(2026, 6, 15), fecha_vencimiento=date(2026, 6, 15),
+    )
+    respuesta = client.get(URL_CONVENIOS, params={
+        "buscar": f"#{convenio.id}", "tipo_fecha": tipo_fecha, **extremos,
+    })
+    assert respuesta.status_code == 200
+    assert respuesta.json()["total"] == 1
+
+
+@pytest.mark.parametrize("parametros", [
+    {"tipo_fecha": "OTRA"}, {"fecha_desde": "2026-02-30"},
+    {"fecha_desde": "2026-12-31", "fecha_hasta": "2026-01-01"},
+])
+def test_parametros_de_fecha_invalidos_devuelven_422(client, administrador, parametros) -> None:
+    assert client.get(URL_CONVENIOS, params=parametros).status_code == 422
+
+
+@pytest.mark.parametrize("estado", list(EstadoConvenio))
+def test_fecha_mostrada_respeta_el_estado_de_formalizacion(
+    client, administrador, autor, formalizar, estado
+) -> None:
+    convenio = formalizar(autor, fecha_firma=date(2026, 6, 15), estado=estado)
+    respuesta = client.get(URL_CONVENIOS, params={"buscar": f"#{convenio.id}"})
+    assert respuesta.status_code == 200
+    esperado = None if estado in (EstadoConvenio.EN_TRAMITE, EstadoConvenio.CANCELADO) else "2026-06-15"
+    assert respuesta.json()["items"][0]["fecha_formalizacion"] == esperado
+
+
+def test_filtrar_y_limpiar_no_ejecuta_escrituras(
+    db, client, administrador, autor, formalizar
+) -> None:
+    convenio = formalizar(
+        autor, fecha_firma=date(2026, 6, 15), fecha_inicio=date(2026, 1, 1),
+    )
+    sentencias = []
+
+    def registrar(conn, cursor, statement, parameters, context, executemany):
+        sentencias.append(statement.strip().split()[0].upper())
+
+    conexion = db.connection()
+    event.listen(conexion, "before_cursor_execute", registrar)
+    try:
+        for parametros in (
+            {"tipo_fecha": "FORMALIZACION", "fecha_desde": "2026-01-01"},
+            {"tipo_fecha": "VIGENCIA", "fecha_hasta": "2026-12-31"},
+            {},
+        ):
+            respuesta = client.get(URL_CONVENIOS, params={
+                "buscar": f"#{convenio.id}", **parametros,
+            })
+            assert respuesta.status_code == 200
+            assert respuesta.json()["total"] == 1
+    finally:
+        event.remove(conexion, "before_cursor_execute", registrar)
+    assert "SELECT" in sentencias
+    assert not {"INSERT", "UPDATE", "DELETE"}.intersection(sentencias)

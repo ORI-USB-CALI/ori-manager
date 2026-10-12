@@ -27,6 +27,7 @@ export interface ContraparteConsulta {
 
 export interface ConvenioConsulta {
   id: number
+  puede_ver_detalle: boolean
   codigo: string | null
   objeto: string | null
   estado: EstadoConvenio

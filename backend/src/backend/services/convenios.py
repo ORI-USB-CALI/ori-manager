@@ -668,6 +668,25 @@ class ServicioConvenios:
         ).correlate(Convenio)
         return or_(participo_en_revision, registro_observaciones)
 
+
+    @classmethod
+    def _filtro_alcance_consulta(cls, usuario: Usuario):
+        """Incluye el acceso operativo y la consulta histórica autorizada.
+
+        Para el Revisor ORI, HU-21 permite consultar convenios en cuya
+        revisión jurídica participó, incluso después de cambiar de etapa.
+        Esto no concede acceso al detalle operativo ni a modificaciones.
+        """
+        alcance = cls._filtro_alcance_operativo(usuario)
+
+        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
+            return or_(
+                alcance,
+                cls._filtro_participacion_juridica(usuario),
+            )
+
+        return alcance
+
     def verificar_acceso_historial(
         self, convenio_id: int, usuario: Usuario
     ) -> None:
@@ -676,9 +695,7 @@ class ServicioConvenios:
         en cuya revisión jurídica participó, aunque su revisión ya esté cerrada
         o el convenio haya cambiado de etapa; eso no le habilita ninguna acción
         operativa sobre el convenio."""
-        alcance = self._filtro_alcance_operativo(usuario)
-        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
-            alcance = or_(alcance, self._filtro_participacion_juridica(usuario))
+        alcance = self._filtro_alcance_consulta(usuario)
         visible = self.db.scalar(
             select(Convenio.id).where(Convenio.id == convenio_id, alcance)
         )
@@ -797,26 +814,35 @@ class ServicioConvenios:
 
     @staticmethod
     def _aplicar_busqueda(buscar: str | None) -> list:
-        """HU-26 BE-3. Condiciones de coincidencia parcial, insensible a
-        mayúsculas, por código, objeto, aliado (formal o propuesto) y tipo de
-        convenio. Devuelve lista vacía si no hay término (no agrega condición)."""
+        """Busca convenios por texto, consecutivo de solicitud o ID."""
         if not buscar or not buscar.strip():
             return []
-        termino = buscar.strip().translate(_CARACTERES_ILIKE)
+
+        termino_original = buscar.strip()
+        termino = termino_original.translate(_CARACTERES_ILIKE)
         patron = f"%{termino}%"
-        return [
-            or_(
-                Convenio.codigo.ilike(patron, escape="\\"),
-                Convenio.objeto.ilike(patron, escape="\\"),
-                Aliado.nombre.ilike(patron, escape="\\"),
-                Aliado.identificacion.ilike(patron, escape="\\"),
-                SolicitudConvenio.nombre_aliado_propuesto.ilike(patron, escape="\\"),
-                SolicitudConvenio.identificacion_aliado_propuesto.ilike(
-                    patron, escape="\\"
-                ),
-                TipoConvenio.nombre.ilike(patron, escape="\\"),
-            )
+
+        coincidencias = [
+            Convenio.codigo.ilike(patron, escape="\\"),
+            Convenio.objeto.ilike(patron, escape="\\"),
+            Aliado.nombre.ilike(patron, escape="\\"),
+            Aliado.identificacion.ilike(patron, escape="\\"),
+            SolicitudConvenio.nombre_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.identificacion_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.consecutivo.ilike(patron, escape="\\"),
+            TipoConvenio.nombre.ilike(patron, escape="\\"),
         ]
+
+        # Acepta tanto "26" como "#26" para buscar el ID exacto.
+        identificador = termino_original.removeprefix("#")
+        if identificador.isascii() and identificador.isdecimal():
+            coincidencias.append(Convenio.id == int(identificador))
+
+        return [or_(*coincidencias)]
 
     @staticmethod
     def _validar_rango_fechas(filtros: FiltrosConsultaConvenio) -> None:
@@ -896,19 +922,21 @@ class ServicioConvenios:
 
     def consultar(
         self, usuario: Usuario, filtros: FiltrosConsultaConvenio
-    ) -> tuple[Sequence[Convenio], int]:
-        """HU-26 BE-2/BE-4. Búsqueda global de convenios dentro del alcance
-        operativo del rol autenticado (misma regla que el tablero y el
-        detalle: self._filtro_alcance_operativo, no se reescribe aquí)."""
+    ) -> tuple[Sequence[tuple[Convenio, bool]], int]:
+        """Consulta en el alcance operativo e histórico autorizado de HU-26.
+
+        Los filtros de fecha solo restringen los resultados; el indicador de
+        acceso al detalle sigue usando el alcance operativo existente.
+        """
         self._validar_rango_fechas(filtros)
         condiciones = [
-            self._filtro_alcance_operativo(usuario),
+            self._filtro_alcance_consulta(usuario),
             *self._aplicar_busqueda(filtros.buscar),
             *self._aplicar_filtro_fechas(filtros),
             *self._aplicar_filtros_avanzados(filtros),
         ]
         base = (
-            select(Convenio)
+            select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
             .outerjoin(Convenio.aliado)
             .outerjoin(Convenio.solicitud)
             .outerjoin(Convenio.tipo_convenio)
@@ -919,7 +947,7 @@ class ServicioConvenios:
         total = self.db.scalar(
             select(func.count()).select_from(base.subquery())
         ) or 0
-        items = self.db.scalars(
+        items = self.db.execute(
             base.options(
                 joinedload(Convenio.aliado),
                 joinedload(Convenio.solicitud),

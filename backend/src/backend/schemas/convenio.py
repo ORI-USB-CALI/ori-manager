@@ -662,6 +662,7 @@ class ContraparteConsultaLeer(BaseModel):
 
 class ConvenioConsultaItem(BaseModel):
     id: int
+    puede_ver_detalle: bool
     codigo: str | None
     objeto: str | None
     estado: EstadoConvenio
