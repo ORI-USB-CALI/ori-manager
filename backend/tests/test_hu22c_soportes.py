@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import func, select
 
 from backend.api.routers.convenios import _lanzar_http
 from backend.core.roles import CodigoRol
@@ -37,6 +38,13 @@ def _agregar_documento(
     db.add(documento)
     db.commit()
     return documento
+
+
+def _cargar(client, convenio_id):
+    return client.post(
+        f"/api/convenios/{convenio_id}/documentos",
+        files={"archivo": ("soporte.pdf", PDF, "application/pdf")},
+    )
 
 
 @pytest.fixture
@@ -185,9 +193,11 @@ def test_otros_roles_reciben_403(
     descarga = client.get(
         f"/api/convenios/{convenio.id}/documentos/{soporte.id}/descargar"
     )
+    carga = _cargar(client, convenio.id)
 
     assert listado.status_code == 403
     assert descarga.status_code == 403
+    assert carga.status_code == 403
 
 
 def test_sin_sesion_responde_401(client, convenio):
@@ -245,3 +255,63 @@ def test_listado_y_descarga_no_dependen_del_estado(
         f"/api/convenios/{convenio.id}/documentos/{soporte.id}/descargar"
     )
     assert descarga.status_code == 200
+
+
+# ---- CA-04: carga por el endpoint ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "estado", [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER]
+)
+def test_endpoint_carga_soporte_en_convenio_activo(client, db, gestor, convenio, estado):
+    convenio.estado = estado.value
+    db.commit()
+
+    respuesta = _cargar(client, convenio.id)
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["tipo"] == "SOPORTE"
+
+
+@pytest.mark.parametrize(
+    "estado",
+    [
+        EstadoConvenio.EN_TRAMITE,
+        EstadoConvenio.VENCIDO,
+        EstadoConvenio.RENOVADO,
+        EstadoConvenio.FINALIZADO,
+        EstadoConvenio.CANCELADO,
+    ],
+)
+def test_endpoint_rechaza_carga_en_convenio_no_activo_con_422(
+    client, db, gestor, convenio, tmp_path, estado
+):
+    convenio.estado = estado.value
+    db.commit()
+    documentos = select(func.count()).select_from(Documento).where(
+        Documento.convenio_id == convenio.id
+    )
+    documentos_antes = db.scalar(documentos)
+    archivos_antes = set((tmp_path / "documentos").rglob("*"))
+
+    respuesta = _cargar(client, convenio.id)
+
+    assert respuesta.status_code == 422
+    assert "vigentes o por vencer" in respuesta.json()["detail"]
+    # La regla se aplica antes de guardar: ni registro ni archivo nuevo.
+    assert db.scalar(documentos) == documentos_antes
+    assert set((tmp_path / "documentos").rglob("*")) == archivos_antes
+
+
+def test_administrador_ori_puede_cargar_soportes(
+    client, db, convenio, crear_usuario, entrar_como
+):
+    convenio.estado = EstadoConvenio.VIGENTE.value
+    db.commit()
+    entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI))
+
+    assert _cargar(client, convenio.id).status_code == 201
+
+
+def test_carga_en_convenio_inexistente_responde_404(client, gestor):
+    assert _cargar(client, 999_999_999).status_code == 404

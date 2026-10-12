@@ -3,12 +3,22 @@
 import pytest
 
 from backend.models.documento import Documento
+from backend.models.enums import EstadoConvenio
 from backend.services.convenios import (
     DocumentoConvenioInvalido,
     DocumentoDemasiadoGrande,
     ServicioConvenios,
 )
 from backend.services.documentos import AlmacenDocumentosLocal
+
+
+@pytest.fixture
+def convenio_listo(convenio_listo, db):
+    """Desde CA-04 de HU-22C solo se cargan soportes en convenios vigentes o
+    por vencer; estas pruebas validan el archivo sobre un convenio vigente."""
+    convenio_listo.estado = EstadoConvenio.VIGENTE.value
+    db.commit()
+    return convenio_listo
 
 
 def test_cargar_documento_pdf_exitoso(client, gestor, entrar_como, convenio_listo, db) -> None:

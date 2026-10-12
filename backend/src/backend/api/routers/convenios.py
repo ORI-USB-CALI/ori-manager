@@ -735,9 +735,15 @@ async def cargar_documento_convenio(
     convenio_id: int,
     db: DatabaseSession,
     almacen: Storage,
-    usuario: PuedeEditar,
+    usuario: PuedeGestionarSoportes,
     archivo: Annotated[UploadFile, File()],
 ) -> DocumentoConvenioLeer:
+    # CA-04 de HU-22C: el guard deja pasar solo a Gestor y Administrador ORI
+    # (403) y el estado del convenio se valida antes de leer el archivo (422).
+    try:
+        ServicioSoportesConvenio(db).verificar_carga(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
     LIMITE_20MB = 20 * 1024 * 1024
     contenido = await archivo.read(LIMITE_20MB + 1)
     try:
