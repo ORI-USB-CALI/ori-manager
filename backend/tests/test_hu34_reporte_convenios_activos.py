@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -77,6 +78,47 @@ def crear_convenio_reporte(
         db.commit()
         db.refresh(convenio)
         return convenio
+
+    return _crear
+
+
+@pytest.fixture
+def crear_actividad(db: Session, gestor: Usuario) -> Callable[..., ActividadConvenio]:
+    """Crea una `ActividadConvenio` con los valores mínimos requeridos por
+    la entidad canónica aprobada (descripcion y registrado_por_id son
+    obligatorios)."""
+
+    def _crear(
+        convenio: Convenio,
+        *,
+        titulo: str = "Actividad de prueba",
+        descripcion: str = "Descripción de la actividad de prueba",
+        estado: EstadoActividadConvenio = EstadoActividadConvenio.REALIZADA,
+        parte_ejecutora: ParteEjecutoraActividad | None = ParteEjecutoraActividad.USB,
+        fecha_planificada: date | None = None,
+        fecha_ejecucion: date | None = date(2026, 3, 2),
+        observaciones: str | None = None,
+        responsable_nombre: str | None = None,
+        responsable_id: int | None = None,
+        registrado_por: Usuario | None = None,
+    ) -> ActividadConvenio:
+        actividad = ActividadConvenio(
+            convenio_id=convenio.id,
+            titulo=titulo,
+            descripcion=descripcion,
+            estado=estado.value,
+            parte_ejecutora=parte_ejecutora.value if parte_ejecutora else None,
+            fecha_planificada=fecha_planificada,
+            fecha_ejecucion=fecha_ejecucion,
+            observaciones=observaciones,
+            responsable_nombre=responsable_nombre,
+            responsable_id=responsable_id,
+            registrado_por_id=(registrado_por or gestor).id,
+        )
+        db.add(actividad)
+        db.commit()
+        db.refresh(actividad)
+        return actividad
 
     return _crear
 
@@ -178,28 +220,24 @@ def test_convenio_activo_sin_actividades_aparece_con_lista_vacia(
 
 
 def test_convenio_activo_con_varias_actividades_las_incluye(
-    client, db, gestor, crear_convenio_reporte
+    client, db, gestor, crear_convenio_reporte, crear_actividad
 ) -> None:
     convenio = crear_convenio_reporte(estado=EstadoConvenio.VIGENTE, codigo="CONV-ACT")
-    db.add_all(
-        [
-            ActividadConvenio(
-                convenio_id=convenio.id,
-                titulo="Taller de movilidad académica",
-                parte_ejecutora=ParteEjecutoraActividad.USB.value,
-                estado=EstadoActividadConvenio.REALIZADA.value,
-                fecha_planificada=date(2026, 3, 1),
-                fecha_ejecucion=date(2026, 3, 2),
-            ),
-            ActividadConvenio(
-                convenio_id=convenio.id,
-                titulo="Encuentro de seguimiento",
-                parte_ejecutora=ParteEjecutoraActividad.AMBAS.value,
-                estado=EstadoActividadConvenio.PENDIENTE.value,
-            ),
-        ]
+    crear_actividad(
+        convenio,
+        titulo="Taller de movilidad académica",
+        parte_ejecutora=ParteEjecutoraActividad.USB,
+        estado=EstadoActividadConvenio.REALIZADA,
+        fecha_planificada=date(2026, 3, 1),
+        fecha_ejecucion=date(2026, 3, 2),
     )
-    db.commit()
+    crear_actividad(
+        convenio,
+        titulo="Encuentro de seguimiento",
+        parte_ejecutora=ParteEjecutoraActividad.AMBAS,
+        estado=EstadoActividadConvenio.PENDIENTE,
+        fecha_ejecucion=None,
+    )
 
     respuesta = client.get(URL_JSON)
 
@@ -226,25 +264,73 @@ def test_refleja_cambios_posteriores_del_convenio(
 
 
 def test_refleja_actividades_registradas_despues_de_la_primera_consulta(
-    client, db, gestor, crear_convenio_reporte
+    client, db, gestor, crear_convenio_reporte, crear_actividad
 ) -> None:
     convenio = crear_convenio_reporte(estado=EstadoConvenio.VIGENTE, codigo="CONV-REGEN")
     assert client.get(URL_JSON).json()[0]["actividades"] == []
 
-    db.add(
-        ActividadConvenio(
-            convenio_id=convenio.id,
-            titulo="Actividad registrada después",
-            parte_ejecutora=ParteEjecutoraActividad.USB.value,
-        )
-    )
-    db.commit()
+    crear_actividad(convenio, titulo="Actividad registrada después")
     # El fixture `db` usa expire_on_commit=False: la colección ya cargada en
     # el identity map no se invalida sola tras el commit.
     db.expire_all()
 
     respuesta = client.get(URL_JSON)
     assert len(respuesta.json()[0]["actividades"]) == 1
+
+
+# ---- Modelo compartido con HU-35 -------------------------------------------
+
+
+def test_realizada_sin_fecha_ejecucion_viola_la_restriccion_de_bd(
+    db: Session, gestor, crear_convenio_reporte
+) -> None:
+    """La BD debe impedir una actividad REALIZADA sin fecha_ejecucion,
+    sin importar qué historia la registre."""
+    convenio = crear_convenio_reporte(estado=EstadoConvenio.VIGENTE, codigo="CONV-CHECK")
+    db.add(
+        ActividadConvenio(
+            convenio_id=convenio.id,
+            titulo="Actividad inválida",
+            descripcion="Sin fecha de ejecución",
+            estado=EstadoActividadConvenio.REALIZADA.value,
+            fecha_ejecucion=None,
+            registrado_por_id=gestor.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+
+def test_reporte_lee_actividades_con_la_estructura_que_usara_hu_35(
+    client, gestor, crear_convenio_reporte, crear_actividad
+) -> None:
+    """Simula cómo HU-35 registrará actividades en la entidad compartida:
+    siempre REALIZADA, sin parte_ejecutora ni fecha_planificada, con
+    responsable en texto libre y quien registra identificado aparte. El
+    reporte de HU-34 debe leerlas sin transformaciones ni tabla adicional.
+    """
+    convenio = crear_convenio_reporte(estado=EstadoConvenio.VIGENTE, codigo="CONV-HU35")
+    crear_actividad(
+        convenio,
+        titulo="Visita de seguimiento",
+        descripcion="Visita registrada como lo hará HU-35",
+        estado=EstadoActividadConvenio.REALIZADA,
+        parte_ejecutora=None,
+        fecha_planificada=None,
+        fecha_ejecucion=date(2026, 4, 10),
+        observaciones="Sin novedades",
+        responsable_nombre="Persona externa sin cuenta en el sistema",
+        registrado_por=gestor,
+    )
+
+    respuesta = client.get(URL_JSON)
+
+    (fila,) = respuesta.json()
+    assert len(fila["actividades"]) == 1
+    assert fila["actividades"][0]["titulo"] == "Visita de seguimiento"
+    assert fila["actividades"][0]["estado"] == "REALIZADA"
+    assert fila["actividades"][0]["fecha_ejecucion"] == "2026-04-10"
 
 
 # ---- Permisos ---------------------------------------------------------------
@@ -315,7 +401,7 @@ def test_descarga_pdf_sin_convenios_no_falla(client, gestor) -> None:
 
 
 def test_descarga_pdf_con_muchos_convenios_actividades_y_textos_extensos(
-    client, db, gestor, crear_convenio_reporte
+    client, db, gestor, crear_convenio_reporte, crear_actividad
 ) -> None:
     texto_largo = "Objeto extenso. " * 60
     for i in range(12):
@@ -323,14 +409,12 @@ def test_descarga_pdf_con_muchos_convenios_actividades_y_textos_extensos(
             estado=EstadoConvenio.VIGENTE, codigo=f"CONV-MASIVO-{i}"
         )
         convenio.objeto = texto_largo
-        db.add(
-            ActividadConvenio(
-                convenio_id=convenio.id,
-                titulo="Actividad con descripción & caracteres <especiales>",
-                parte_ejecutora=ParteEjecutoraActividad.CONTRAPARTE.value,
-            )
+        db.commit()
+        crear_actividad(
+            convenio,
+            titulo="Actividad con descripción & caracteres <especiales>",
+            parte_ejecutora=ParteEjecutoraActividad.CONTRAPARTE,
         )
-    db.commit()
 
     respuesta = client.get(URL_PDF)
 
@@ -342,18 +426,16 @@ def test_descarga_pdf_con_muchos_convenios_actividades_y_textos_extensos(
 
 
 def test_descarga_excel_con_convenios_y_actividades(
-    client, db, gestor, crear_convenio_reporte
+    client, db, gestor, crear_convenio_reporte, crear_actividad
 ) -> None:
     convenio = crear_convenio_reporte(estado=EstadoConvenio.VIGENTE, codigo="CONV-XLS")
-    db.add(
-        ActividadConvenio(
-            convenio_id=convenio.id,
-            titulo="Encuentro académico",
-            parte_ejecutora=ParteEjecutoraActividad.AMBAS.value,
-            estado=EstadoActividadConvenio.PENDIENTE.value,
-        )
+    crear_actividad(
+        convenio,
+        titulo="Encuentro académico",
+        parte_ejecutora=ParteEjecutoraActividad.AMBAS,
+        estado=EstadoActividadConvenio.PENDIENTE,
+        fecha_ejecucion=None,
     )
-    db.commit()
 
     respuesta = client.get(URL_EXCEL)
 
@@ -386,6 +468,34 @@ def test_descarga_excel_identifica_convenios_sin_codigo(
     hoja_convenios = libro["Convenios activos"]
     fila_convenio = [celda.value for celda in hoja_convenios[2]]
     assert fila_convenio[0] == f"Convenio #{convenio.id}"
+
+
+def test_descarga_excel_sanitiza_textos_que_parecen_formulas(
+    client, db, gestor, crear_convenio_reporte, crear_actividad
+) -> None:
+    """OWASP CSV/Excel injection: un objeto/título que empiece con
+    =, +, - o @ no debe exportarse como fórmula ejecutable."""
+    convenio = crear_convenio_reporte(estado=EstadoConvenio.VIGENTE, codigo="CONV-INJ")
+    convenio.objeto = "=cmd|'/c calc'!A0"
+    db.commit()
+    crear_actividad(
+        convenio,
+        titulo="+SUM(1+1)",
+        descripcion="Actividad con título que parece fórmula",
+    )
+
+    respuesta = client.get(URL_EXCEL)
+
+    libro = load_workbook(BytesIO(respuesta.content))
+    hoja_convenios = libro["Convenios activos"]
+    celda_objeto = hoja_convenios[2][1]
+    assert celda_objeto.value == "'=cmd|'/c calc'!A0"
+    assert celda_objeto.data_type != "f"
+
+    hoja_actividades = libro["Actividades"]
+    celda_titulo = hoja_actividades[2][1]
+    assert celda_titulo.value == "'+SUM(1+1)"
+    assert celda_titulo.data_type != "f"
 
 
 def test_descarga_excel_requiere_permiso(client, crear_usuario, entrar_como) -> None:

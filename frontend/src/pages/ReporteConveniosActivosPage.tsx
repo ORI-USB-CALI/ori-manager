@@ -119,7 +119,7 @@ export function ReporteConveniosActivosPage() {
                 <th scope="col">Aliado</th>
                 <th scope="col">Tipo</th>
                 <th scope="col">Unidad</th>
-                <th scope="col">Responsable</th>
+                <th scope="col">Registrado por</th>
                 <th scope="col">Vigencia</th>
                 <th scope="col">Estado</th>
                 <th scope="col">Actividades</th>
@@ -140,7 +140,7 @@ export function ReporteConveniosActivosPage() {
                   <td>{convenio.aliado ?? 'Sin aliado registrado'}</td>
                   <td>{convenio.tipo_convenio ?? 'Sin tipo registrado'}</td>
                   <td>{convenio.unidad_organizacional ?? 'Sin unidad registrada'}</td>
-                  <td>{convenio.responsable ?? 'Sin responsable registrado'}</td>
+                  <td>{convenio.responsable ?? 'Sin dato registrado'}</td>
                   <td>
                     {formatearFecha(convenio.fecha_inicio)}
                     {' — '}

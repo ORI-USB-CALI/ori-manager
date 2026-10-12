@@ -142,11 +142,23 @@ _ENCABEZADOS = (
     "Aliado",
     "Tipo de convenio",
     "Unidad",
-    "Responsable",
+    "Registrado por",
     "Fecha inicio",
     "Fecha vencimiento",
     "Actividades",
 )
+
+# OWASP CSV/Excel injection: si un texto libre empieza por uno de estos
+# caracteres, algunos lectores de hoja de cálculo (y openpyxl mismo, al
+# construir la celda) lo interpretan como fórmula. Se antepone un
+# apóstrofo para forzar texto literal sin alterar el dato original en BD.
+_PREFIJOS_FORMULA = ("=", "+", "-", "@")
+
+
+def _texto_seguro(valor: str | None) -> str | None:
+    if valor and valor.startswith(_PREFIJOS_FORMULA):
+        return f"'{valor}"
+    return valor
 
 # Suman el ancho útil de una página carta con márgenes de 1.5cm (527pt).
 _ANCHOS_COLUMNAS_CM = (1.9, 3.4, 2.4, 1.9, 2.1, 1.9, 1.5, 1.6, 1.5)
@@ -290,12 +302,12 @@ def generar_excel_convenios_activos(convenios: list[ConvenioReporteActivo]) -> b
     for convenio in convenios:
         hoja_convenios.append(
             [
-                identificacion(convenio.id, convenio.codigo),
-                convenio.objeto,
-                convenio.aliado,
-                convenio.tipo_convenio,
-                convenio.unidad_organizacional,
-                convenio.responsable,
+                _texto_seguro(identificacion(convenio.id, convenio.codigo)),
+                _texto_seguro(convenio.objeto),
+                _texto_seguro(convenio.aliado),
+                _texto_seguro(convenio.tipo_convenio),
+                _texto_seguro(convenio.unidad_organizacional),
+                _texto_seguro(convenio.responsable),
                 convenio.fecha_inicio,
                 convenio.fecha_vencimiento,
                 len(convenio.actividades),
@@ -309,12 +321,12 @@ def generar_excel_convenios_activos(convenios: list[ConvenioReporteActivo]) -> b
     for celda in hoja_actividades[1]:
         celda.font = Font(bold=True)
     for convenio in convenios:
-        identificador = identificacion(convenio.id, convenio.codigo)
+        identificador = _texto_seguro(identificacion(convenio.id, convenio.codigo))
         for actividad in convenio.actividades:
             hoja_actividades.append(
                 [
                     identificador,
-                    actividad.titulo,
+                    _texto_seguro(actividad.titulo),
                     actividad.estado,
                     actividad.fecha_planificada,
                     actividad.fecha_ejecucion,
