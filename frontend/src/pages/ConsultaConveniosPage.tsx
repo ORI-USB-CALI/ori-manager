@@ -91,9 +91,16 @@ export function ConsultaConveniosPage() {
       id: 'acciones',
       header: 'Acciones',
       render: (convenio) => (
-        <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`}>
-          Ver
-        </Link>
+        <Link
+  className="btn btn-outline btn-small"
+  to={
+    convenio.puede_ver_detalle
+      ? `/convenios/${convenio.id}`
+      : `/convenios/${convenio.id}/historial`
+  }
+>
+  {convenio.puede_ver_detalle ? 'Ver' : 'Ver historial'}
+</Link>
       ),
     },
   ]

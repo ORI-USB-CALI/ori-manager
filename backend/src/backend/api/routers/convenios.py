@@ -221,7 +221,7 @@ def _programa_de(convenio: Convenio):
     return None
 
 
-def _a_item_consulta(convenio: Convenio) -> ConvenioConsultaItem:
+def _a_item_consulta(convenio: Convenio,puede_ver_detalle: bool) -> ConvenioConsultaItem:
     return ConvenioConsultaItem(
         id=convenio.id,
         codigo=convenio.codigo,
@@ -236,6 +236,7 @@ def _a_item_consulta(convenio: Convenio) -> ConvenioConsultaItem:
         # "Formalizado" todavía no tiene una regla propia (la define HU-27
         # BE-2): por ahora es tautológico con que exista fecha_firma.
         fecha_formalizacion=convenio.fecha_firma,
+        puede_ver_detalle=puede_ver_detalle,
     )
 
 
@@ -252,8 +253,12 @@ def consultar_convenios(
     )
     items, total = ServicioConvenios(db).consultar(usuario, filtros)
     return ConvenioConsultaListado(
-        items=[_a_item_consulta(convenio) for convenio in items], total=total
-    )
+    items=[
+        _a_item_consulta(convenio, bool(puede_ver_detalle))
+        for convenio, puede_ver_detalle in items
+    ],
+    total=total,
+)
 
 
 @router.get("/catalogos/elaboracion", response_model=CatalogosElaboracionLeer)
