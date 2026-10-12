@@ -1,5 +1,8 @@
+from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from enum import StrEnum
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
@@ -15,6 +18,7 @@ from backend.models.enums import (
     AccionAuditoria,
     AlcanceConvenio,
     ContextoVersionConvenio,
+    EntidadNotificacion,
     EstadoConvenio,
     EstadoObservacionRevision,
     EstadoProcesoFirmasConvenio,
@@ -22,6 +26,7 @@ from backend.models.enums import (
     EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
+    TipoNotificacion,
     TipoRevisionConvenio,
 )
 from backend.models.etapa import Etapa
@@ -61,6 +66,7 @@ from backend.services.contraparte_externa import (
 )
 from backend.services.correo import EnviadorCorreo
 from backend.services.documentos import AlmacenDocumentos
+from backend.services.notificaciones import ServicioNotificaciones
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
@@ -217,6 +223,54 @@ class ElaboracionIncompleta(ErrorConvenio):
 
 class ConfiguracionConvenioInvalida(RuntimeError):
     pass
+
+
+class FiltroConsultaInvalido(ErrorConvenio):
+    """HU-27 BE-1: rango de fechas inválido (fecha_desde posterior a
+    fecha_hasta). _lanzar_http() la traduce a 422."""
+
+
+
+class TipoFiltroFecha(StrEnum):
+    """HU-27: a qué fecha del convenio aplica el rango fecha_desde/fecha_hasta.
+    No se persiste, así que vive junto a FiltrosConsultaConvenio y no en
+    models/enums.py."""
+
+    FORMALIZACION = "FORMALIZACION"
+    VIGENCIA = "VIGENCIA"
+
+
+# HU-26: contrato de filtros compartido con HU-27 (fechas) y HU-28 (avanzados).
+# Cada historia agrega sus propios campos al final, con valor por defecto
+# None, sin modificar los existentes — así las tres ramas tocan bloques
+# distintos de ServicioConvenios.consultar() y se reducen los conflictos.
+@dataclass(frozen=True)
+class FiltrosConsultaConvenio:
+    buscar: str | None = None
+    limite: int = 20
+    desplazamiento: int = 0
+    # HU-27 BE-1
+    tipo_fecha: TipoFiltroFecha | None = None
+    fecha_desde: date | None = None
+    fecha_hasta: date | None = None
+
+
+# HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
+# no está EN_TRAMITE ni CANCELADO (RN-03/RN-04). fecha_firma por sí sola no
+# basta: también se puede diligenciar a mano durante la elaboración
+# (ConvenioCamposEditables), antes de completar el proceso de firmas.
+ESTADOS_SIN_FORMALIZAR = (EstadoConvenio.EN_TRAMITE.value, EstadoConvenio.CANCELADO.value)
+
+
+def convenio_esta_formalizado(convenio: Convenio) -> bool:
+    return convenio.fecha_firma is not None and convenio.estado not in ESTADOS_SIN_FORMALIZAR
+
+
+# Traduce %, _ y \ a su forma escapada para ilike(..., escape="\\"), de modo
+# que un término como "100%" se busque literal y no como comodín.
+_CARACTERES_ILIKE = str.maketrans(
+    {"\\": "\\\\", "%": "\\%", "_": "\\_"}
+)
 
 
 class ServicioConvenios:
@@ -582,6 +636,69 @@ class ServicioConvenios:
         if visible is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
 
+    @staticmethod
+    def _filtro_participacion_juridica(usuario: Usuario):
+        """Evidencia persistida de que el usuario participó en una revisión
+        jurídica del convenio: la resolvió, le fue asignada o registró en ella
+        observaciones. `creada_por_id` no cuenta, porque puede corresponder al
+        Gestor que originó la revisión."""
+        revision = aliased(RevisionConvenio)
+        observacion = aliased(ObservacionRevision)
+        participo_en_revision = exists(
+            select(revision.id).where(
+                revision.convenio_id == Convenio.id,
+                revision.tipo == TipoRevisionConvenio.JURIDICA.value,
+                or_(
+                    revision.resuelta_por_id == usuario.id,
+                    revision.responsable_id == usuario.id,
+                ),
+            )
+        ).correlate(Convenio)
+        registro_observaciones = exists(
+            select(observacion.id)
+            .join(revision, revision.id == observacion.revision_convenio_id)
+            .where(
+                observacion.convenio_id == Convenio.id,
+                observacion.registrada_por_id == usuario.id,
+                revision.tipo == TipoRevisionConvenio.JURIDICA.value,
+            )
+        ).correlate(Convenio)
+        return or_(participo_en_revision, registro_observaciones)
+
+
+    @classmethod
+    def _filtro_alcance_consulta(cls, usuario: Usuario):
+        """Incluye el acceso operativo y la consulta histórica autorizada.
+
+        Para el Revisor ORI, HU-21 permite consultar convenios en cuya
+        revisión jurídica participó, incluso después de cambiar de etapa.
+        Esto no concede acceso al detalle operativo ni a modificaciones.
+        """
+        alcance = cls._filtro_alcance_operativo(usuario)
+
+        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
+            return or_(
+                alcance,
+                cls._filtro_participacion_juridica(usuario),
+            )
+
+        return alcance
+
+    def verificar_acceso_historial(
+        self, convenio_id: int, usuario: Usuario
+    ) -> None:
+        """HU-21: autorización de solo lectura del historial, separada del
+        alcance operativo. El Revisor ORI conserva la consulta de los convenios
+        en cuya revisión jurídica participó, aunque su revisión ya esté cerrada
+        o el convenio haya cambiado de etapa; eso no le habilita ninguna acción
+        operativa sobre el convenio."""
+        alcance = self._filtro_alcance_consulta(usuario)
+        visible = self.db.scalar(
+            select(Convenio.id).where(Convenio.id == convenio_id, alcance)
+        )
+        if visible is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+
     def listar_revisiones_juridicas_pendientes(
         self, usuario: Usuario
     ) -> list[RevisionConvenio]:
@@ -691,6 +808,128 @@ class ServicioConvenios:
                 (convenio, responsable_operativo, bool(puede_ver_detalle))
             )
         return etapas, resultado
+
+    @staticmethod
+    def _aplicar_busqueda(buscar: str | None) -> list:
+        """Busca convenios por texto, consecutivo de solicitud o ID."""
+        if not buscar or not buscar.strip():
+            return []
+
+        termino_original = buscar.strip()
+        termino = termino_original.translate(_CARACTERES_ILIKE)
+        patron = f"%{termino}%"
+
+        coincidencias = [
+            Convenio.codigo.ilike(patron, escape="\\"),
+            Convenio.objeto.ilike(patron, escape="\\"),
+            Aliado.nombre.ilike(patron, escape="\\"),
+            Aliado.identificacion.ilike(patron, escape="\\"),
+            SolicitudConvenio.nombre_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.identificacion_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.consecutivo.ilike(patron, escape="\\"),
+            TipoConvenio.nombre.ilike(patron, escape="\\"),
+        ]
+
+        # Acepta tanto "26" como "#26" para buscar el ID exacto.
+        identificador = termino_original.removeprefix("#")
+        if identificador.isascii() and identificador.isdecimal():
+            coincidencias.append(Convenio.id == int(identificador))
+
+        return [or_(*coincidencias)]
+
+    @staticmethod
+    def _validar_rango_fechas(filtros: FiltrosConsultaConvenio) -> None:
+        """HU-27 BE-1 (CA-05). fecha_desde posterior a fecha_hasta es un
+        rango inválido: no se aplica el filtro, se informa con un 422."""
+        if (
+            filtros.fecha_desde is not None
+            and filtros.fecha_hasta is not None
+            and filtros.fecha_desde > filtros.fecha_hasta
+        ):
+            raise FiltroConsultaInvalido("El rango de fechas no es válido")
+
+    @staticmethod
+    def _aplicar_filtro_fechas(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-27 BE-1/BE-2/BE-3. Condiciones del filtro de fechas, según
+        filtros.tipo_fecha (CA-04). Sin tipo_fecha, o sin ningún extremo del
+        rango, no agrega condición."""
+        if filtros.tipo_fecha is None:
+            return []
+        if filtros.fecha_desde is None and filtros.fecha_hasta is None:
+            return []
+
+        if filtros.tipo_fecha == TipoFiltroFecha.FORMALIZACION:
+            # BE-2: Convenio.fecha_firma es la fuente de verdad (RN-03),
+            # pero solo cuenta como formalizado fuera de EN_TRAMITE/CANCELADO
+            # (RN-04); ver convenio_esta_formalizado().
+            condiciones = [
+                Convenio.fecha_firma.is_not(None),
+                Convenio.estado.not_in(ESTADOS_SIN_FORMALIZAR),
+            ]
+            if filtros.fecha_desde is not None:
+                condiciones.append(Convenio.fecha_firma >= filtros.fecha_desde)
+            if filtros.fecha_hasta is not None:
+                condiciones.append(Convenio.fecha_firma <= filtros.fecha_hasta)
+            return condiciones
+
+        # BE-3: TipoFiltroFecha.VIGENCIA. Solapamiento de rangos con bordes
+        # inclusivos (RN-05/RN-06): cada periodo empieza antes de que termine
+        # el otro. Sin fecha_vencimiento se trata como vigencia indefinida.
+        condiciones = [Convenio.fecha_inicio.is_not(None)]
+        if filtros.fecha_hasta is not None:
+            condiciones.append(Convenio.fecha_inicio <= filtros.fecha_hasta)
+        if filtros.fecha_desde is not None:
+            condiciones.append(
+                or_(
+                    Convenio.fecha_vencimiento.is_(None),
+                    Convenio.fecha_vencimiento >= filtros.fecha_desde,
+                )
+            )
+        return condiciones
+
+    def consultar(
+        self, usuario: Usuario, filtros: FiltrosConsultaConvenio
+    ) -> tuple[Sequence[tuple[Convenio, bool]], int]:
+        """Consulta en el alcance operativo e histórico autorizado de HU-26.
+
+        Los filtros de fecha solo restringen los resultados; el indicador de
+        acceso al detalle sigue usando el alcance operativo existente.
+        """
+        self._validar_rango_fechas(filtros)
+        condiciones = [
+            self._filtro_alcance_consulta(usuario),
+            *self._aplicar_busqueda(filtros.buscar),
+            *self._aplicar_filtro_fechas(filtros),
+        ]
+        base = (
+            select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
+            .outerjoin(Convenio.aliado)
+            .outerjoin(Convenio.solicitud)
+            .outerjoin(Convenio.tipo_convenio)
+            .outerjoin(Convenio.etapa_actual)
+            .outerjoin(Convenio.unidad_organizacional)
+            .where(*condiciones)
+        )
+        total = self.db.scalar(
+            select(func.count()).select_from(base.subquery())
+        ) or 0
+        items = self.db.execute(
+            base.options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.unidad_organizacional),
+            )
+            .order_by(Convenio.actualizado_en.desc(), Convenio.id.desc())
+            .limit(filtros.limite)
+            .offset(filtros.desplazamiento)
+        ).all()
+        return items, total
 
     @staticmethod
     def _destinatarios_contraparte(
@@ -828,6 +1067,7 @@ class ServicioConvenios:
             resultado=None,
         )
         self.db.add(revision)
+        notificaciones = ServicioNotificaciones(self.db)
         try:
             self.db.flush()
             self.db.add(
@@ -837,6 +1077,14 @@ class ServicioConvenios:
                     registro_id=revision.id,
                     accion=AccionAuditoria.INSERT.value,
                 )
+            )
+            notificaciones.crear(
+                solicitud.solicitante_id,
+                TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+                f"El convenio {convenio.codigo or convenio.id} está pendiente de "
+                "revisión por la contraparte.",
             )
             self.db.commit()
         except IntegrityError as exc:
@@ -851,6 +1099,7 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        notificaciones.avisar_tiempo_real()
         return revision
 
     def listar_revisiones_contraparte_pendientes(
@@ -1032,6 +1281,7 @@ class ServicioConvenios:
                 valor_nuevo=ResultadoRevisionConvenio.APROBADA.value,
             )
         )
+        notificaciones = ServicioNotificaciones(self.db)
         try:
             self.db.flush()
             self.db.add(
@@ -1047,6 +1297,11 @@ class ServicioConvenios:
                     resultado=None,
                 )
             )
+            notificaciones.resolver(
+                TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+            )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
@@ -1056,6 +1311,7 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        notificaciones.avisar_tiempo_real()
         return revision
 
     def devolver_revision_contraparte(
@@ -1090,6 +1346,7 @@ class ServicioConvenios:
             observacion="Devolución del Solicitante en revisión de contraparte",
         )
         self.db.add(historial)
+        notificaciones = ServicioNotificaciones(self.db)
         try:
             self.db.flush()
             for texto in textos:
@@ -1122,10 +1379,24 @@ class ServicioConvenios:
                     valor_nuevo=ResultadoRevisionConvenio.DEVUELTA.value,
                 )
             )
+            notificaciones.crear(
+                responsable_ori_id,
+                TipoNotificacion.DEVOLUCION_REVISION,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+                f"La contraparte devolvió el convenio {convenio.codigo or convenio.id} "
+                "con observaciones.",
+            )
+            notificaciones.resolver(
+                TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+            )
             self.db.commit()
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        notificaciones.avisar_tiempo_real()
         return revision
 
     def reenviar_invitacion_contraparte(
@@ -1697,6 +1968,7 @@ class ServicioConvenios:
             observacion=None,
         )
         self.db.add(historial)
+        notificaciones = ServicioNotificaciones(self.db)
         try:
             # Se necesita el id del historial para enlazar la revisión con la
             # transición real que la originó.
@@ -1720,10 +1992,24 @@ class ServicioConvenios:
             # Se asigna la relación, no solo el FK: si quedara desincronizada, una
             # sesión reutilizada seguiría viendo la etapa anterior.
             convenio.etapa_actual = juridica
+            notificaciones.crear_para_rol(
+                CodigoRol.REVISOR_ORI,
+                TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+                f"El convenio {convenio.codigo or convenio.id} fue entregado a "
+                "revisión jurídica.",
+            )
+            notificaciones.resolver(
+                TipoNotificacion.DEVOLUCION_REVISION,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+            )
             self.db.commit()
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        notificaciones.avisar_tiempo_real()
         return self.obtener(convenio.id)
 
     def _revision_juridica_pendiente(
@@ -1923,6 +2209,7 @@ class ServicioConvenios:
                 valor_nuevo=ResultadoRevisionConvenio.APROBADA.value,
             )
         )
+        notificaciones = ServicioNotificaciones(self.db)
         try:
             self.db.flush()
             if revision.instancia_juridica == 1:
@@ -1954,6 +2241,11 @@ class ServicioConvenios:
                     )
                 )
                 convenio.etapa_actual = etapa_destino
+                notificaciones.resolver(
+                    TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+                    EntidadNotificacion.CONVENIO,
+                    convenio.id,
+                )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
@@ -1963,6 +2255,7 @@ class ServicioConvenios:
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        notificaciones.avisar_tiempo_real()
         return revision
 
     def atender_observacion(
@@ -2056,6 +2349,7 @@ class ServicioConvenios:
             observacion="Devolución de revisión jurídica",
         )
         self.db.add(historial)
+        notificaciones = ServicioNotificaciones(self.db)
         try:
             self.db.flush()
             for texto in observaciones:
@@ -2086,10 +2380,24 @@ class ServicioConvenios:
                 )
             )
             convenio.etapa_actual = elaboracion
+            notificaciones.crear(
+                convenio.creado_por_id,
+                TipoNotificacion.DEVOLUCION_REVISION,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+                f"La revisión jurídica devolvió el convenio "
+                f"{convenio.codigo or convenio.id} con observaciones.",
+            )
+            notificaciones.resolver(
+                TipoNotificacion.REVISION_JURIDICA_PENDIENTE,
+                EntidadNotificacion.CONVENIO,
+                convenio.id,
+            )
             self.db.commit()
         except SQLAlchemyError:
             self.db.rollback()
             raise
+        notificaciones.avisar_tiempo_real()
         return revision
 
     def obtener_historial(self, convenio_id: int) -> Convenio:

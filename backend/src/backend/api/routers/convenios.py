@@ -2,7 +2,16 @@ from datetime import date, datetime
 from typing import Annotated, NoReturn
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +19,7 @@ from sqlalchemy.orm import Session
 from backend.api.deps import requiere
 from backend.core.config import settings
 from backend.core.permisos import Permiso
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoSeguimientoRenovacion
@@ -22,6 +32,9 @@ from backend.schemas.convenio import (
     AtenderObservacion,
     CatalogosElaboracionLeer,
     ConfigurarFirmaConvenio,
+    ContraparteConsultaLeer,
+    ConvenioConsultaItem,
+    ConvenioConsultaListado,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
@@ -77,11 +90,15 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ElaboracionIncompleta,
     ErrorConvenio,
+    FiltroConsultaInvalido,
+    FiltrosConsultaConvenio,
     ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
+    TipoFiltroFecha,
+    convenio_esta_formalizado,
 )
 from backend.services.correo import (
     EnviadorCorreo,
@@ -168,7 +185,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
         ) from exc
-    if isinstance(exc, ReferenciaConvenioInvalida):
+    if isinstance(exc, (ReferenciaConvenioInvalida, FiltroConsultaInvalido)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -181,6 +198,88 @@ def crear_convenio(
         return ServicioConvenios(db).crear(datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+def _contraparte_de(convenio: Convenio) -> ContraparteConsultaLeer:
+    """HU-26 BE-1: del Aliado formal si ya existe; si no (convenio en
+    trámite, sin aliado_id todavía), de los *_aliado_propuesto de la
+    solicitud de origen."""
+    if convenio.aliado is not None:
+        return ContraparteConsultaLeer(
+            nombre=convenio.aliado.nombre,
+            tipo=convenio.aliado.tipo,
+            identificacion=convenio.aliado.identificacion,
+            es_aliado_formal=True,
+        )
+    solicitud = convenio.solicitud
+    return ContraparteConsultaLeer(
+        nombre=solicitud.nombre_aliado_propuesto if solicitud else None,
+        tipo=solicitud.tipo_aliado_propuesto if solicitud else None,
+        identificacion=solicitud.identificacion_aliado_propuesto if solicitud else None,
+        es_aliado_formal=False,
+    )
+
+
+def _programa_de(convenio: Convenio):
+    """HU-26 BE-1: solo se llena cuando la unidad organizacional del
+    convenio es de tipo PROGRAMA; en otro caso va null."""
+    unidad = convenio.unidad_organizacional
+    if unidad is not None and unidad.tipo == TipoUnidad.PROGRAMA.value:
+        return unidad
+    return None
+
+
+def _a_item_consulta(convenio: Convenio, puede_ver_detalle: bool) -> ConvenioConsultaItem:
+    return ConvenioConsultaItem(
+        id=convenio.id,
+        codigo=convenio.codigo,
+        objeto=convenio.objeto,
+        estado=convenio.estado,
+        etapa=convenio.etapa_actual,
+        tipo_convenio=convenio.tipo_convenio,
+        contraparte=_contraparte_de(convenio),
+        programa=_programa_de(convenio),
+        fecha_inicio=convenio.fecha_inicio,
+        fecha_vencimiento=convenio.fecha_vencimiento,
+        # HU-27 BE-2: null cuando el convenio no está formalizado, para que
+        # la tabla no muestre fechas de firma diligenciadas a mano.
+        fecha_formalizacion=(
+            convenio.fecha_firma if convenio_esta_formalizado(convenio) else None
+        ),
+        puede_ver_detalle=puede_ver_detalle,
+    )
+
+
+@router.get("", response_model=ConvenioConsultaListado)
+def consultar_convenios(
+    db: DatabaseSession,
+    usuario: PuedeVer,
+    buscar: Annotated[str | None, Query(max_length=200)] = None,
+    limite: Annotated[int, Query(ge=1, le=100)] = 20,
+    desplazamiento: Annotated[int, Query(ge=0)] = 0,
+    tipo_fecha: Annotated[TipoFiltroFecha | None, Query()] = None,
+    fecha_desde: Annotated[date | None, Query()] = None,
+    fecha_hasta: Annotated[date | None, Query()] = None,
+) -> ConvenioConsultaListado:
+    filtros = FiltrosConsultaConvenio(
+        buscar=buscar,
+        limite=limite,
+        desplazamiento=desplazamiento,
+        tipo_fecha=tipo_fecha,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+    try:
+        items, total = ServicioConvenios(db).consultar(usuario, filtros)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return ConvenioConsultaListado(
+        items=[
+            _a_item_consulta(convenio, bool(puede_ver_detalle))
+            for convenio, puede_ver_detalle in items
+        ],
+        total=total,
+    )
 
 
 @router.get("/catalogos/elaboracion", response_model=CatalogosElaboracionLeer)
@@ -580,10 +679,14 @@ def obtener_historial_convenio(
     misma transacción, `now()` en Postgres devuelve siempre el mismo valor
     para todas las filas insertadas, así que `creado_en`/`fecha_cambio`
     pueden empatar entre sí y no garantizan el orden real de inserción.
+
+    HU-21: la consulta usa la autorización de solo lectura del historial, no
+    el alcance operativo, para que el Revisor ORI conserve el acceso a los
+    convenios en cuya revisión jurídica participó.
     """
     try:
         servicio = ServicioConvenios(db)
-        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        servicio.verificar_acceso_historial(convenio_id, usuario)
         convenio = servicio.obtener_historial(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
