@@ -1,5 +1,8 @@
+from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from enum import StrEnum
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
@@ -7,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from backend.core.roles import CodigoRol
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
@@ -23,6 +27,7 @@ from backend.models.enums import (
     EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
+    TipoAliado,
     TipoNotificacion,
     TipoRevisionConvenio,
 )
@@ -220,6 +225,59 @@ class ElaboracionIncompleta(ErrorConvenio):
 
 class ConfiguracionConvenioInvalida(RuntimeError):
     pass
+
+
+class FiltroConsultaInvalido(ErrorConvenio):
+    """HU-27 BE-1: rango de fechas inválido (fecha_desde posterior a
+    fecha_hasta). _lanzar_http() la traduce a 422."""
+
+
+
+class TipoFiltroFecha(StrEnum):
+    """HU-27: a qué fecha del convenio aplica el rango fecha_desde/fecha_hasta.
+    No se persiste, así que vive junto a FiltrosConsultaConvenio y no en
+    models/enums.py."""
+
+    FORMALIZACION = "FORMALIZACION"
+    VIGENCIA = "VIGENCIA"
+
+
+# HU-26: contrato de filtros compartido con HU-27 (fechas) y HU-28 (avanzados).
+# Cada historia agrega sus propios campos al final, con valor por defecto
+# None, sin modificar los existentes — así las tres ramas tocan bloques
+# distintos de ServicioConvenios.consultar() y se reducen los conflictos.
+@dataclass(frozen=True)
+class FiltrosConsultaConvenio:
+    buscar: str | None = None
+    limite: int = 20
+    desplazamiento: int = 0
+    # HU-27 BE-1
+    tipo_fecha: TipoFiltroFecha | None = None
+    fecha_desde: date | None = None
+    fecha_hasta: date | None = None
+    # HU-28 BE-2/BE-3
+    estados: tuple[EstadoConvenio, ...] | None = None
+    tipos_contraparte: tuple[TipoAliado, ...] | None = None
+    programa_id: int | None = None
+    alcance: AlcanceConvenio | None = None
+
+
+# HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
+# no está EN_TRAMITE ni CANCELADO (RN-03/RN-04). fecha_firma por sí sola no
+# basta: también se puede diligenciar a mano durante la elaboración
+# (ConvenioCamposEditables), antes de completar el proceso de firmas.
+ESTADOS_SIN_FORMALIZAR = (EstadoConvenio.EN_TRAMITE.value, EstadoConvenio.CANCELADO.value)
+
+
+def convenio_esta_formalizado(convenio: Convenio) -> bool:
+    return convenio.fecha_firma is not None and convenio.estado not in ESTADOS_SIN_FORMALIZAR
+
+
+# Traduce %, _ y \ a su forma escapada para ilike(..., escape="\\"), de modo
+# que un término como "100%" se busque literal y no como comodín.
+_CARACTERES_ILIKE = str.maketrans(
+    {"\\": "\\\\", "%": "\\%", "_": "\\_"}
+)
 
 
 class ServicioConvenios:
@@ -612,6 +670,25 @@ class ServicioConvenios:
         ).correlate(Convenio)
         return or_(participo_en_revision, registro_observaciones)
 
+
+    @classmethod
+    def _filtro_alcance_consulta(cls, usuario: Usuario):
+        """Incluye el acceso operativo y la consulta histórica autorizada.
+
+        Para el Revisor ORI, HU-21 permite consultar convenios en cuya
+        revisión jurídica participó, incluso después de cambiar de etapa.
+        Esto no concede acceso al detalle operativo ni a modificaciones.
+        """
+        alcance = cls._filtro_alcance_operativo(usuario)
+
+        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
+            return or_(
+                alcance,
+                cls._filtro_participacion_juridica(usuario),
+            )
+
+        return alcance
+
     def verificar_acceso_historial(
         self, convenio_id: int, usuario: Usuario
     ) -> None:
@@ -620,9 +697,7 @@ class ServicioConvenios:
         en cuya revisión jurídica participó, aunque su revisión ya esté cerrada
         o el convenio haya cambiado de etapa; eso no le habilita ninguna acción
         operativa sobre el convenio."""
-        alcance = self._filtro_alcance_operativo(usuario)
-        if usuario.rol.codigo == CodigoRol.REVISOR_ORI.value:
-            alcance = or_(alcance, self._filtro_participacion_juridica(usuario))
+        alcance = self._filtro_alcance_consulta(usuario)
         visible = self.db.scalar(
             select(Convenio.id).where(Convenio.id == convenio_id, alcance)
         )
@@ -738,6 +813,167 @@ class ServicioConvenios:
                 (convenio, responsable_operativo, bool(puede_ver_detalle))
             )
         return etapas, resultado
+
+    @staticmethod
+    def _aplicar_busqueda(buscar: str | None) -> list:
+        """Busca convenios por texto, consecutivo de solicitud o ID."""
+        if not buscar or not buscar.strip():
+            return []
+
+        termino_original = buscar.strip()
+        termino = termino_original.translate(_CARACTERES_ILIKE)
+        patron = f"%{termino}%"
+
+        coincidencias = [
+            Convenio.codigo.ilike(patron, escape="\\"),
+            Convenio.objeto.ilike(patron, escape="\\"),
+            Aliado.nombre.ilike(patron, escape="\\"),
+            Aliado.identificacion.ilike(patron, escape="\\"),
+            SolicitudConvenio.nombre_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.identificacion_aliado_propuesto.ilike(
+                patron, escape="\\"
+            ),
+            SolicitudConvenio.consecutivo.ilike(patron, escape="\\"),
+            TipoConvenio.nombre.ilike(patron, escape="\\"),
+        ]
+
+        # Acepta tanto "26" como "#26" para buscar el ID exacto.
+        identificador = termino_original.removeprefix("#")
+        if identificador.isascii() and identificador.isdecimal():
+            coincidencias.append(Convenio.id == int(identificador))
+
+        return [or_(*coincidencias)]
+
+    @staticmethod
+    def _validar_rango_fechas(filtros: FiltrosConsultaConvenio) -> None:
+        """HU-27 BE-1 (CA-05). fecha_desde posterior a fecha_hasta es un
+        rango inválido: no se aplica el filtro, se informa con un 422."""
+        if (
+            filtros.fecha_desde is not None
+            and filtros.fecha_hasta is not None
+            and filtros.fecha_desde > filtros.fecha_hasta
+        ):
+            raise FiltroConsultaInvalido("El rango de fechas no es válido")
+
+    @staticmethod
+    def _aplicar_filtro_fechas(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-27 BE-1/BE-2/BE-3. Condiciones del filtro de fechas, según
+        filtros.tipo_fecha (CA-04). Sin tipo_fecha, o sin ningún extremo del
+        rango, no agrega condición."""
+        if filtros.tipo_fecha is None:
+            return []
+        if filtros.fecha_desde is None and filtros.fecha_hasta is None:
+            return []
+
+        if filtros.tipo_fecha == TipoFiltroFecha.FORMALIZACION:
+            # BE-2: Convenio.fecha_firma es la fuente de verdad (RN-03),
+            # pero solo cuenta como formalizado fuera de EN_TRAMITE/CANCELADO
+            # (RN-04); ver convenio_esta_formalizado().
+            condiciones = [
+                Convenio.fecha_firma.is_not(None),
+                Convenio.estado.not_in(ESTADOS_SIN_FORMALIZAR),
+            ]
+            if filtros.fecha_desde is not None:
+                condiciones.append(Convenio.fecha_firma >= filtros.fecha_desde)
+            if filtros.fecha_hasta is not None:
+                condiciones.append(Convenio.fecha_firma <= filtros.fecha_hasta)
+            return condiciones
+
+        # BE-3: TipoFiltroFecha.VIGENCIA. Solapamiento de rangos con bordes
+        # inclusivos (RN-05/RN-06): cada periodo empieza antes de que termine
+        # el otro. Sin fecha_vencimiento se trata como vigencia indefinida.
+        condiciones = [Convenio.fecha_inicio.is_not(None)]
+        if filtros.fecha_hasta is not None:
+            condiciones.append(Convenio.fecha_inicio <= filtros.fecha_hasta)
+        if filtros.fecha_desde is not None:
+            condiciones.append(
+                or_(
+                    Convenio.fecha_vencimiento.is_(None),
+                    Convenio.fecha_vencimiento >= filtros.fecha_desde,
+                )
+            )
+        return condiciones
+
+    @staticmethod
+    def _aplicar_filtros_avanzados(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-28 BE-2/BE-3. Estado, tipo de contraparte y programa académico.
+        RN-03: dentro de un mismo filtro de selección múltiple los valores se
+        combinan con O (.in_()); entre filtros distintos, con Y (se
+        concatenan como condiciones separadas en consultar())."""
+        condiciones: list = []
+        if filtros.estados:
+            condiciones.append(
+                Convenio.estado.in_([estado.value for estado in filtros.estados])
+            )
+        if filtros.tipos_contraparte:
+            # CA-03: coalesce porque un convenio en trámite puede no tener
+            # aliado formal todavía (misma regla de contraparte que HU-26
+            # BE-1: Aliado si existe, si no la solicitud de origen).
+            condiciones.append(
+                func.coalesce(
+                    Aliado.tipo, SolicitudConvenio.tipo_aliado_propuesto
+                ).in_([tipo.value for tipo in filtros.tipos_contraparte])
+            )
+        if filtros.programa_id is not None:
+            condiciones.extend([
+                Convenio.alcance == AlcanceConvenio.PROGRAMA.value,
+                Convenio.unidad_organizacional_id == filtros.programa_id,
+                Convenio.unidad_organizacional.has(
+                    UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value
+                ),
+            ])
+        if filtros.alcance is not None:
+            # La ausencia de programa no determina el alcance: también
+            # existe información aún sin definir durante la elaboración.
+            condiciones.append(Convenio.alcance == filtros.alcance.value)
+        return condiciones
+
+    def consultar(
+        self, usuario: Usuario, filtros: FiltrosConsultaConvenio
+    ) -> tuple[Sequence[tuple[Convenio, bool]], int]:
+        """Consulta en el alcance operativo e histórico autorizado de HU-26.
+
+        Los filtros de fecha solo restringen los resultados; el indicador de
+        acceso al detalle sigue usando el alcance operativo existente.
+        """
+        self._validar_rango_fechas(filtros)
+        if filtros.alcance == AlcanceConvenio.INSTITUCIONAL and filtros.programa_id is not None:
+            raise FiltroConsultaInvalido(
+                "No se puede combinar el alcance institucional con un programa académico."
+            )
+        condiciones = [
+            self._filtro_alcance_consulta(usuario),
+            *self._aplicar_busqueda(filtros.buscar),
+            *self._aplicar_filtro_fechas(filtros),
+            *self._aplicar_filtros_avanzados(filtros),
+        ]
+        base = (
+            select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
+            .outerjoin(Convenio.aliado)
+            .outerjoin(Convenio.solicitud)
+            .outerjoin(Convenio.tipo_convenio)
+            .outerjoin(Convenio.etapa_actual)
+            .outerjoin(Convenio.unidad_organizacional)
+            .where(*condiciones)
+        )
+        total = self.db.scalar(
+            select(func.count()).select_from(base.subquery())
+        ) or 0
+        items = self.db.execute(
+            base.options(
+                joinedload(Convenio.aliado),
+                joinedload(Convenio.solicitud),
+                joinedload(Convenio.tipo_convenio),
+                joinedload(Convenio.etapa_actual),
+                joinedload(Convenio.unidad_organizacional),
+            )
+            .order_by(Convenio.actualizado_en.desc(), Convenio.id.desc())
+            .limit(filtros.limite)
+            .offset(filtros.desplazamiento)
+        ).all()
+        return items, total
 
     @staticmethod
     def _destinatarios_contraparte(

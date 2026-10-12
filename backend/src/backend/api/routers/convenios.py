@@ -2,7 +2,16 @@ from datetime import date
 from typing import Annotated, NoReturn
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,9 +19,15 @@ from sqlalchemy.orm import Session
 from backend.api.deps import requiere
 from backend.core.config import settings
 from backend.core.permisos import Permiso
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoSeguimientoRenovacion
+from backend.models.enums import (
+    AlcanceConvenio,
+    EstadoConvenio,
+    EstadoSeguimientoRenovacion,
+    TipoAliado,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
@@ -20,8 +35,12 @@ from backend.schemas.convenio import (
     AlertaVencimientoLeer,
     AprobarRevision,
     AtenderObservacion,
+    CatalogosConsultaLeer,
     CatalogosElaboracionLeer,
     ConfigurarFirmaConvenio,
+    ContraparteConsultaLeer,
+    ConvenioConsultaItem,
+    ConvenioConsultaListado,
     ConvenioCrear,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
@@ -74,11 +93,15 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ElaboracionIncompleta,
     ErrorConvenio,
+    FiltroConsultaInvalido,
+    FiltrosConsultaConvenio,
     ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
+    TipoFiltroFecha,
+    convenio_esta_formalizado,
 )
 from backend.services.correo import (
     EnviadorCorreo,
@@ -170,7 +193,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
         ) from exc
-    if isinstance(exc, ReferenciaConvenioInvalida):
+    if isinstance(exc, (ReferenciaConvenioInvalida, FiltroConsultaInvalido)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -183,6 +206,97 @@ def crear_convenio(
         return ServicioConvenios(db).crear(datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+def _contraparte_de(convenio: Convenio) -> ContraparteConsultaLeer:
+    """HU-26 BE-1: del Aliado formal si ya existe; si no (convenio en
+    trámite, sin aliado_id todavía), de los *_aliado_propuesto de la
+    solicitud de origen."""
+    if convenio.aliado is not None:
+        return ContraparteConsultaLeer(
+            nombre=convenio.aliado.nombre,
+            tipo=convenio.aliado.tipo,
+            identificacion=convenio.aliado.identificacion,
+            es_aliado_formal=True,
+        )
+    solicitud = convenio.solicitud
+    return ContraparteConsultaLeer(
+        nombre=solicitud.nombre_aliado_propuesto if solicitud else None,
+        tipo=solicitud.tipo_aliado_propuesto if solicitud else None,
+        identificacion=solicitud.identificacion_aliado_propuesto if solicitud else None,
+        es_aliado_formal=False,
+    )
+
+
+def _programa_de(convenio: Convenio):
+    """HU-26 BE-1: solo se llena cuando la unidad organizacional del
+    convenio es de tipo PROGRAMA; en otro caso va null."""
+    unidad = convenio.unidad_organizacional
+    if unidad is not None and unidad.tipo == TipoUnidad.PROGRAMA.value:
+        return unidad
+    return None
+
+
+def _a_item_consulta(convenio: Convenio, puede_ver_detalle: bool) -> ConvenioConsultaItem:
+    return ConvenioConsultaItem(
+        id=convenio.id,
+        codigo=convenio.codigo,
+        objeto=convenio.objeto,
+        estado=convenio.estado,
+        etapa=convenio.etapa_actual,
+        tipo_convenio=convenio.tipo_convenio,
+        contraparte=_contraparte_de(convenio),
+        programa=_programa_de(convenio),
+        fecha_inicio=convenio.fecha_inicio,
+        fecha_vencimiento=convenio.fecha_vencimiento,
+        # HU-27 BE-2: null cuando el convenio no está formalizado, para que
+        # la tabla no muestre fechas de firma diligenciadas a mano.
+        fecha_formalizacion=(
+            convenio.fecha_firma if convenio_esta_formalizado(convenio) else None
+        ),
+        puede_ver_detalle=puede_ver_detalle,
+    )
+
+
+@router.get("", response_model=ConvenioConsultaListado)
+def consultar_convenios(
+    db: DatabaseSession,
+    usuario: PuedeVer,
+    buscar: Annotated[str | None, Query(max_length=200)] = None,
+    limite: Annotated[int, Query(ge=1, le=100)] = 20,
+    desplazamiento: Annotated[int, Query(ge=0)] = 0,
+    tipo_fecha: Annotated[TipoFiltroFecha | None, Query()] = None,
+    fecha_desde: Annotated[date | None, Query()] = None,
+    fecha_hasta: Annotated[date | None, Query()] = None,
+    estado: Annotated[list[EstadoConvenio] | None, Query()] = None,
+    tipo_contraparte: Annotated[list[TipoAliado] | None, Query()] = None,
+    programa_id: Annotated[int | None, Query(ge=1)] = None,
+    alcance: Annotated[AlcanceConvenio | None, Query()] = None,
+) -> ConvenioConsultaListado:
+    filtros = FiltrosConsultaConvenio(
+        buscar=buscar,
+        limite=limite,
+        desplazamiento=desplazamiento,
+        tipo_fecha=tipo_fecha,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        # HU-28: FiltrosConsultaConvenio exige tuplas porque es frozen (hashable).
+        estados=tuple(estado) if estado else None,
+        tipos_contraparte=tuple(tipo_contraparte) if tipo_contraparte else None,
+        programa_id=programa_id,
+        alcance=alcance,
+    )
+    try:
+        items, total = ServicioConvenios(db).consultar(usuario, filtros)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return ConvenioConsultaListado(
+        items=[
+            _a_item_consulta(convenio, bool(puede_ver_detalle))
+            for convenio, puede_ver_detalle in items
+        ],
+        total=total,
+    )
 
 
 @router.get("/catalogos/elaboracion", response_model=CatalogosElaboracionLeer)
@@ -202,6 +316,23 @@ def obtener_catalogos_elaboracion(
     return CatalogosElaboracionLeer(
         tipos_convenio=tipos,
         unidades_organizacionales=unidades,
+    )
+
+
+@router.get("/catalogos/consulta", response_model=CatalogosConsultaLeer)
+def obtener_catalogos_consulta(db: DatabaseSession, _: PuedeVer) -> CatalogosConsultaLeer:
+    programas = db.scalars(
+        select(UnidadOrganizacional)
+        .where(
+            UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value,
+            UnidadOrganizacional.activa.is_(True),
+        )
+        .order_by(UnidadOrganizacional.nombre)
+    ).all()
+    return CatalogosConsultaLeer(
+        estados=list(EstadoConvenio),
+        tipos_contraparte=list(TipoAliado),
+        programas=programas,
     )
 
 

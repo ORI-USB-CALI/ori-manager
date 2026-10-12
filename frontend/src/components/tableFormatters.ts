@@ -53,6 +53,19 @@ export function badgeVariant(value: string): string {
   return 'badge-info'
 }
 
+/**
+ * HU-27 FE-5: formatea un `date` (sin hora, "AAAA-MM-DD") como dd/mm/aaaa.
+ * Nunca pasar por `new Date("2026-06-01")`: Date lo interpreta como
+ * medianoche UTC, y en Colombia (UTC-5) eso vuelve a mostrar el día
+ * anterior. Se reordena el string directamente, sin construir un Date.
+ */
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  const [year, month, day] = value.split('-')
+  if (!year || !month || !day) return '—'
+  return `${day}/${month}/${year}`
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—'
   return new Intl.DateTimeFormat('es-CO', {
