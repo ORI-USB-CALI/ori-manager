@@ -22,7 +22,7 @@ from backend.core.permisos import Permiso
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoSeguimientoRenovacion
+from backend.models.enums import EstadoConvenio, EstadoSeguimientoRenovacion, TipoAliado
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
@@ -30,6 +30,7 @@ from backend.schemas.convenio import (
     AlertaVencimientoLeer,
     AprobarRevision,
     AtenderObservacion,
+    CatalogosConsultaLeer,
     CatalogosElaboracionLeer,
     ConfigurarFirmaConvenio,
     ContraparteConsultaLeer,
@@ -254,6 +255,9 @@ def consultar_convenios(
     tipo_fecha: Annotated[TipoFiltroFecha | None, Query()] = None,
     fecha_desde: Annotated[date | None, Query()] = None,
     fecha_hasta: Annotated[date | None, Query()] = None,
+    estado: Annotated[list[EstadoConvenio] | None, Query()] = None,
+    tipo_contraparte: Annotated[list[TipoAliado] | None, Query()] = None,
+    programa_id: Annotated[int | None, Query()] = None,
 ) -> ConvenioConsultaListado:
     filtros = FiltrosConsultaConvenio(
         buscar=buscar,
@@ -262,6 +266,10 @@ def consultar_convenios(
         tipo_fecha=tipo_fecha,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        # HU-28: FiltrosConsultaConvenio exige tuplas porque es frozen (hashable).
+        estados=tuple(estado) if estado else None,
+        tipos_contraparte=tuple(tipo_contraparte) if tipo_contraparte else None,
+        programa_id=programa_id,
     )
     try:
         items, total = ServicioConvenios(db).consultar(usuario, filtros)
@@ -289,6 +297,23 @@ def obtener_catalogos_elaboracion(
     return CatalogosElaboracionLeer(
         tipos_convenio=tipos,
         unidades_organizacionales=unidades,
+    )
+
+
+@router.get("/catalogos/consulta", response_model=CatalogosConsultaLeer)
+def obtener_catalogos_consulta(db: DatabaseSession, _: PuedeVer) -> CatalogosConsultaLeer:
+    programas = db.scalars(
+        select(UnidadOrganizacional)
+        .where(
+            UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value,
+            UnidadOrganizacional.activa.is_(True),
+        )
+        .order_by(UnidadOrganizacional.nombre)
+    ).all()
+    return CatalogosConsultaLeer(
+        estados=list(EstadoConvenio),
+        tipos_contraparte=list(TipoAliado),
+        programas=programas,
     )
 
 

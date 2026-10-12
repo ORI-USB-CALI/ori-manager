@@ -23,6 +23,7 @@ from backend.models.enums import (
     ParteFirmaConvenio,
     ResultadoRevisionConvenio,
     RolFirmanteConvenio,
+    TipoAliado,
     TipoRevisionConvenio,
     TipoSolicitante,
 )
@@ -676,3 +677,13 @@ class ConvenioConsultaItem(BaseModel):
 class ConvenioConsultaListado(BaseModel):
     items: list[ConvenioConsultaItem]
     total: int
+
+
+class CatalogosConsultaLeer(BaseModel):
+    """HU-28 BE-1: opciones para los filtros avanzados de /convenios.
+    No incluye un listado de aliados: CA-03 filtra por tipo de entidad, no
+    por un aliado puntual (eso ya lo resuelve la búsqueda de HU-26)."""
+
+    estados: list[EstadoConvenio]
+    tipos_contraparte: list[TipoAliado]
+    programas: list[UnidadOrganizacionalResumen]

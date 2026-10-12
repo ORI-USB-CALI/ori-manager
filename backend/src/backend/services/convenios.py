@@ -26,6 +26,7 @@ from backend.models.enums import (
     EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
+    TipoAliado,
     TipoNotificacion,
     TipoRevisionConvenio,
 )
@@ -253,6 +254,10 @@ class FiltrosConsultaConvenio:
     tipo_fecha: TipoFiltroFecha | None = None
     fecha_desde: date | None = None
     fecha_hasta: date | None = None
+    # HU-28 BE-2/BE-3
+    estados: tuple[EstadoConvenio, ...] | None = None
+    tipos_contraparte: tuple[TipoAliado, ...] | None = None
+    programa_id: int | None = None
 
 
 # HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
@@ -863,6 +868,32 @@ class ServicioConvenios:
             )
         return condiciones
 
+    @staticmethod
+    def _aplicar_filtros_avanzados(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-28 BE-2/BE-3. Estado, tipo de contraparte y programa académico.
+        RN-03: dentro de un mismo filtro de selección múltiple los valores se
+        combinan con O (.in_()); entre filtros distintos, con Y (se
+        concatenan como condiciones separadas en consultar())."""
+        condiciones: list = []
+        if filtros.estados:
+            condiciones.append(
+                Convenio.estado.in_([estado.value for estado in filtros.estados])
+            )
+        if filtros.tipos_contraparte:
+            # CA-03: coalesce porque un convenio en trámite puede no tener
+            # aliado formal todavía (misma regla de contraparte que HU-26
+            # BE-1: Aliado si existe, si no la solicitud de origen).
+            condiciones.append(
+                func.coalesce(
+                    Aliado.tipo, SolicitudConvenio.tipo_aliado_propuesto
+                ).in_([tipo.value for tipo in filtros.tipos_contraparte])
+            )
+        if filtros.programa_id is not None:
+            # Los convenios de alcance INSTITUCIONAL no tienen programa y
+            # quedan fuera de este filtro (no hay fila que compare igual).
+            condiciones.append(Convenio.unidad_organizacional_id == filtros.programa_id)
+        return condiciones
+
     def consultar(
         self, usuario: Usuario, filtros: FiltrosConsultaConvenio
     ) -> tuple[Sequence[Convenio], int]:
@@ -874,6 +905,7 @@ class ServicioConvenios:
             self._filtro_alcance_operativo(usuario),
             *self._aplicar_busqueda(filtros.buscar),
             *self._aplicar_filtro_fechas(filtros),
+            *self._aplicar_filtros_avanzados(filtros),
         ]
         base = (
             select(Convenio)
