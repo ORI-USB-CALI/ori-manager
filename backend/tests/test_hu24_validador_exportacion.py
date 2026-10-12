@@ -194,7 +194,7 @@ def test_convenio_incompleto_no_renderiza_ni_guarda_archivos(
         no_debe_renderizar,
     )
     monkeypatch.setattr(
-        "backend.services.exportacion_convenio.ServicioExcelConvenio.generar_excel",
+        "backend.services.exportacion_convenio.ConvenioExcelExportService.generar_excel",
         no_debe_renderizar,
     )
     documentos = select(func.count()).select_from(Documento)

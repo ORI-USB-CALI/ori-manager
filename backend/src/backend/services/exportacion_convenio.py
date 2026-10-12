@@ -16,7 +16,7 @@ from backend.models.convenio import Convenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.schemas.exportacion import FormatoExportacion
 from backend.services.convenios import ConvenioNoEncontrado, ErrorConvenio
-from backend.services.excel_convenio import ServicioExcelConvenio
+from backend.services.excel_convenio import ConvenioExcelExportService
 from backend.services.pdf_convenio import ServicioPdfConvenio
 from backend.services.validador_exportacion_convenio import ConvenioExportValidator
 
@@ -48,10 +48,10 @@ class ServicioExportacionConvenio:
     def __init__(
         self,
         servicio_pdf: ServicioPdfConvenio | None = None,
-        servicio_excel: ServicioExcelConvenio | None = None,
+        servicio_excel: ConvenioExcelExportService | None = None,
     ) -> None:
         self.servicio_pdf = servicio_pdf or ServicioPdfConvenio()
-        self.servicio_excel = servicio_excel or ServicioExcelConvenio()
+        self.servicio_excel = servicio_excel or ConvenioExcelExportService()
 
     def validar_para_exportacion(self, convenio_id: int, db: Session) -> Convenio:
         """Valida que el convenio exista y contenga los datos esenciales para emitir un documento oficial (CA-03)."""

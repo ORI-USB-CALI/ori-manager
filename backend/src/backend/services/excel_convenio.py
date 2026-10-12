@@ -1,146 +1,171 @@
-"""Servicio de exportación de convenios en formato Excel (.xlsx)
+"""Exportación del convenio a Excel (.xlsx) con openpyxl (BE-03 de HU-24).
 
-Genera un libro OpenXML (.xlsx) válido utilizando la biblioteca estándar de Python (zipfile + xml).
+Parte del mismo DTO que el PDF, así ambos formatos salen con los mismos datos.
 """
 
 from __future__ import annotations
 
-import io
-import zipfile
-from xml.sax.saxutils import escape
+from collections.abc import Sequence
+from io import BytesIO
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session
 
 from backend.schemas.exportacion import ConvenioPdfDTO
 from backend.services.pdf_convenio import ServicioPdfConvenio
 
+HOJA_DATOS_GENERALES = "Datos Generales"
+HOJA_PARTICIPANTES_COMPROMISOS = "Participantes y Compromisos"
 
-class ServicioExcelConvenio:
-    """Generador de libros Excel (.xlsx) para reportes de convenios."""
+_FUENTE_CABECERA = Font(bold=True)
+_FONDO_CABECERA = PatternFill(fill_type="solid", start_color="D9D9D9", end_color="D9D9D9")
+_FUENTE_TITULO_SECCION = Font(bold=True, size=12)
+_AJUSTE_TEXTO = Alignment(wrap_text=True, vertical="top")
+_ANCHO_MINIMO = 10
+_ANCHO_MAXIMO = 80
+
+_ETIQUETAS_SECCION = {"heading": "Sección", "paragraph": "Cláusula", "list_item": "Ítem"}
+
+
+class ConvenioExcelExportService:
+    """Genera el libro .xlsx del convenio en memoria."""
 
     def generar_excel(self, convenio_id: int, db: Session) -> bytes:
-        """Obtiene la información estructurada del convenio y genera el archivo .xlsx en memoria."""
-        # Reutilizamos el mapeo estructurado e invariante a DTO (CA-02: aislamiento de datos)
         dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio_id, db)
-        return self._construir_xlsx(dto)
+        return self.construir_libro(dto)
 
-    def _construir_xlsx(self, dto: ConvenioPdfDTO) -> bytes:
-        filas: list[list[str]] = [
-            ["UNIVERSIDAD DE SAN BUENAVENTURA CALI - ORI"],
-            [f"REPORTE OFICIAL DE CONVENIO - {dto.codigo}"],
-            [],
-            ["INFORMACIÓN GENERAL", ""],
-            ["Código del Convenio", dto.codigo],
-            ["Título / Objeto", dto.objeto],
-            ["Tipo de Convenio", dto.tipo_convenio],
-            ["Alcance Territorial", dto.alcance],
-            ["Estado Actual", dto.estado],
-            [
-                "Fecha de Inicio",
-                str(dto.fecha_inicio) if dto.fecha_inicio else "Por definir",
-            ],
-            [
-                "Fecha de Finalización",
-                (
-                    str(dto.fecha_vencimiento)
-                    if dto.fecha_vencimiento
-                    else "Por definir"
-                ),
-            ],
-            [
-                "Unidad Organizacional",
-                dto.solicitante_unidad or "No especificada",
-            ],
-            ["Entidad Aliada", dto.aliado_nombre or "No especificada"],
-            ["País Aliado", dto.aliado_pais or "Colombia"],
-            [
-                "Compromisos Financieros",
-                dto.implicacion_financiera
-                or "Sin compromisos financieros declarados",
-            ],
-            [],
-            ["FIRMANTE(S) REGISTRADO(S)", "CARGO", "ENTIDAD", "ESTADO FIRMA"],
+    def construir_libro(self, dto: ConvenioPdfDTO) -> bytes:
+        libro = Workbook()
+        datos_generales = libro.active
+        datos_generales.title = HOJA_DATOS_GENERALES
+        self._escribir_datos_generales(datos_generales, dto)
+        self._escribir_participantes_y_compromisos(
+            libro.create_sheet(HOJA_PARTICIPANTES_COMPROMISOS), dto
+        )
+        for hoja in libro.worksheets:
+            _ajustar_columnas(hoja)
+
+        salida = BytesIO()
+        libro.save(salida)
+        return salida.getvalue()
+
+    def _escribir_datos_generales(self, hoja: Worksheet, dto: ConvenioPdfDTO) -> None:
+        _escribir_cabecera(hoja, 1, ["Campo", "Valor"])
+        filas: list[tuple[str, object]] = [
+            ("Código del convenio", dto.codigo),
+            ("Consecutivo de la solicitud", dto.solicitud_consecutivo),
+            ("Tipo de convenio", dto.tipo_convenio),
+            ("Estado", dto.estado),
+            ("Etapa", dto.etapa),
+            ("Alcance", dto.alcance),
+            ("Objeto", dto.objeto),
+            ("Justificación", dto.justificacion),
+            ("Fecha de inicio de vigencia", dto.fecha_inicio),
+            ("Fecha de fin de vigencia", dto.fecha_vencimiento),
+            ("Duración (meses)", dto.duracion_meses),
+            ("Porcentaje de avance", dto.porcentaje_avance),
+            ("Versión del documento", dto.version_actual),
+            ("Unidad solicitante", dto.solicitante_unidad),
         ]
+        for fila, (campo, valor) in enumerate(filas, start=2):
+            hoja.cell(row=fila, column=1, value=campo).font = _FUENTE_CABECERA
+            _escribir_valor(hoja, fila, 2, valor)
+        hoja.freeze_panes = "A2"
 
-        if dto.firmantes:
-            for f in dto.firmantes:
-                filas.append(
-                    [
-                        f"{f.nombre} ({f.rol})",
-                        f.cargo or "N/A",
-                        f.parte,
-                        f.estado,
-                    ]
-                )
-        else:
-            filas.append(["No se han configurado firmantes", "", "", ""])
-
-        return self._generar_archivo_xlsx(filas)
-
-    def _generar_archivo_xlsx(self, filas: list[list[str]]) -> bytes:
-        sheet_rows: list[str] = []
-        for row_idx, fila in enumerate(filas, start=1):
-            cell_strs: list[str] = []
-            for col_idx, valor in enumerate(fila, start=1):
-                col_letter = self._col_num_to_letter(col_idx)
-                texto_escapado = escape(str(valor))
-                cell_strs.append(
-                    f'<c r="{col_letter}{row_idx}" t="inlineStr"><is><t>{texto_escapado}</t></is></c>'
-                )
-            sheet_rows.append(f'<row r="{row_idx}">{"".join(cell_strs)}</row>')
-
-        sheet_xml = (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\n'
-            f"<sheetData>{''.join(sheet_rows)}</sheetData>\n"
-            "</worksheet>"
+    def _escribir_participantes_y_compromisos(
+        self, hoja: Worksheet, dto: ConvenioPdfDTO
+    ) -> None:
+        fila = _escribir_tabla(
+            hoja,
+            1,
+            "Participantes",
+            ["Parte", "Nombre", "Tipo", "Identificación", "Ubicación", "Contacto", "Correo"],
+            [
+                [
+                    "Parte solicitante",
+                    dto.solicitante_nombre,
+                    dto.solicitante_tipo,
+                    None,
+                    dto.solicitante_unidad,
+                    dto.solicitante_nombre,
+                    dto.solicitante_correo,
+                ],
+                [
+                    "Entidad aliada",
+                    dto.aliado_nombre,
+                    dto.aliado_tipo,
+                    dto.aliado_identificacion,
+                    f"{dto.aliado_ciudad}, {dto.aliado_pais}",
+                    dto.aliado_contacto_nombre,
+                    dto.aliado_contacto_correo,
+                ],
+            ],
         )
-
-        content_types_xml = (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
-            '<Default Extension="xml" ContentType="application/xml"/>\n'
-            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>\n'
-            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>\n'
-            "</Types>"
+        fila = _escribir_tabla(
+            hoja,
+            fila + 1,
+            "Firmantes",
+            ["Orden", "Rol", "Parte", "Nombre", "Cargo", "Modalidad", "Estado"],
+            [
+                [f.orden, f.rol, f.parte, f.nombre, f.cargo, f.modalidad, f.estado]
+                for f in dto.firmantes
+            ]
+            or [["Sin firmantes registrados"]],
         )
-
-        rels_xml = (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>\n'
-            "</Relationships>"
+        compromisos: list[list[object]] = [
+            ["Implicación financiera", dto.implicacion_financiera]
+        ]
+        compromisos.extend(
+            [_ETIQUETAS_SECCION.get(seccion.tipo, seccion.tipo), seccion.texto]
+            for seccion in dto.secciones_contenido
         )
+        _escribir_tabla(hoja, fila + 1, "Compromisos", ["Tipo", "Detalle"], compromisos)
 
-        workbook_rels_xml = (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>\n'
-            "</Relationships>"
+
+def _escribir_cabecera(hoja: Worksheet, fila: int, titulos: Sequence[str]) -> None:
+    for columna, titulo in enumerate(titulos, start=1):
+        celda = hoja.cell(row=fila, column=columna, value=titulo)
+        celda.font = _FUENTE_CABECERA
+        celda.fill = _FONDO_CABECERA
+
+
+def _escribir_valor(hoja: Worksheet, fila: int, columna: int, valor: object) -> None:
+    celda = hoja.cell(row=fila, column=columna, value=valor)
+    if isinstance(valor, str) and len(valor) > _ANCHO_MAXIMO:
+        celda.alignment = _AJUSTE_TEXTO
+
+
+def _escribir_tabla(
+    hoja: Worksheet,
+    fila: int,
+    titulo: str,
+    cabecera: Sequence[str],
+    filas: Sequence[Sequence[object]],
+) -> int:
+    """Escribe título, cabecera y filas; devuelve la siguiente fila libre."""
+    hoja.cell(row=fila, column=1, value=titulo).font = _FUENTE_TITULO_SECCION
+    _escribir_cabecera(hoja, fila + 1, cabecera)
+    siguiente = fila + 2
+    for valores in filas:
+        for columna, valor in enumerate(valores, start=1):
+            _escribir_valor(hoja, siguiente, columna, valor)
+        siguiente += 1
+    return siguiente + 1
+
+
+def _ajustar_columnas(hoja: Worksheet) -> None:
+    """Ancho según el contenido más largo de cada columna, con un tope."""
+    anchos: dict[int, int] = {}
+    for fila in hoja.iter_rows():
+        for celda in fila:
+            if celda.value is None:
+                continue
+            largo = max(len(linea) for linea in str(celda.value).splitlines() or [""])
+            anchos[celda.column] = max(anchos.get(celda.column, 0), largo)
+    for columna, largo in anchos.items():
+        hoja.column_dimensions[get_column_letter(columna)].width = min(
+            max(largo + 2, _ANCHO_MINIMO), _ANCHO_MAXIMO
         )
-
-        workbook_xml = (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
-            '<sheets><sheet name="Convenio" sheetId="1" r:id="rId1"/></sheets>\n'
-            "</workbook>"
-        )
-
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("[Content_Types].xml", content_types_xml)
-            zf.writestr("_rels/.rels", rels_xml)
-            zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
-            zf.writestr("xl/workbook.xml", workbook_xml)
-            zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
-
-        return buf.getvalue()
-
-    @staticmethod
-    def _col_num_to_letter(num: int) -> str:
-        letter = ""
-        while num > 0:
-            num, remainder = divmod(num - 1, 26)
-            letter = chr(65 + remainder) + letter
-        return letter
