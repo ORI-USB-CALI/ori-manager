@@ -5,13 +5,13 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
-import { CargarDocumentoModal } from '../components/CargarDocumentoModal'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
 import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
+import { SoportesConvenio } from '../components/SoportesConvenio'
 import {
   type Convenio,
   type ElaboracionConvenio,
@@ -75,7 +75,6 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
-  const [mostrarModalCarga, setMostrarModalCarga] = useState(false)
 
   const convenio = useQuery({
     queryKey: ['convenio', id],
@@ -318,18 +317,7 @@ export function ConvenioDetallePage() {
             </section>
 
             <section className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h2 style={{ margin: 0 }}>Documentos asociados</h2>
-                {puede('convenios.editar') && (
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-small"
-                    onClick={() => setMostrarModalCarga(true)}
-                  >
-                    + Cargar PDF
-                  </button>
-                )}
-              </div>
+              <h2>Documentos asociados</h2>
               {consultaRevision.data.documentos.length === 0 && <p className="section-help">No hay documentos vigentes asociados.</p>}
               {consultaRevision.data.documentos.map((doc) => <div className="document-row" key={doc.id}><span><strong>{doc.tipo}</strong><br />{doc.nombre_archivo} · {tamanoLegible(doc.tamano_bytes)}</span><a className="btn btn-outline btn-small" href={`/api/convenios/${id}/documentos/${doc.id}/contenido`} target="_blank" rel="noreferrer">Ver</a></div>)}
             </section>
@@ -348,17 +336,13 @@ export function ConvenioDetallePage() {
         <>
           <div className="page-toolbar">
             {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Continuar elaboración</Link>}
-            {puede('convenios.editar') && (
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setMostrarModalCarga(true)}
-              >
-                📄 Cargar documento PDF
-              </button>
-            )}
           </div>
           <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
+          <SoportesConvenio
+            convenioId={id}
+            estadoConvenio={datos.estado}
+            puedeGestionarSoportes={puede('convenios.gestionar_soportes')}
+          />
         </>
       )}
       <EvaluacionConvenio convenioId={id} permitirRegistro />
@@ -377,14 +361,6 @@ export function ConvenioDetallePage() {
           <p><strong>Solicitante responsable:</strong> {flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'} · {flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</p>
           <p className="texto-secundario">La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.</p>
         </ConfirmacionModal>
-      )}
-
-      {mostrarModalCarga && (
-        <CargarDocumentoModal
-          convenioId={id}
-          onCerrar={() => setMostrarModalCarga(false)}
-          onDocumentoCargado={() => refrescarRevision(false)}
-        />
       )}
     </>
   )

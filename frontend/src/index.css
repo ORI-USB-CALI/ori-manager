@@ -2645,3 +2645,24 @@ a:hover {
   }
 }
 
+.soportes-cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.soportes-acciones {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.soporte-nombre {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 550;
+  color: var(--color-texto);
+}
