@@ -67,6 +67,9 @@ PERMISOS_GESTION_RENOVACIONES = {
 PERMISOS_EVALUACION_CONVENIOS = {
     "convenios.evaluar",
 }
+PERMISOS_REPORTES_CONVENIOS = {
+    "convenios.ver_reportes",
+}
 
 
 def test_codigo_rol_coincide_exactamente_con_el_mer() -> None:
@@ -99,6 +102,7 @@ def test_permisos_coinciden_con_los_alcances_integrados() -> None:
         | PERMISOS_ALERTAS_VENCIMIENTO
         | PERMISOS_GESTION_RENOVACIONES
         | PERMISOS_EVALUACION_CONVENIOS
+        | PERMISOS_REPORTES_CONVENIOS
     )
     assert len(valores) == len(set(valores))
 
@@ -132,6 +136,7 @@ def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
         | PERMISOS_ALERTAS_VENCIMIENTO
         | PERMISOS_GESTION_RENOVACIONES
         | PERMISOS_EVALUACION_CONVENIOS
+        | PERMISOS_REPORTES_CONVENIOS
     )
 
 
@@ -147,6 +152,7 @@ def test_roles_reciben_solo_los_permisos_de_su_alcance() -> None:
             "convenios.ver_alertas_vencimiento",
             "convenios.gestionar_renovaciones",
             "convenios.evaluar",
+            "convenios.ver_reportes",
         }
     )
     assert Permiso.ALIADOS_CORREGIR_IDENTIFICACION in permisos_para_rol(
