@@ -207,7 +207,7 @@ class ServicioPdfConvenio:
             aliado_nombre=aliado.nombre
             if aliado
             else solicitud.nombre_aliado_propuesto or "No informado",
-            aliado_tipo=aliado.tipo_aliado
+            aliado_tipo=aliado.tipo
             if aliado
             else solicitud.tipo_aliado_propuesto or "No informado",
             aliado_identificacion=aliado.identificacion

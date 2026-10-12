@@ -68,8 +68,8 @@ class ServicioExcelConvenio:
                     [
                         f"{f.nombre} ({f.rol})",
                         f.cargo or "N/A",
-                        f.institucion or "USB Cali",
-                        f.estado_firma or "Pendiente",
+                        f.parte,
+                        f.estado,
                     ]
                 )
         else:
