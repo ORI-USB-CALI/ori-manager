@@ -61,7 +61,7 @@ export function ConvenioHistorialPage() {
       <section className="header-banner">
         <h1>Historial y trazabilidad</h1>
         <p>
-          Convenio #{id} · <Link to={`/convenios/${id}`}>Volver al convenio</Link>
+          Convenio #{id} · <Link to="/convenios">Volver a la consulta</Link>
         </p>
       </section>
 

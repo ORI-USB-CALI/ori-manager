@@ -28,6 +28,7 @@ const itemReal = {
   fecha_inicio: '2026-01-01',
   fecha_vencimiento: '2028-01-01',
   fecha_formalizacion: null,
+  puede_ver_detalle: true,
 }
 
 function renderPagina() {
@@ -79,6 +80,36 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
       await screen.findByText('No se encontraron convenios que coincidan con «zzz-no-existe».'),
     ).toBeTruthy()
   })
+
+  it('dirige al historial cuando el acceso es solo de lectura', async () => {
+  const convenioHistorico = {
+    ...itemReal,
+    id: 88,
+    puede_ver_detalle: false,
+  }
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [convenioHistorico],
+        total: 1,
+      }),
+    }),
+  )
+
+  renderPagina()
+
+  const enlace = await screen.findByRole('link', {
+    name: 'Ver historial',
+  })
+
+  expect(enlace.getAttribute('href')).toBe(
+    '/convenios/88/historial',
+  )
+})
 
   it('muestra el error cuando el backend responde 403 (CA-04)', async () => {
     vi.stubGlobal(

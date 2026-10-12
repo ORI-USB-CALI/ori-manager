@@ -224,7 +224,7 @@ def _programa_de(convenio: Convenio):
     return None
 
 
-def _a_item_consulta(convenio: Convenio) -> ConvenioConsultaItem:
+def _a_item_consulta(convenio: Convenio, puede_ver_detalle: bool) -> ConvenioConsultaItem:
     return ConvenioConsultaItem(
         id=convenio.id,
         codigo=convenio.codigo,
@@ -241,6 +241,7 @@ def _a_item_consulta(convenio: Convenio) -> ConvenioConsultaItem:
         fecha_formalizacion=(
             convenio.fecha_firma if convenio_esta_formalizado(convenio) else None
         ),
+        puede_ver_detalle=puede_ver_detalle,
     )
 
 
@@ -268,7 +269,11 @@ def consultar_convenios(
     except ErrorConvenio as exc:
         _lanzar_http(exc)
     return ConvenioConsultaListado(
-        items=[_a_item_consulta(convenio) for convenio in items], total=total
+        items=[
+            _a_item_consulta(convenio, bool(puede_ver_detalle))
+            for convenio, puede_ver_detalle in items
+        ],
+        total=total,
     )
 
 

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.enums import TipoAliado, TipoIdentificacion
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.services.convenios import ServicioConvenios
@@ -78,6 +79,7 @@ def test_ca01_busca_por_codigo(client, administrador, autor, crear_convenio) -> 
     cuerpo = respuesta.json()
     assert cuerpo["total"] == 1
     assert [item["id"] for item in cuerpo["items"]] == [objetivo.id]
+    assert cuerpo["items"][0]["puede_ver_detalle"] is True
 
 
 def test_ca01_busca_por_palabra_del_objeto(client, administrador, autor, crear_convenio) -> None:
@@ -96,7 +98,7 @@ def test_ca02_busca_por_aliado_formal_y_es_insensible_a_mayusculas(
 ) -> None:
     convenio = crear_convenio(autor, objeto="Convenio con aliado formal")
     aliado = _crear_aliado(db, f"Universidad Insignia {uuid4().hex[:6]}")
-    convenio.aliado_id = aliado.id
+    convenio.aliado = aliado
     db.commit()
 
     respuesta = client.get(URL_CONVENIOS, params={"buscar": aliado.nombre.upper()})
@@ -110,10 +112,12 @@ def test_ca02_busca_por_aliado_formal_y_es_insensible_a_mayusculas(
 
 
 def test_ca02_busca_por_contraparte_propuesta_sin_aliado_formal(
-    client, administrador, autor, crear_convenio
+    db, client, administrador, autor, crear_convenio
 ) -> None:
     nombre_propuesto = f"Entidad Propuesta {uuid4().hex[:6]}"
-    convenio = crear_convenio(autor, nombre_aliado_propuesto=nombre_propuesto)
+    convenio = crear_convenio(autor)
+    convenio.solicitud.nombre_aliado_propuesto = nombre_propuesto
+    db.commit()
 
     respuesta = client.get(URL_CONVENIOS, params={"buscar": nombre_propuesto})
 
@@ -163,6 +167,11 @@ def test_ca04_revisor_no_ve_convenios_fuera_de_su_alcance(
     assert en_juridica.id in ids
     assert en_elaboracion.id not in ids
 
+    autorizado = next(
+        item for item in cuerpo["items"] if item["id"] == en_juridica.id
+    )
+    assert autorizado["puede_ver_detalle"] is True
+
 
 def test_paginacion_respeta_limite_y_desplazamiento(
     client, administrador, autor, crear_convenio
@@ -197,3 +206,111 @@ def test_sin_filtro_administrador_obtiene_todos_los_convenios_en_su_alcance(
     cuerpo = respuesta.json()
     assert creados <= {item["id"] for item in cuerpo["items"]}
     assert cuerpo["total"] >= len(creados)
+
+
+def test_ca01_busca_por_id_de_convenio_sin_codigo(
+    client, administrador, autor, crear_convenio
+) -> None:
+    convenio = crear_convenio(autor)
+    assert convenio.codigo is None
+
+    respuesta = client.get(
+        URL_CONVENIOS,
+        params={"buscar": f"#{convenio.id}"},
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["id"] == convenio.id
+
+
+def test_ca01_busca_por_consecutivo_de_solicitud(
+    client, administrador, autor, crear_convenio
+) -> None:
+    convenio = crear_convenio(autor)
+    consecutivo = convenio.solicitud.consecutivo
+
+    respuesta = client.get(
+        URL_CONVENIOS,
+        params={"buscar": consecutivo},
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["id"] == convenio.id
+
+
+def test_ca04_revisor_encuentra_convenio_historico_sin_acceso_operativo(
+    db, client, crear_usuario, entrar_como, autor, crear_convenio
+) -> None:
+    termino = f"historico-hu26-{uuid4().hex[:6]}"
+    convenio = _entregar_a_juridica(
+        db, crear_convenio, autor, objeto=f"Convenio {termino}"
+    )
+
+    revisor1 = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    revisor2 = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+
+    # Completar las dos revisiones juridicas.
+    for actor in (revisor1, revisor2):
+        pendiente = db.scalar(
+            select(RevisionConvenio).where(
+                RevisionConvenio.convenio_id == convenio.id,
+                RevisionConvenio.tipo == "JURIDICA",
+                RevisionConvenio.estado == "PENDIENTE",
+            )
+        )
+        assert pendiente is not None
+
+        db.refresh(convenio)
+        entrar_como(actor)
+        respuesta = client.post(
+            f"/api/convenios/{convenio.id}/revisiones/{pendiente.id}/aprobar",
+            json={"expected_version": convenio.version_actual},
+        )
+
+        assert respuesta.status_code == 200, respuesta.text
+
+    db.refresh(convenio)
+    assert convenio.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+
+    # Puede consultar el historial, pero no el detalle operativo.
+    entrar_como(revisor1)
+    assert client.get(
+        f"/api/convenios/{convenio.id}/revisiones"
+    ).status_code == 200
+    assert client.get(
+        f"/api/convenios/{convenio.id}"
+    ).status_code == 404
+
+    # HU-26 debe mostrar el convenio en la busqueda historica.
+    respuesta = client.get(URL_CONVENIOS, params={"buscar": termino})
+    assert respuesta.status_code == 200
+    assert convenio.id in {
+        item["id"] for item in respuesta.json()["items"]
+    }
+
+        # HU-26 debe mostrar el convenio en la busqueda historica.
+    respuesta = client.get(URL_CONVENIOS, params={"buscar": termino})
+    assert respuesta.status_code == 200
+    assert convenio.id in {
+        item["id"] for item in respuesta.json()["items"]
+    }
+
+    historico = next(
+        item for item in respuesta.json()["items"]
+        if item["id"] == convenio.id
+    )
+    assert historico["puede_ver_detalle"] is False
+
+    # Un revisor sin participacion no puede encontrarlo.
+
+    # Un revisor sin participacion no puede encontrarlo.
+    tercero = crear_usuario(CodigoRol.REVISOR_ORI, TipoUsuario.INTERNO)
+    entrar_como(tercero)
+    respuesta = client.get(URL_CONVENIOS, params={"buscar": termino})
+    assert convenio.id not in {
+        item["id"] for item in respuesta.json()["items"]
+    }
