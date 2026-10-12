@@ -20,6 +20,7 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
+from backend.models.solicitud_version import SolicitudVersion
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.token_credencial import TokenCredencial
 from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
@@ -50,6 +51,7 @@ __all__ = [
     "Rol",
     "SolicitudConvenio",
     "SolicitudUsuario",
+    "SolicitudVersion",
     "TipoConvenio",
     "TokenCredencial",
     "TransicionEstadoConvenio",

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -23,9 +23,17 @@ from backend.models.enums import (
 )
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
+from backend.models.solicitud_version import (
+    SolicitudVersion,
+    solicitud_version_documento,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
+from backend.schemas.solicitud import (
+    SolicitudActualizar,
+    SolicitudCampos,
+    SolicitudCrear,
+)
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -376,10 +384,54 @@ class ServicioSolicitudes:
         )
         if documento is None:
             raise SolicitudNoEncontrada("Documento no encontrado")
+        if self._pertenece_a_version(documento):
+            documento.es_vigente = False
+            self.db.commit()
+            self.db.expire(solicitud, ["documentos"])
+            return
         clave = documento.ruta_almacenamiento
         self.db.delete(documento)
         self.db.commit()
+        self.db.expire(solicitud, ["documentos"])
         self._almacen_requerido().eliminar(clave)
+
+    def _pertenece_a_version(self, documento: Documento) -> bool:
+        return bool(
+            self.db.scalar(
+                select(
+                    exists().where(
+                        solicitud_version_documento.c.documento_id == documento.id
+                    )
+                )
+            )
+        )
+
+    @staticmethod
+    def _datos_version(solicitud: SolicitudConvenio) -> dict[str, object]:
+        datos: dict[str, object] = {}
+        for campo in SolicitudCampos.model_fields:
+            valor = getattr(solicitud, campo)
+            datos[campo] = valor.isoformat() if isinstance(valor, date) else valor
+        return datos
+
+    def _registrar_version(
+        self, solicitud: SolicitudConvenio, usuario: Usuario, instante: datetime
+    ) -> None:
+        ultimo = self.db.scalar(
+            select(func.max(SolicitudVersion.numero)).where(
+                SolicitudVersion.solicitud_id == solicitud.id
+            )
+        )
+        self.db.add(
+            SolicitudVersion(
+                solicitud_id=solicitud.id,
+                numero=(ultimo or 0) + 1,
+                datos=self._datos_version(solicitud),
+                radicada_por_id=usuario.id,
+                radicada_en=instante,
+                documentos=list(solicitud.documentos),
+            )
+        )
 
     def _errores_radicacion(
         self, solicitud: SolicitudConvenio, usuario: Usuario
@@ -478,6 +530,7 @@ class ServicioSolicitudes:
         solicitud.fecha_decision = None
         notificaciones = ServicioNotificaciones(self.db)
         try:
+            self._registrar_version(solicitud, usuario, instante)
             notificaciones.resolver(
                 TipoNotificacion.SOLICITUD_DEVUELTA,
                 EntidadNotificacion.SOLICITUD,
