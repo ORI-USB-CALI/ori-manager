@@ -43,6 +43,18 @@ export function ConsultaConveniosPage() {
   const [tipoFechaInput, setTipoFechaInput] = useState<TipoFiltroFecha>(tipoFechaActivo)
   const [fechaDesdeInput, setFechaDesdeInput] = useState(fechaDesdeActivo)
   const [fechaHastaInput, setFechaHastaInput] = useState(fechaHastaActivo)
+  const claveFiltros = JSON.stringify([buscarActivo, tipoFechaActivo, fechaDesdeActivo, fechaHastaActivo])
+  const [claveAnterior, setClaveAnterior] = useState(claveFiltros)
+
+  // Al volver con el navegador, el formulario debe reflejar los filtros de
+  // la URL. Cambiar solo de página conserva los valores aún sin aplicar.
+  if (claveAnterior !== claveFiltros) {
+    setClaveAnterior(claveFiltros)
+    setBuscarInput(buscarActivo)
+    setTipoFechaInput(tipoFechaActivo)
+    setFechaDesdeInput(fechaDesdeActivo)
+    setFechaHastaInput(fechaHastaActivo)
+  }
 
   // CA-05/RN-07: desde > hasta no se envía ni se refleja en la URL.
   const rangoInvalido = Boolean(
@@ -227,8 +239,10 @@ export function ConsultaConveniosPage() {
           <ResultsCount count={0} />
           <TableEmptyState
             message={
-              hayFiltros
+              buscarActivo
                 ? `No se encontraron convenios que coincidan con «${buscarActivo}».`
+                : hayFiltros
+                  ? 'No se encontraron convenios que coincidan con el rango de fechas.'
                 : 'No hay convenios visibles para tu rol.'
             }
             onClear={hayFiltros ? limpiarFiltros : undefined}

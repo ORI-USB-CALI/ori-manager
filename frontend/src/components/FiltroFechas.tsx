@@ -65,6 +65,7 @@ export function FiltroFechas({
             type="date"
             className={`form-control ${invalido ? 'is-invalid' : ''}`}
             value={fechaDesde}
+            aria-invalid={invalido || undefined}
             aria-describedby={invalido ? 'filtro-fechas-error' : undefined}
             onChange={(evento) => onFechaDesdeChange(evento.target.value)}
           />
@@ -76,6 +77,7 @@ export function FiltroFechas({
             type="date"
             className={`form-control ${invalido ? 'is-invalid' : ''}`}
             value={fechaHasta}
+            aria-invalid={invalido || undefined}
             aria-describedby={invalido ? 'filtro-fechas-error' : undefined}
             onChange={(evento) => onFechaHastaChange(evento.target.value)}
           />

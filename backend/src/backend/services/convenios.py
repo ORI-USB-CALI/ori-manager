@@ -891,10 +891,12 @@ class ServicioConvenios:
 
     def consultar(
         self, usuario: Usuario, filtros: FiltrosConsultaConvenio
-    ) -> tuple[Sequence[Convenio,bool], int]:
-        """HU-26 BE-2/BE-4. Búsqueda global de convenios dentro del alcance
-        operativo del rol autenticado (misma regla que el tablero y el
-        detalle: self._filtro_alcance_operativo, no se reescribe aquí)."""
+    ) -> tuple[Sequence[tuple[Convenio, bool]], int]:
+        """Consulta en el alcance operativo e histórico autorizado de HU-26.
+
+        Los filtros de fecha solo restringen los resultados; el indicador de
+        acceso al detalle sigue usando el alcance operativo existente.
+        """
         self._validar_rango_fechas(filtros)
         condiciones = [
             self._filtro_alcance_consulta(usuario),

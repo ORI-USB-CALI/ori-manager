@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ConsultaConveniosPage } from './ConsultaConveniosPage'
@@ -31,11 +31,17 @@ const itemReal = {
   puede_ver_detalle: true,
 }
 
-function renderPagina() {
+function NavegacionPrueba() {
+  const navegar = useNavigate()
+  return <button onClick={() => navegar(-1)}>Volver atrás</button>
+}
+
+function renderPagina(entrada = '/convenios') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/convenios']}>
+      <MemoryRouter initialEntries={[entrada]}>
+        <NavegacionPrueba />
         <ConsultaConveniosPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -145,11 +151,11 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     ).toBe(true)
 
     await usuario.click(screen.getByLabelText('Vigencia'))
-    await usuario.type(screen.getByLabelText('Desde'), '2026-06-01')
-    await usuario.type(screen.getByLabelText('Hasta'), '2026-06-30')
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-01' } })
+    fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '2026-06-30' } })
     await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('fecha_hasta=2026-06-30'))
     const url = fetchMock.mock.calls.at(-1)?.[0] as string
     expect(url).toContain('tipo_fecha=VIGENCIA')
     expect(url).toContain('fecha_desde=2026-06-01')
@@ -166,8 +172,8 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
 
     renderPagina()
     const usuario = userEvent.setup()
-    await usuario.type(screen.getByLabelText('Desde'), '2026-06-30')
-    await usuario.type(screen.getByLabelText('Hasta'), '2026-06-01')
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-30' } })
+    fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '2026-06-01' } })
 
     expect(await screen.findByText('El rango de fechas no es válido')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Buscar' })).toHaveProperty('disabled', true)
@@ -188,9 +194,9 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     renderPagina()
     const usuario = userEvent.setup()
     await usuario.type(screen.getByLabelText('Código, objeto, aliado o NIT'), 'movilidad')
-    await usuario.type(screen.getByLabelText('Desde'), '2026-06-01')
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-01' } })
     await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('fecha_desde=2026-06-01'))
 
     await usuario.click(screen.getByRole('button', { name: 'Quitar fechas' }))
 
@@ -225,5 +231,94 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     expect(screen.getByText('01/01/2026 – 01/01/2028')).toBeTruthy()
     expect(screen.getByText('Sin formalizar')).toBeTruthy()
     expect(screen.getByText('Sin definir')).toBeTruthy()
+  })
+
+  it('combina búsqueda y fechas al paginar y vuelve a la primera página al aplicar', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ items: [itemReal], total: 41 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPagina('/convenios?buscar=SOL-77&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01&fecha_hasta=2026-06-30')
+    await screen.findByText('41 resultados')
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await waitFor(() => {
+      const parametros = new URL(fetchMock.mock.calls.at(-1)?.[0] as string, 'http://localhost').searchParams
+      expect(parametros.get('buscar')).toBe('SOL-77')
+      expect(parametros.get('tipo_fecha')).toBe('VIGENCIA')
+      expect(parametros.get('fecha_desde')).toBe('2026-06-01')
+      expect(parametros.get('fecha_hasta')).toBe('2026-06-30')
+      expect(parametros.get('desplazamiento')).toBe('20')
+    })
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-02' } })
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => {
+      const url = fetchMock.mock.calls.at(-1)?.[0] as string
+      expect(url).toContain('fecha_desde=2026-06-02')
+      expect(url).not.toContain('desplazamiento')
+    })
+    expect(screen.getByText('Página 1 de 3')).toBeTruthy()
+  })
+
+  it('limpia texto, fechas y paginación con Limpiar filtros', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ items: [itemReal], total: 41 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPagina('/convenios?buscar=%2377&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01&pagina=2')
+    await screen.findByText('41 resultados')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Limpiar filtros' }))
+    await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/convenios?limite=20'))
+    expect(screen.getByLabelText('Código, objeto, aliado o NIT')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Desde')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Hasta')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Fecha de formalización')).toHaveProperty('checked', true)
+    expect(screen.getByText('Página 1 de 3')).toBeTruthy()
+  })
+
+  it('conserva la navegación histórica al combinar texto y fechas', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ items: [{ ...itemReal, puede_ver_detalle: false }], total: 1 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPagina('/convenios?buscar=SOL-77&tipo_fecha=FORMALIZACION&fecha_hasta=2026-06-30')
+    expect((await screen.findByRole('link', { name: 'Ver historial' })).getAttribute('href')).toBe('/convenios/77/historial')
+    expect(screen.queryByRole('link', { name: 'Ver' })).toBeNull()
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('fecha_hasta=2026-06-30')
+  })
+
+  it('muestra un mensaje útil cuando solo el rango de fechas no tiene resultados', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ items: [], total: 0 }),
+    }))
+    renderPagina('/convenios?tipo_fecha=VIGENCIA&fecha_desde=2026-06-01')
+    expect(await screen.findByText('No se encontraron convenios que coincidan con el rango de fechas.')).toBeTruthy()
+  })
+
+  it('muestra el rechazo 422 del backend', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 422, json: async () => ({ detail: 'El rango de fechas no es válido' }),
+    }))
+    renderPagina('/convenios?tipo_fecha=VIGENCIA&fecha_desde=2026-06-30&fecha_hasta=2026-06-01')
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'El rango de fechas no es válido')
+  })
+
+  it('restaura el formulario y la consulta al volver atrás en el navegador', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ items: [], total: 0 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPagina('/convenios?buscar=SOL-77&tipo_fecha=VIGENCIA&fecha_desde=2026-06-01')
+    const usuario = userEvent.setup()
+    await screen.findByText('0 resultados')
+    await usuario.click(screen.getByLabelText('Fecha de formalización'))
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-06-15' } })
+    await usuario.click(screen.getByRole('button', { name: 'Buscar' }))
+    await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('fecha_desde=2026-06-15'))
+    await usuario.click(screen.getByRole('button', { name: 'Volver atrás' }))
+    await waitFor(() => expect(screen.getByLabelText('Desde')).toHaveProperty('value', '2026-06-01'))
+    expect(screen.getByLabelText('Vigencia')).toHaveProperty('checked', true)
+    expect(screen.getByLabelText('Código, objeto, aliado o NIT')).toHaveProperty('value', 'SOL-77')
   })
 })
