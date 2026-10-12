@@ -45,10 +45,18 @@ export interface ConvenioConsultaListado {
   total: number
 }
 
+// HU-27: no se persiste en el backend (vive junto a FiltrosConsultaConvenio,
+// no en models/enums.py), así que tampoco se modela como un enum compartido
+// aquí: es un espejo literal de TipoFiltroFecha.
+export type TipoFiltroFecha = 'FORMALIZACION' | 'VIGENCIA'
+
 export interface FiltrosConsultaConvenio {
   buscar?: string
   limite: number
   desplazamiento: number
+  tipo_fecha?: TipoFiltroFecha
+  fecha_desde?: string
+  fecha_hasta?: string
 }
 
 export function construirQuery(filtros: FiltrosConsultaConvenio): string {
@@ -56,6 +64,14 @@ export function construirQuery(filtros: FiltrosConsultaConvenio): string {
   if (filtros.buscar?.trim()) parametros.set('buscar', filtros.buscar.trim())
   if (filtros.limite) parametros.set('limite', String(filtros.limite))
   if (filtros.desplazamiento) parametros.set('desplazamiento', String(filtros.desplazamiento))
+  // HU-27 FE-3: fecha_desde/fecha_hasta solo viajan junto con tipo_fecha,
+  // igual que exige el backend (BE-1): si no hay ninguna fecha, tipo_fecha
+  // tampoco se envía, para no forzar un filtro vacío.
+  if (filtros.tipo_fecha && (filtros.fecha_desde || filtros.fecha_hasta)) {
+    parametros.set('tipo_fecha', filtros.tipo_fecha)
+    if (filtros.fecha_desde) parametros.set('fecha_desde', filtros.fecha_desde)
+    if (filtros.fecha_hasta) parametros.set('fecha_hasta', filtros.fecha_hasta)
+  }
   return parametros.toString()
 }
 

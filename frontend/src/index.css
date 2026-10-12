@@ -1145,6 +1145,31 @@ a:hover {
   align-self: end;
 }
 
+.filtro-fechas-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.filtro-fechas-radios label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.filtro-fechas-rango {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+
+.filtro-fechas-rango .form-group {
+  margin-bottom: 0;
+  min-width: 150px;
+}
+
 .table-results {
   margin: 0 0 10px;
   color: var(--text-secondary);
