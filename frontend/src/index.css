@@ -510,6 +510,12 @@ a:hover {
   gap: 14px 24px;
 }
 
+.estadisticas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
 .summary-grid p {
   display: flex;
   flex-direction: column;
