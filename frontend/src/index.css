@@ -2722,3 +2722,143 @@ a:hover {
   padding-top: 0;
   border-top: 0;
 }
+
+/* ==========================================================================
+   Exportación de Convenios (FE-01, FE-03)
+   ========================================================================== */
+
+.header-banner-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.exportar-menu-contenedor {
+  position: relative;
+  display: inline-block;
+}
+
+.btn-exportar {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 6%);
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.btn-exportar:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.btn-exportar:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.exportar-menu-desplegable {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 270px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  box-shadow: 0 10px 25px -5px rgb(0 0 0 / 12%), 0 8px 10px -6px rgb(0 0 0 / 6%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exportar-aviso-borrador {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.exportar-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.exportar-menu-item:hover {
+  background: #f8fafc;
+}
+
+.exportar-menu-item-texto {
+  display: flex;
+  flex-direction: column;
+}
+
+.exportar-menu-item-texto strong {
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.exportar-menu-item-texto small {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.icono-pdf {
+  color: #dc2626;
+  flex-shrink: 0;
+}
+
+.icono-excel {
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+.spinner-descarga {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgb(0 0 0 / 15%);
+  border-top-color: var(--color-naranja);
+  border-radius: 50%;
+  display: inline-block;
+  animation: exportar-giro 0.8s linear infinite;
+}
+
+@keyframes exportar-giro {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.modal-exportacion-error .modal-section p {
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.modal-exportacion-error .modal-section ul {
+  padding-left: 20px;
+  margin-top: 8px;
+}
