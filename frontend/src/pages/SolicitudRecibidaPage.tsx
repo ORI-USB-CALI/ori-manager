@@ -143,6 +143,7 @@ export function SolicitudRecibidaPage() {
 
       <div className="page-toolbar">
         <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
+        <Link className="btn btn-outline" to={`/ori/solicitudes/${solicitud.id}/historial`}>Ver historial</Link>
         {pendiente && gestiona && !rechazando && !devolviendo && <>
           <button className="btn btn-danger" type="button" disabled={ocupado} onClick={() => setRechazando(true)}>Rechazar</button>
           <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setDevolviendo(true)}>Devolver</button>
