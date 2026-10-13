@@ -42,6 +42,7 @@ export function ReporteConveniosActivosPage() {
   if (!autorizado) return null
 
   const convenios = reporte.data ?? []
+  const descargasDeshabilitadas = reporte.isPending || reporte.isError
 
   return (
     <>
@@ -54,20 +55,25 @@ export function ReporteConveniosActivosPage() {
       </section>
 
       <div className="page-toolbar">
-        <a
-          className="btn btn-outline"
-          href={URL_DESCARGA_REPORTE_PDF}
-          aria-disabled={reporte.isPending || reporte.isError}
-        >
-          Descargar PDF
-        </a>
-        <a
-          className="btn btn-outline"
-          href={URL_DESCARGA_REPORTE_EXCEL}
-          aria-disabled={reporte.isPending || reporte.isError}
-        >
-          Descargar Excel
-        </a>
+        {descargasDeshabilitadas ? (
+          <>
+            <button type="button" className="btn btn-outline" disabled>
+              Descargar PDF
+            </button>
+            <button type="button" className="btn btn-outline" disabled>
+              Descargar Excel
+            </button>
+          </>
+        ) : (
+          <>
+            <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_PDF}>
+              Descargar PDF
+            </a>
+            <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_EXCEL}>
+              Descargar Excel
+            </a>
+          </>
+        )}
         <button
           type="button"
           className="btn btn-outline btn-small"

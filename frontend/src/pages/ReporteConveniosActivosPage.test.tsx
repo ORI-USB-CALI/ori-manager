@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -63,13 +63,18 @@ describe('ReporteConveniosActivosPage', () => {
     expect(screen.queryByText('Reporte de convenios activos')).toBeNull()
   })
 
-  it('muestra el estado de carga', () => {
+  it('muestra el estado de carga y deshabilita las descargas', () => {
     const fetchMock = vi.fn(() => new Promise(() => {}))
     renderizar(sesionAutorizada, fetchMock)
     expect(screen.getByText('Cargando convenios activos…')).toBeTruthy()
+    for (const nombre of ['Descargar PDF', 'Descargar Excel']) {
+      const boton = screen.getByRole('button', { name: nombre }) as HTMLButtonElement
+      expect(boton.disabled).toBe(true)
+      expect(screen.queryByRole('link', { name: nombre })).toBeNull()
+    }
   })
 
-  it('muestra el estado de error con botón de reintentar', async () => {
+  it('muestra el estado de error con botón de reintentar y deshabilita las descargas', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ detail: 'falló' }), { status: 500 }),
     )
@@ -79,6 +84,11 @@ describe('ReporteConveniosActivosPage', () => {
       await screen.findByText('No se pudo consultar el reporte de convenios activos.'),
     ).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeTruthy()
+    for (const nombre of ['Descargar PDF', 'Descargar Excel']) {
+      const boton = screen.getByRole('button', { name: nombre }) as HTMLButtonElement
+      expect(boton.disabled).toBe(true)
+      expect(screen.queryByRole('link', { name: nombre })).toBeNull()
+    }
   })
 
   it('muestra el estado vacío cuando no hay convenios activos', async () => {
@@ -109,7 +119,7 @@ describe('ReporteConveniosActivosPage', () => {
     const conActividades: ConvenioReporteActivo = {
       ...convenioEjemplo,
       actividades: [
-        { id: 1, titulo: 'Taller', estado: 'REALIZADA', fecha_planificada: null, fecha_ejecucion: null },
+        { id: 1, titulo: 'Taller', estado: 'REALIZADA', fecha_planificada: null, fecha_ejecucion: '2026-03-02' },
       ],
     }
     const fetchMock = vi.fn().mockResolvedValue(
@@ -120,16 +130,20 @@ describe('ReporteConveniosActivosPage', () => {
     expect(await screen.findByText('1 registrada(s)')).toBeTruthy()
   })
 
-  it('ofrece enlaces de descarga a PDF y Excel apuntando al backend', async () => {
+  it.each([
+    { caso: 'con convenios', datos: [convenioEjemplo] },
+    { caso: 'sin convenios', datos: [] },
+  ])('habilita las descargas a PDF y Excel al cargar el reporte $caso', async ({ datos }) => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([convenioEjemplo]), { status: 200 }),
+      new Response(JSON.stringify(datos), { status: 200 }),
     )
     renderizar(sesionAutorizada, fetchMock)
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
 
-    const enlacePdf = screen.getByRole('link', { name: 'Descargar PDF' }) as HTMLAnchorElement
+    const enlacePdf = await screen.findByRole('link', { name: 'Descargar PDF' }) as HTMLAnchorElement
     const enlaceExcel = screen.getByRole('link', { name: 'Descargar Excel' }) as HTMLAnchorElement
     expect(enlacePdf.getAttribute('href')).toBe('/api/convenios/reportes/activos/pdf')
     expect(enlaceExcel.getAttribute('href')).toBe('/api/convenios/reportes/activos/excel')
+    expect(screen.queryByRole('button', { name: 'Descargar PDF' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Descargar Excel' })).toBeNull()
   })
 })
