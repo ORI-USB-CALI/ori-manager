@@ -6,20 +6,15 @@ from sqlalchemy.orm import Session, joinedload
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import EstadoConvenio
-from backend.services.convenios import ConvenioNoEncontrado, ErrorConvenio
+from backend.services.convenios import (
+    ESTADOS_CARGA_SOPORTES,
+    ConvenioNoAdmiteSoportes,
+    ConvenioNoEncontrado,
+    ErrorConvenio,
+)
 from backend.services.documentos import AlmacenDocumentos
 
 TIPO_DOCUMENTO_SOPORTE = "SOPORTE"
-
-# Un convenio "activo" (CA-04) es uno firmado y en vigor. Se rechazan
-# EN_TRAMITE (el borrador), VENCIDO, RENOVADO, FINALIZADO y CANCELADO.
-ESTADOS_CARGA_SOPORTES = frozenset(
-    {EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER}
-)
-
-
-class ConvenioNoAdmiteSoportes(ErrorConvenio):
-    pass
 
 
 def exigir_estado_carga_soportes(convenio: Convenio) -> None:

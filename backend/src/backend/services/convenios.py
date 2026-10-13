@@ -1,9 +1,12 @@
+import logging
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
@@ -230,6 +233,15 @@ class DocumentoConvenioInvalido(ErrorConvenio):
 
 class DocumentoDemasiadoGrande(ErrorConvenio):
     pass
+
+
+class ConvenioNoAdmiteSoportes(ErrorConvenio):
+    pass
+
+
+ESTADOS_CARGA_SOPORTES = frozenset(
+    {EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER}
+)
 
 
 class ConfiguracionConvenioInvalida(RuntimeError):
@@ -1617,6 +1629,25 @@ class ServicioConvenios:
         contenido = self._almacen_requerido().leer(documento.ruta_almacenamiento)
         return documento, contenido
 
+    def _compensar_almacenamiento(
+        self, almacen: AlmacenDocumentos, clave: str
+    ) -> None:
+        """Elimina el archivo huérfano del almacenamiento si falla la persistencia
+        o si el convenio dejó de cumplir los requisitos durante la carga."""
+        try:
+            almacen.eliminar(clave)
+            logger.info(
+                "Compensación exitosa: archivo huérfano %s eliminado del almacenamiento",
+                clave,
+            )
+        except Exception as exc:
+            logger.critical(
+                "FALLO_COMPENSACION_ALMACENAMIENTO: No fue posible eliminar el archivo huérfano %s tras fallo de persistencia. Error: %s",
+                clave,
+                exc,
+                exc_info=True,
+            )
+
     def agregar_documento(
         self,
         *,
@@ -1626,36 +1657,88 @@ class ServicioConvenios:
         contenido: bytes,
         usuario: Usuario,
     ) -> Documento:
-        convenio = self.obtener(convenio_id)
+        # Validación de nombre de archivo (CA-01, CA-02)
+        nombre = (nombre_archivo or "").strip()
+        if not nombre:
+            raise DocumentoConvenioInvalido(
+                "El nombre del archivo no puede estar vacío"
+            )
+        if len(nombre) > 255:
+            raise DocumentoConvenioInvalido(
+                "El nombre del archivo no puede superar 255 caracteres"
+            )
+        if "\x00" in nombre:
+            raise DocumentoConvenioInvalido(
+                "El nombre del archivo contiene caracteres inválidos"
+            )
+
+        nombre_lower = nombre.lower()
+        if not nombre_lower.endswith(".pdf"):
+            raise DocumentoConvenioInvalido(
+                "Solo se permiten documentos en formato PDF"
+            )
+
         LIMITE_20MB = 20 * 1024 * 1024
         if len(contenido) > LIMITE_20MB:
             raise DocumentoDemasiadoGrande(
                 "El archivo supera el tamaño máximo permitido (20 MB)"
             )
 
-        nombre_lower = nombre_archivo.lower()
-        if not nombre_lower.endswith(".pdf") or not contenido.startswith(b"%PDF-"):
+        if not contenido.startswith(b"%PDF-"):
             raise DocumentoConvenioInvalido(
                 "Solo se permiten documentos en formato PDF"
             )
 
-        clave = f"convenios/{convenio.id}/documentos/{uuid4()}.pdf"
-        self._almacen_requerido().guardar(clave, contenido)
+        # Validación inicial del convenio antes de subir al almacenamiento
+        convenio = self.obtener(convenio_id)
+        if convenio.estado not in ESTADOS_CARGA_SOPORTES:
+            raise ConvenioNoAdmiteSoportes(
+                "Solo se pueden cargar soportes en convenios vigentes o por vencer; "
+                f"el convenio está en estado {convenio.estado}"
+            )
 
-        documento = Documento(
-            convenio_id=convenio.id,
-            tipo="SOPORTE",
-            nombre_archivo=nombre_archivo,
-            ruta_almacenamiento=clave,
-            tipo_mime="application/pdf",
-            tamano_bytes=len(contenido),
-            cargado_por_id=usuario.id,
-            es_vigente=True,
-        )
-        self.db.add(documento)
-        self.db.commit()
-        self.db.refresh(documento)
-        return documento
+        almacen = self._almacen_requerido()
+        clave = f"convenios/{convenio.id}/documentos/{uuid4()}.pdf"
+        almacen.guardar(clave, contenido)
+
+        # Transacción de persistencia con re-verificación de estado frente a concurrencia
+        try:
+            stmt = select(Convenio).where(Convenio.id == convenio_id)
+            if self.db.bind and self.db.bind.dialect.name == "postgresql":
+                stmt = stmt.with_for_update()
+            convenio_actual = self.db.scalar(stmt)
+
+            if convenio_actual is None:
+                self._compensar_almacenamiento(almacen, clave)
+                raise ConvenioNoEncontrado("Convenio no encontrado")
+
+            if convenio_actual.estado not in ESTADOS_CARGA_SOPORTES:
+                self._compensar_almacenamiento(almacen, clave)
+                raise ConvenioNoAdmiteSoportes(
+                    "Solo se pueden cargar soportes en convenios vigentes o por vencer; "
+                    f"el convenio está en estado {convenio_actual.estado}"
+                )
+
+            documento = Documento(
+                convenio_id=convenio_actual.id,
+                tipo="SOPORTE",
+                nombre_archivo=nombre,
+                ruta_almacenamiento=clave,
+                tipo_mime="application/pdf",
+                tamano_bytes=len(contenido),
+                cargado_por_id=usuario.id,
+                es_vigente=True,
+            )
+            self.db.add(documento)
+            self.db.commit()
+            self.db.refresh(documento)
+            return documento
+        except (ConvenioNoEncontrado, ConvenioNoAdmiteSoportes):
+            raise
+        except Exception:
+            self.db.rollback()
+            self._compensar_almacenamiento(almacen, clave)
+            raise
 
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""
