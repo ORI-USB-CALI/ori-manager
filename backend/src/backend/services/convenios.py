@@ -1653,7 +1653,7 @@ class ServicioConvenios:
         *,
         convenio_id: int,
         nombre_archivo: str,
-        tipo_mime: str,
+        tipo_mime: str | None,
         contenido: bytes,
         usuario: Usuario,
     ) -> Documento:
@@ -1676,6 +1676,11 @@ class ServicioConvenios:
         if not nombre_lower.endswith(".pdf"):
             raise DocumentoConvenioInvalido(
                 "Solo se permiten documentos en formato PDF"
+            )
+
+        if tipo_mime != "application/pdf":
+            raise DocumentoConvenioInvalido(
+                "El tipo MIME del documento debe ser application/pdf"
             )
 
         LIMITE_20MB = 20 * 1024 * 1024

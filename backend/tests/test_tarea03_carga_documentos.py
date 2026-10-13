@@ -1,6 +1,7 @@
 """Pruebas para TAREA 3: Carga de documentos PDF en convenios (CA-01, CA-02)."""
 
 import pytest
+from sqlalchemy import func, select
 
 from backend.models.documento import Documento
 from backend.models.enums import EstadoConvenio
@@ -21,7 +22,9 @@ def convenio_listo(convenio_listo, db):
     return convenio_listo
 
 
-def test_cargar_documento_pdf_exitoso(client, gestor, entrar_como, convenio_listo, db) -> None:
+def test_cargar_documento_pdf_exitoso(
+    client, gestor, entrar_como, convenio_listo, db, tmp_path
+) -> None:
     entrar_como(gestor)
     contenido_pdf = b"%PDF-1.4 contenido de prueba para documento soporte"
     archivo = ("documento_prueba.pdf", contenido_pdf, "application/pdf")
@@ -44,6 +47,68 @@ def test_cargar_documento_pdf_exitoso(client, gestor, entrar_como, convenio_list
     assert doc_db is not None
     assert doc_db.convenio_id == convenio_listo.id
     assert doc_db.es_vigente is True
+    assert AlmacenDocumentosLocal(tmp_path / "documentos").leer(
+        doc_db.ruta_almacenamiento
+    ) == contenido_pdf
+
+
+@pytest.mark.parametrize("tipo_mime", ["image/jpeg", "text/plain", None, ""])
+def test_cargar_pdf_con_mime_invalido_no_persiste(
+    client, gestor, convenio_listo, db, tmp_path, tipo_mime
+) -> None:
+    documentos = select(func.count()).select_from(Documento).where(
+        Documento.convenio_id == convenio_listo.id
+    )
+    documentos_antes = db.scalar(documentos)
+    # Multipart explícito: HTTPX infiere application/pdf si se usa files con None
+    # o un MIME vacío, ocultando precisamente el defecto que se quiere detectar.
+    cabecera_mime = "" if tipo_mime is None else f"Content-Type: {tipo_mime}\r\n"
+    contenido = (
+        '--hu22-mime\r\n'
+        'Content-Disposition: form-data; name="archivo"; filename="soporte.pdf"\r\n'
+        f'{cabecera_mime}\r\n'
+        '%PDF-1.4 soporte de prueba\r\n'
+        '--hu22-mime--\r\n'
+    ).encode()
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio_listo.id}/documentos",
+        content=contenido,
+        headers={"Content-Type": "multipart/form-data; boundary=hu22-mime"},
+    )
+
+    assert respuesta.status_code == 400
+    assert "MIME" in respuesta.json()["detail"]
+    assert db.scalar(documentos) == documentos_antes
+    assert not any(ruta.is_file() for ruta in (tmp_path / "documentos").rglob("*"))
+
+
+@pytest.mark.parametrize("tipo_mime", ["image/jpeg", "text/plain", None, ""])
+def test_servicio_rechaza_mime_invalido_antes_de_guardar(
+    db, gestor, convenio_listo, tmp_path, monkeypatch, tipo_mime
+) -> None:
+    from unittest.mock import Mock
+
+    almacen = AlmacenDocumentosLocal(tmp_path / "documentos")
+    guardar = Mock(wraps=almacen.guardar)
+    monkeypatch.setattr(almacen, "guardar", guardar)
+    documentos = select(func.count()).select_from(Documento).where(
+        Documento.convenio_id == convenio_listo.id
+    )
+    documentos_antes = db.scalar(documentos)
+
+    with pytest.raises(DocumentoConvenioInvalido, match="MIME"):
+        ServicioConvenios(db, almacen=almacen).agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte.pdf",
+            tipo_mime=tipo_mime,
+            contenido=b"%PDF-1.4 soporte de prueba",
+            usuario=gestor,
+        )
+
+    guardar.assert_not_called()
+    assert db.scalar(documentos) == documentos_antes
+    assert not any(ruta.is_file() for ruta in almacen.raiz.rglob("*"))
 
 
 def test_cargar_documento_no_pdf_rechazado_400(client, gestor, entrar_como, convenio_listo) -> None:

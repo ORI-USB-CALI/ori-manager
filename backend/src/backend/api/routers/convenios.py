@@ -1038,7 +1038,7 @@ async def cargar_documento_convenio(
         documento = ServicioConvenios(db, almacen=almacen).agregar_documento(
             convenio_id=convenio_id,
             nombre_archivo=archivo.filename or "",
-            tipo_mime=archivo.content_type or "application/pdf",
+            tipo_mime=archivo.content_type,
             contenido=contenido,
             usuario=usuario,
         )
