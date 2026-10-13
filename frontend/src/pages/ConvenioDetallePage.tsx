@@ -9,6 +9,7 @@ import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtiliza
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
+import { ExportarConvenioMenu } from '../components/ExportarConvenioMenu'
 import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
@@ -220,8 +221,16 @@ export function ConvenioDetallePage() {
   return (
     <>
       <section className="header-banner">
-        <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
-        <p><span className="badge">{datos.estado}</span></p>
+        <div className="header-banner-fila">
+          <div>
+            <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
+            <p><span className="badge">{datos.estado}</span></p>
+          </div>
+          <ExportarConvenioMenu
+            convenioId={datos.id}
+            esBorrador={etapaActual === 'ELABORACION' && datos.estado === 'EN_TRAMITE'}
+          />
+        </div>
       </section>
 
       <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
