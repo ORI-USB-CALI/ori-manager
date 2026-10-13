@@ -1701,6 +1701,7 @@ def test_formalizar_cierra_proceso_y_activa_convenio_sin_nueva_version(
     assert convenio.fecha_firma.isoformat() == "2026-09-26"
     assert proceso_persistido.estado == EstadoProcesoFirmasConvenio.COMPLETADO.value
     assert proceso_persistido.completado_en is not None
+    assert convenio.activado_en == proceso_persistido.completado_en
     assert proceso_persistido.version_convenio_id == escenario_final["version"].id
     historial = db.scalar(
         select(HistorialEtapa)
