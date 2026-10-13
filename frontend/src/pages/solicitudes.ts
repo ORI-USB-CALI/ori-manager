@@ -193,11 +193,22 @@ export interface ComparacionVersiones {
   }
 }
 
-/** HT-02: compara una versión radicada contra la anterior (la ORI, por solicitudes recibidas). */
-export function useComparacionVersionesSolicitud(id: number, numero: number | null) {
+/** HT-02: compara una versión radicada contra la anterior. */
+export function useComparacionVersionesSolicitud(
+  id: number,
+  numero: number | null,
+  alcance: AlcanceHistorialSolicitud = 'recibida',
+) {
+  const recibida = alcance === 'recibida'
   return useQuery({
-    queryKey: ['solicitudes', 'recibidas', id, 'versiones', numero, 'comparacion'],
-    queryFn: () => apiFetch<ComparacionVersiones>(`/solicitudes/recibidas/${id}/versiones/${numero}/comparacion`),
+    queryKey: recibida
+      ? ['solicitudes', 'recibidas', id, 'versiones', numero, 'comparacion']
+      : ['solicitudes', id, 'versiones', numero, 'comparacion'],
+    queryFn: () => apiFetch<ComparacionVersiones>(
+      recibida
+        ? `/solicitudes/recibidas/${id}/versiones/${numero}/comparacion`
+        : `/solicitudes/${id}/versiones/${numero}/comparacion`,
+    ),
     enabled: numero !== null,
     retry: false,
   })
