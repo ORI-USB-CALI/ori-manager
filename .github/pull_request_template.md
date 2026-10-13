@@ -1,37 +1,47 @@
-## Summary
+## Resumen
 
-Describe briefly what this pull request changes and why.
+Explicar qué cambia y por qué; aclarar comportamiento preservado.
 
-## Related issue / user story
+## Historia y sprint
 
-Closes #
+- HU/HT/issue relacionado:
+- Sprint asignado:
+- Estado de la HU según backlog oficial (no inferir del código):
 
-## Type of change
+## Tipo de cambio
 
 - [ ] Feature
-- [ ] Bug fix
+- [ ] Corrección
 - [ ] Refactor
-- [ ] Documentation
-- [ ] Infrastructure / configuration
-- [ ] Tests
+- [ ] Documentación
+- [ ] Infraestructura / configuración
+- [ ] Pruebas
 
-## Affected area
+## Área afectada
 
 - [ ] Frontend
 - [ ] Backend
-- [ ] Database
-- [ ] Infrastructure / DevOps
-- [ ] Documentation
+- [ ] Base de datos/Alembic
+- [ ] Infraestructura/DevOps
+- [ ] Documentación
 
-## Validation
+## Documentación por commit
 
-Describe the tests or checks performed.
+- Documentos modificados y enlaces:
+- [ ] Cada commit funcional nuevo incluye sus cambios documentales **en ese mismo commit**.
+- [ ] Cuando un commit no cambia documentación, se justifica concretamente por qué.
+- [ ] Se revisó la [política documental](../docs/development/documentation-policy.md).
+
+## Validación
+
+- Pruebas realizadas (indicar qué se verificó y qué no):
+- CI / linters / regresiones:
+- Riesgos y recuperación si procede:
 
 ## Checklist
 
-- [ ] The project runs locally.
-- [ ] Tests related to the change pass.
-- [ ] Linting / static checks pass.
-- [ ] No credentials or secrets were committed.
-- [ ] Documentation was updated when required.
-- [ ] The PR contains only changes related to its purpose.
+- [ ] Pruebas del área modificada pasan.
+- [ ] Sin credenciales, tokens ni datos institucionales sensibles.
+- [ ] Migraciones/versionado y compatibilidad documentados cuando aplica.
+- [ ] Documentación y estados del backlog no se contradicen.
+- [ ] El PR no introduce cambios fuera de su propósito.
