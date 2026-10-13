@@ -5,18 +5,27 @@ from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoActividadConvenio, EstadoConvenio
+from backend.models.enums import (
+    EstadoActividadConvenio,
+    EstadoConvenio,
+    EstadoSolicitud,
+    TipoSolicitante,
+)
+from backend.models.rol import Rol
+from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.usuario import Usuario
+from backend.schemas.actividad_utilizacion import ActividadUtilizacionCrear
 from backend.services import actividades_utilizacion
 from backend.services.actividades_utilizacion import (
     ServicioActividadesUtilizacion,
 )
+from backend.services.convenios import ConvenioNoEditable
 from backend.services.reportes import ServicioReportes
 
 HOY = date(2026, 10, 13)
@@ -361,6 +370,102 @@ def test_ca04_rechaza_registro_en_convenio_no_activo(
     assert respuesta.status_code == 409
     assert "vigentes o por vencer" in respuesta.json()["detail"]
     assert actividades_guardadas(db) == []
+
+
+@pytest.mark.parametrize(
+    "estado", [EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER]
+)
+def test_registro_recarga_estado_confirmado_por_otra_conexion(
+    db_engine, estado
+) -> None:
+    # No usar db: sus commits solo liberan savepoints de una transacción externa.
+    assert db_engine.dialect.name == "postgresql"
+    with Session(db_engine) as preparacion, preparacion.begin():
+        rol = preparacion.scalar(
+            select(Rol).where(Rol.codigo == CodigoRol.GESTOR_ORI.value)
+        )
+        assert rol is not None
+        usuario = Usuario(
+            correo=f"hu35-concurrencia-{uuid4().hex}@example.com",
+            hash_contrasena="sin-login",
+            nombre_completo="Gestor de prueba HU-35",
+            rol=rol,
+            tipo_usuario=TipoUsuario.INTERNO.value,
+        )
+        preparacion.add(usuario)
+        preparacion.flush()
+        solicitud = SolicitudConvenio(
+            consecutivo=f"SOL-{uuid4().hex}",
+            solicitante_id=usuario.id,
+            tipo_solicitante=TipoSolicitante.INTERNO.value,
+            estado=EstadoSolicitud.APROBADA.value,
+        )
+        preparacion.add(solicitud)
+        preparacion.flush()
+        convenio = Convenio(
+            solicitud_id=solicitud.id,
+            creado_por_id=usuario.id,
+            estado=estado.value,
+            fecha_inicio=INICIO,
+            fecha_vencimiento=VENCIMIENTO,
+        )
+        preparacion.add(convenio)
+        preparacion.flush()
+        convenio_id, solicitud_id, usuario_id = convenio.id, solicitud.id, usuario.id
+    # La salida de begin() confirma los datos para ambas conexiones.
+    conteo = (
+        select(func.count())
+        .select_from(ActividadConvenio)
+        .where(ActividadConvenio.convenio_id == convenio_id)
+    )
+    try:
+        with Session(db_engine) as registro, Session(db_engine) as cambio:
+            # Ambas sesiones mantienen conexiones abiertas al comparar los PID.
+            assert registro.scalar(select(func.pg_backend_pid())) != cambio.scalar(
+                select(func.pg_backend_pid())
+            )
+            precargado = registro.get(Convenio, convenio_id)
+            assert precargado is not None
+            assert precargado.estado == estado.value
+            gestor = registro.get(Usuario, usuario_id)
+            assert gestor is not None
+            assert registro.scalar(conteo) == 0
+
+            actualizado = cambio.get(Convenio, convenio_id)
+            assert actualizado is not None
+            assert actualizado.estado == estado.value
+            actualizado.estado = EstadoConvenio.FINALIZADO.value
+            cambio.commit()
+
+            # Conservar una referencia fuerte evita que el identity map la pierda.
+            assert registro.get(Convenio, convenio_id) is precargado
+            assert precargado.estado == estado.value
+            with pytest.raises(ConvenioNoEditable, match="vigentes o por vencer"):
+                ServicioActividadesUtilizacion(registro).registrar(
+                    convenio_id,
+                    ActividadUtilizacionCrear.model_validate(ACTIVIDAD_EJEMPLO),
+                    gestor,
+                )
+            assert precargado.estado == EstadoConvenio.FINALIZADO.value
+            assert registro.scalar(conteo) == 0
+        with Session(db_engine) as verificacion:
+            assert verificacion.get(Convenio, convenio_id).estado == (
+                EstadoConvenio.FINALIZADO.value
+            )
+            assert verificacion.scalar(conteo) == 0
+    finally:
+        # Limpiar también si la regresión inserta y confirma una actividad.
+        with Session(db_engine) as limpieza, limpieza.begin():
+            limpieza.execute(
+                delete(ActividadConvenio).where(
+                    ActividadConvenio.convenio_id == convenio_id
+                )
+            )
+            limpieza.execute(delete(Convenio).where(Convenio.id == convenio_id))
+            limpieza.execute(
+                delete(SolicitudConvenio).where(SolicitudConvenio.id == solicitud_id)
+            )
+            limpieza.execute(delete(Usuario).where(Usuario.id == usuario_id))
 
 
 def test_convenio_inexistente_responde_404(client, gestor) -> None:

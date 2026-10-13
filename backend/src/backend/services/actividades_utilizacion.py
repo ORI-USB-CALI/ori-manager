@@ -41,7 +41,10 @@ class ServicioActividadesUtilizacion:
     ) -> ActividadConvenio:
         ServicioConvenios(self.db).verificar_alcance_operativo(convenio_id, usuario)
         convenio = self.db.scalar(
-            select(Convenio).where(Convenio.id == convenio_id).with_for_update()
+            select(Convenio)
+            .where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
