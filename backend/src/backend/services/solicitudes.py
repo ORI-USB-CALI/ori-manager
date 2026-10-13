@@ -254,10 +254,13 @@ class ServicioSolicitudes:
             raise SolicitudNoRevisable(
                 f"La solicitud está {solicitud.estado} y ya no admite decisión"
             )
-        describir_accion(self.db, actor, ACCION_POR_DECISION[estado])
+        instante = datetime.now(UTC)
+        describir_accion(
+            self.db, actor, ACCION_POR_DECISION[estado], instante=instante
+        )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
-        solicitud.fecha_decision = datetime.now(UTC)
+        solicitud.fecha_decision = instante
         return solicitud
 
     def aceptar(self, solicitud_id: int, actor: Usuario) -> SolicitudConvenio:
@@ -454,8 +457,16 @@ class ServicioSolicitudes:
         errores = self._errores_radicacion(solicitud, usuario)
         if errores:
             raise SolicitudIncompleta(errores)
-        solicitud.estado = EstadoSolicitud.RADICADA.value
         instante = datetime.now(UTC)
+        describir_accion(
+            self.db,
+            usuario,
+            "Volvió a radicar la solicitud corregida"
+            if solicitud.estado == EstadoSolicitud.DEVUELTA.value
+            else "Radicó la solicitud",
+            instante=instante,
+        )
+        solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante
         solicitud.fecha_recibido_ori = instante
         solicitud.decidida_por_id = None

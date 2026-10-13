@@ -1,3 +1,4 @@
+from datetime import datetime
 from io import BytesIO
 from uuid import uuid4
 
@@ -112,8 +113,7 @@ def test_ca03_aceptar_no_crea_convenio(client, db, gestor, crear_solicitud):
     solicitud = crear_solicitud()
     client.post(f"/api/solicitudes/recibidas/{solicitud.id}/aceptar")
     assert (
-        db.scalar(select(Convenio).where(Convenio.solicitud_id == solicitud.id))
-        is None
+        db.scalar(select(Convenio).where(Convenio.solicitud_id == solicitud.id)) is None
     )
     detalle = client.get(f"/api/solicitudes/recibidas/{solicitud.id}").json()
     assert detalle["convenio_id"] is None
@@ -249,6 +249,13 @@ def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
     fecha_decision = devuelta.json()["fecha_decision"]
 
     entrar_como(solicitante)
+    consulta_devuelta = client.get(f"/api/solicitudes/{solicitud_id}")
+    assert consulta_devuelta.status_code == 200
+    assert consulta_devuelta.json()["solicitante_id"] == solicitante.id
+    assert consulta_devuelta.json()["estado"] == "DEVUELTA"
+    assert consulta_devuelta.json()["observaciones_devolucion"] == (
+        "Ajustar objeto y reemplazar el RUT"
+    )
     corregida = client.patch(
         f"/api/solicitudes/{solicitud_id}", json={"objeto": "Objeto corregido"}
     )
@@ -282,6 +289,90 @@ def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
         "Ajustar objeto y reemplazar el RUT"
     )
     assert reradicada.json()["fecha_radicacion"] > fecha_decision
+
+    # Dos rondas de devolución y una aprobación deben conservar cada auditoría.
+    for ronda in range(2):
+        entrar_como(solicitante)
+        propia = client.get(f"/api/solicitudes/{solicitud_id}")
+        assert propia.status_code == 200
+        entrar_como(gestor)
+        ori = client.get(f"/api/solicitudes/recibidas/{solicitud_id}")
+        assert ori.status_code == 200
+        for datos in [propia.json(), ori.json()]:
+            assert datos["id"] == solicitud_id
+            assert datos["estado"] == "RADICADA"
+            assert datos["observaciones_devolucion"] == (
+                "Ajustar objeto y reemplazar el RUT"
+                if ronda == 0
+                else "Precisar las metas de la segunda ronda"
+            )
+            assert datos["fecha_decision"] is None
+            assert datos["decidida_por_id"] is None
+        if ronda == 0:
+            segunda = client.post(
+                f"/api/solicitudes/recibidas/{solicitud_id}/devolver",
+                json={"observaciones": "Precisar las metas de la segunda ronda"},
+            )
+            assert segunda.status_code == 200
+            entrar_como(solicitante)
+            assert (
+                client.patch(
+                    f"/api/solicitudes/{solicitud_id}",
+                    json={"metas_esperadas": "Metas precisadas"},
+                ).status_code
+                == 200
+            )
+            assert (
+                client.post(f"/api/solicitudes/{solicitud_id}/radicar").status_code
+                == 200
+            )
+
+    aprobada = client.post(f"/api/solicitudes/recibidas/{solicitud_id}/aceptar")
+    assert aprobada.status_code == 200
+    entrar_como(solicitante)
+    final = client.get(f"/api/solicitudes/{solicitud_id}")
+    assert final.status_code == 200
+    assert final.json()["estado"] == "APROBADA"
+    assert final.json()["observaciones_devolucion"] == (
+        "Precisar las metas de la segunda ronda"
+    )
+    db.expire_all()
+    historial = list(
+        db.scalars(
+            select(Auditoria)
+            .where(
+                Auditoria.entidad == "solicitud", Auditoria.registro_id == solicitud_id
+            )
+            .order_by(Auditoria.id)
+        )
+    )
+    estados = [a for a in historial if a.campo == "estado"]
+    assert [(a.valor_anterior, a.valor_nuevo, a.usuario_id) for a in estados] == [
+        ("RADICADA", "DEVUELTA", gestor.id),
+        ("DEVUELTA", "RADICADA", solicitante.id),
+        ("RADICADA", "DEVUELTA", gestor.id),
+        ("DEVUELTA", "RADICADA", solicitante.id),
+        ("RADICADA", "APROBADA", gestor.id),
+    ]
+    assert all(a.fecha_hora.tzinfo is not None for a in historial)
+    assert [a.fecha_hora for a in estados] == sorted(a.fecha_hora for a in estados)
+    assert estados[0].fecha_hora == datetime.fromisoformat(fecha_decision)
+    assert estados[-1].fecha_hora == datetime.fromisoformat(
+        aprobada.json()["fecha_decision"]
+    )
+    motivos = [a for a in historial if a.campo == "observaciones_devolucion"]
+    assert [(a.valor_anterior, a.valor_nuevo, a.usuario_id) for a in motivos] == [
+        (None, "Ajustar objeto y reemplazar el RUT", gestor.id),
+        (
+            "Ajustar objeto y reemplazar el RUT",
+            "Precisar las metas de la segunda ronda",
+            gestor.id,
+        ),
+    ]
+    assert [a.fecha_hora for a in motivos] == [
+        estados[0].fecha_hora,
+        estados[2].fecha_hora,
+    ]
 
 
 def test_rechazada_no_es_editable_ni_radicable(
@@ -406,3 +497,167 @@ def test_aceptada_luego_inicia_elaboracion(client, gestor, crear_solicitud):
         f"/api/solicitudes/recibidas/{solicitud.id}/iniciar-elaboracion"
     )
     assert respuesta.status_code == 200
+
+
+def test_ht01_rechazo_conserva_motivo_y_auditoria_para_solicitante(
+    client, db, gestor, solicitante, entrar_como, crear_solicitud
+):
+    solicitud = crear_solicitud()
+    respuesta = client.post(
+        f"/api/solicitudes/recibidas/{solicitud.id}/rechazar",
+        json={"motivo": "Falta documentación legal"},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "RECHAZADA"
+    assert respuesta.json()["motivo_rechazo"] == "Falta documentación legal"
+    assert respuesta.json()["fecha_decision"] is not None
+    cambios = list(
+        db.scalars(
+            select(Auditoria).where(
+                Auditoria.entidad == "solicitud", Auditoria.registro_id == solicitud.id
+            )
+        )
+    )
+    assert any(
+        c.campo == "estado"
+        and c.valor_nuevo == "RECHAZADA"
+        and c.usuario_id == gestor.id
+        for c in cambios
+    )
+    assert any(
+        c.campo == "motivo_rechazo"
+        and c.valor_nuevo == "Falta documentación legal"
+        and c.usuario_id == gestor.id
+        for c in cambios
+    )
+    entrar_como(solicitante)
+    consultada = client.get(f"/api/solicitudes/{solicitud.id}")
+    assert consultada.status_code == 200
+    assert consultada.json()["id"] == solicitud.id
+    assert consultada.json()["solicitante_id"] == solicitante.id
+    assert consultada.json()["estado"] == "RECHAZADA"
+    assert consultada.json()["motivo_rechazo"] == "Falta documentación legal"
+
+
+def test_ht01_aprobacion_seguida_de_consulta_no_genera_404(
+    client, gestor, crear_solicitud
+):
+    solicitud = crear_solicitud()
+    aprobado = client.post(f"/api/solicitudes/recibidas/{solicitud.id}/aceptar")
+    assert aprobado.status_code == 200
+    assert aprobado.json()["estado"] == "APROBADA"
+    assert aprobado.json()["fecha_decision"] is not None
+    consultado = client.get(f"/api/solicitudes/recibidas/{solicitud.id}")
+    assert consultado.status_code == 200
+    assert consultado.json()["estado"] == "APROBADA"
+
+
+@pytest.mark.parametrize("estado_inicial", ["RADICADA", "EN_ESTUDIO"])
+@pytest.mark.parametrize(
+    "decision, payload, estado_final, campo, motivo",
+    [
+        ("aceptar", None, "APROBADA", None, None),
+        (
+            "rechazar",
+            {"motivo": "La contraparte no cumple los requisitos; revisar NIT 123."},
+            "RECHAZADA",
+            "motivo_rechazo",
+            "La contraparte no cumple los requisitos; revisar NIT 123.",
+        ),
+        (
+            "devolver",
+            {"observaciones": "Precisar cláusula 3 y vigencia: 24 meses."},
+            "DEVUELTA",
+            "observaciones_devolucion",
+            "Precisar cláusula 3 y vigencia: 24 meses.",
+        ),
+    ],
+)
+def test_ht01_decision_persistida_consistente_entre_portales_y_aislada(
+    client,
+    db,
+    gestor,
+    solicitante,
+    entrar_como,
+    crear_usuario,
+    crear_solicitud,
+    estado_inicial,
+    decision,
+    payload,
+    estado_final,
+    campo,
+    motivo,
+):
+    solicitud = crear_solicitud(EstadoSolicitud(estado_inicial))
+    solicitud_id = solicitud.id
+    inicial = client.get(f"/api/solicitudes/recibidas/{solicitud_id}")
+    assert inicial.status_code == 200
+    assert inicial.json()["estado"] == estado_inicial
+    respuesta = client.post(
+        f"/api/solicitudes/recibidas/{solicitud_id}/{decision}", json=payload
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    decision_ori = respuesta.json()
+    fecha = datetime.fromisoformat(decision_ori["fecha_decision"])
+    assert fecha.tzinfo is not None
+    assert decision_ori["decidida_por_nombre"] == gestor.nombre_completo
+
+    # Forzar una lectura de PostgreSQL, sin reutilizar objetos del identity map.
+    db.expire_all()
+    persistida = db.get(SolicitudConvenio, solicitud_id)
+    assert persistida.estado == estado_final
+    assert persistida.decidida_por_id == gestor.id
+    assert persistida.fecha_decision == fecha
+    auditorias = list(
+        db.scalars(
+            select(Auditoria).where(
+                Auditoria.entidad == "solicitud", Auditoria.registro_id == solicitud_id
+            )
+        )
+    )
+    assert len(auditorias) == (2 if campo else 1)
+    auditoria_estado = next(a for a in auditorias if a.campo == "estado")
+    assert (auditoria_estado.valor_anterior, auditoria_estado.valor_nuevo) == (
+        estado_inicial,
+        estado_final,
+    )
+    for auditoria in auditorias:
+        assert auditoria.usuario_id == gestor.id
+        assert auditoria.accion == "UPDATE"
+        assert auditoria.fecha_hora == fecha
+    if campo:
+        auditoria_motivo = next(a for a in auditorias if a.campo == campo)
+        assert auditoria_motivo.valor_anterior is None
+        assert auditoria_motivo.valor_nuevo == motivo
+        assert getattr(persistida, campo) == motivo
+
+    ori = client.get(f"/api/solicitudes/recibidas/{solicitud_id}")
+    assert ori.status_code == 200
+    bandeja_ori = client.get("/api/solicitudes/recibidas")
+    assert bandeja_ori.status_code == 200
+    item_ori = next(i for i in bandeja_ori.json()["items"] if i["id"] == solicitud_id)
+    entrar_como(solicitante)
+    propia = client.get(f"/api/solicitudes/{solicitud_id}")
+    assert propia.status_code == 200
+    bandeja_propia = client.get("/api/solicitudes/mias")
+    assert bandeja_propia.status_code == 200
+    item_propio = next(
+        i for i in bandeja_propia.json()["items"] if i["id"] == solicitud_id
+    )
+    for datos in [decision_ori, ori.json(), item_ori, propia.json(), item_propio]:
+        assert datos["id"] == solicitud_id
+        assert datos["consecutivo"] == solicitud.consecutivo
+        assert datos["solicitante_id"] == solicitante.id
+        assert datos["estado"] == estado_final
+        assert datos["decidida_por_id"] == gestor.id
+        assert datetime.fromisoformat(datos["fecha_decision"]) == fecha
+        if campo:
+            assert datos[campo] == motivo
+
+    ajeno = crear_usuario(CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO)
+    entrar_como(ajeno)
+    assert client.get(f"/api/solicitudes/{solicitud_id}").status_code == 404
+    assert solicitud_id not in {
+        i["id"] for i in client.get("/api/solicitudes/mias").json()["items"]
+    }
+    assert client.get(f"/api/solicitudes/recibidas/{solicitud_id}").status_code == 403

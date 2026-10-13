@@ -31,12 +31,15 @@ export type Permiso =
   | 'convenios.revisar_contraparte_propia'
   | 'convenios.gestionar_firmas'
   | 'convenios.evaluar'
+  | 'convenios.gestionar_soportes'
+  | 'convenios.ver_reportes'
   | 'solicitudes.crear'
   | 'solicitudes.ver_propias'
   | 'solicitudes.editar_propias'
   | 'solicitudes.radicar'
   | 'solicitudes.ver_recibidas'
   | 'solicitudes.gestionar_recibidas'
+  | 'auditoria.ver'
 
 export interface RolSesion {
   codigo: CodigoRol

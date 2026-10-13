@@ -153,3 +153,19 @@ class EntidadNotificacion(StrEnum):
 
     CONVENIO = "CONVENIO"
     SOLICITUD = "SOLICITUD"
+
+
+class ParteEjecutoraActividad(StrEnum):
+    """HU-34/HU-35. Quién ejecuta una actividad registrada sobre un
+    convenio vigente, tal como la define el MER aprobado."""
+
+    USB = "USB"
+    CONTRAPARTE = "CONTRAPARTE"
+    AMBAS = "AMBAS"
+
+
+class EstadoActividadConvenio(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    EN_CURSO = "EN_CURSO"
+    REALIZADA = "REALIZADA"
+    CANCELADA = "CANCELADA"
