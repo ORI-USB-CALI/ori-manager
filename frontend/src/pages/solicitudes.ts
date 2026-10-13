@@ -123,3 +123,36 @@ export function useSolicitudRecibida(id: number | null) {
     retry: false,
   })
 }
+
+export interface DevolucionSolicitud {
+  observaciones: string
+  devuelta_por_nombre: string
+  devuelta_en: string
+  corregida_en_version: number | null
+}
+
+export interface VersionSolicitudHistorial {
+  numero: number
+  radicada_en: string
+  devolucion: DevolucionSolicitud | null
+}
+
+export interface HistorialSolicitud {
+  solicitud_id: number
+  consecutivo: string
+  estado: EstadoSolicitud
+  versiones: VersionSolicitudHistorial[]
+}
+
+/** La ORI consulta las solicitudes recibidas; el Solicitante, las propias. */
+export type AlcanceHistorialSolicitud = 'recibida' | 'propia'
+
+export function useHistorialSolicitud(id: number | null, alcance: AlcanceHistorialSolicitud) {
+  const recibida = alcance === 'recibida'
+  return useQuery({
+    queryKey: recibida ? ['solicitudes', 'recibidas', id, 'historial'] : ['solicitudes', id, 'historial'],
+    queryFn: () => apiFetch<HistorialSolicitud>(recibida ? `/solicitudes/recibidas/${id}/historial` : `/solicitudes/${id}/historial`),
+    enabled: id !== null,
+    retry: false,
+  })
+}
