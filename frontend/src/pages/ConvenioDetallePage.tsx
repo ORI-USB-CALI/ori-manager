@@ -5,9 +5,11 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
+import { ExportarConvenioMenu } from '../components/ExportarConvenioMenu'
 import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
@@ -219,8 +221,16 @@ export function ConvenioDetallePage() {
   return (
     <>
       <section className="header-banner">
-        <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
-        <p><span className="badge">{datos.estado}</span></p>
+        <div className="header-banner-fila">
+          <div>
+            <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
+            <p><span className="badge">{datos.estado}</span></p>
+          </div>
+          <ExportarConvenioMenu
+            convenioId={datos.id}
+            esBorrador={etapaActual === 'ELABORACION' && datos.estado === 'EN_TRAMITE'}
+          />
+        </div>
       </section>
 
       <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
@@ -340,6 +350,7 @@ export function ConvenioDetallePage() {
         </>
       )}
       <EvaluacionConvenio convenioId={id} permitirRegistro />
+      <ActividadesUtilizacionConvenio convenioId={datos.id} estado={datos.estado} />
       <div className="page-toolbar"><Link className="btn btn-outline" to={`/convenios/${datos.id}/historial`}>Ver historial y trazabilidad</Link></div>
 
       {confirmarEnvio && (
