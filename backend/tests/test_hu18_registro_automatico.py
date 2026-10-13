@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -343,6 +344,21 @@ def test_una_accion_revertida_no_deja_registros(
 
     (registro,) = _bitacora(db, "aliado", aliado.id)
     assert (registro.campo, registro.contexto) == ("ciudad", None)
+
+
+def test_la_accion_puede_fijar_la_fecha_y_hora_de_sus_registros(
+    db, crear_usuario, crear_aliado
+) -> None:
+    usuario = crear_usuario()
+    aliado = crear_aliado()
+    instante = datetime(2026, 10, 13, 15, 30, tzinfo=UTC)
+
+    describir_accion(db, usuario, "Renombró el aliado", instante=instante)
+    aliado.nombre = "Universidad renombrada"
+    db.commit()
+
+    (registro,) = _bitacora(db, "aliado", aliado.id)
+    assert registro.fecha_hora == instante
 
 
 def test_lo_completado_al_crear_un_registro_no_se_registra_como_modificacion(
