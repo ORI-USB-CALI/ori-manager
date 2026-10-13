@@ -12,17 +12,32 @@ from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import generar_token_sesion, hash_contrasena
 from backend.db.session import get_db
 from backend.main import app
+from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
+    EstadoFirmaConvenio,
+    EstadoProcesoFirmasConvenio,
+    EstadoRevisionConvenio,
     EstadoSolicitud,
+    ParteFirmaConvenio,
+    ResultadoRevisionConvenio,
+    RolFirmanteConvenio,
+    TipoAliado,
+    TipoIdentificacion,
+    TipoRevisionConvenio,
     TipoSolicitante,
 )
+from backend.models.etapa import Etapa
+from backend.models.firma_convenio import FirmaConvenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
+from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioCrear
 from backend.services.auth import DURACION_SESION
 from backend.services.convenios import ServicioConvenios
@@ -235,3 +250,82 @@ def crear_convenio_finalizado(db: Session, crear_convenio) -> Callable[..., Conv
 @pytest.fixture
 def convenio_finalizado(gestor, crear_convenio_finalizado) -> Convenio:
     return crear_convenio_finalizado(gestor)
+
+
+# ---- Fixture compartida de HU-24 (exportación) ----------------------------
+
+
+@pytest.fixture
+def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
+    """Convenio con todos los datos que exige la exportación oficial (CA-03).
+
+    Además de lo que trae `convenio_listo` (tipo, objeto, fechas y una versión
+    con texto), registra código, aliado y un proceso de firmas con el Rector y
+    el representante legal de la entidad. Queda en la etapa de firmas: fuera de
+    ELABORACION se exporta como documento oficial, no como borrador.
+    """
+    aliado = Aliado(
+        nombre="Universidad Aliada de Prueba",
+        tipo=TipoAliado.UNIVERSIDAD.value,
+        tipo_identificacion=TipoIdentificacion.NIT.value,
+        identificacion=f"9{uuid4().int % 10**8:08d}",
+        ciudad="Bogotá",
+    )
+    db.add(aliado)
+    db.flush()
+    convenio_listo.aliado_id = aliado.id
+    convenio_listo.codigo = f"CONV-{uuid4().hex[:8].upper()}"
+
+    version = db.scalar(
+        select(VersionConvenio).where(
+            VersionConvenio.convenio_id == convenio_listo.id,
+            VersionConvenio.numero == convenio_listo.version_actual,
+        )
+    )
+    revision_final = RevisionConvenio(
+        convenio_id=convenio_listo.id,
+        tipo=TipoRevisionConvenio.FINAL.value,
+        version_convenio_id=version.id,
+        estado=EstadoRevisionConvenio.RESUELTA.value,
+        resultado=ResultadoRevisionConvenio.APROBADA.value,
+    )
+    db.add(revision_final)
+    db.flush()
+    proceso = ProcesoFirmasConvenio(
+        convenio_id=convenio_listo.id,
+        version_convenio_id=version.id,
+        revision_final_id=revision_final.id,
+        creado_por_id=gestor.id,
+        estado=EstadoProcesoFirmasConvenio.CONFIGURACION.value,
+    )
+    db.add(proceso)
+    db.flush()
+    db.add_all(
+        [
+            FirmaConvenio(
+                proceso_firmas_id=proceso.id,
+                orden=6,
+                rol_firmante=RolFirmanteConvenio.RECTOR.value,
+                parte=ParteFirmaConvenio.UNIVERSIDAD.value,
+                nombre_firmante="Rector de Prueba",
+                cargo_firmante="Rector",
+                estado=EstadoFirmaConvenio.PENDIENTE.value,
+            ),
+            FirmaConvenio(
+                proceso_firmas_id=proceso.id,
+                orden=7,
+                rol_firmante=RolFirmanteConvenio.PARTE_SOLICITANTE.value,
+                parte=ParteFirmaConvenio.REPRESENTANTE_LEGAL_ENTIDAD.value,
+                nombre_firmante="Representante Legal de Prueba",
+                cargo_firmante="Representante legal",
+                estado=EstadoFirmaConvenio.PENDIENTE.value,
+            ),
+        ]
+    )
+    convenio_listo.etapa_actual = db.scalar(
+        select(Etapa).where(Etapa.codigo == "APROBACION_FIRMAS")
+    )
+    db.commit()
+    # Las colecciones cargadas antes del commit no se refrescan solas.
+    db.refresh(convenio_listo)
+    return convenio_listo

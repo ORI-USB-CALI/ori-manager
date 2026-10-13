@@ -294,6 +294,7 @@ class ServicioSolicitudes:
             raise SolicitudNoRevisable(
                 f"La solicitud está {solicitud.estado} y ya no admite decisión"
             )
+        instante = datetime.now(UTC)
         self.db.add(
             Auditoria(
                 usuario_id=actor.id,
@@ -303,11 +304,12 @@ class ServicioSolicitudes:
                 campo="estado",
                 valor_anterior=solicitud.estado,
                 valor_nuevo=estado.value,
+                fecha_hora=instante,
             )
         )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
-        solicitud.fecha_decision = datetime.now(UTC)
+        solicitud.fecha_decision = instante
         return solicitud
 
     def aceptar(self, solicitud_id: int, actor: Usuario) -> SolicitudConvenio:
@@ -319,6 +321,18 @@ class ServicioSolicitudes:
         self, solicitud_id: int, motivo: str, actor: Usuario
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.RECHAZADA)
+        self.db.add(
+            Auditoria(
+                usuario_id=actor.id,
+                entidad="solicitud",
+                registro_id=solicitud.id,
+                accion=AccionAuditoria.UPDATE.value,
+                campo="motivo_rechazo",
+                valor_anterior=solicitud.motivo_rechazo,
+                valor_nuevo=motivo,
+                fecha_hora=solicitud.fecha_decision,
+            )
+        )
         solicitud.motivo_rechazo = motivo
         self.db.commit()
         return self.obtener_recibida(solicitud_id)
@@ -338,6 +352,7 @@ class ServicioSolicitudes:
                     campo="observaciones_devolucion",
                     valor_anterior=solicitud.observaciones_devolucion,
                     valor_nuevo=observaciones,
+                    fecha_hora=solicitud.fecha_decision,
                 )
             )
             solicitud.observaciones_devolucion = observaciones
@@ -570,8 +585,21 @@ class ServicioSolicitudes:
         errores = self._errores_radicacion(solicitud, usuario)
         if errores:
             raise SolicitudIncompleta(errores)
-        solicitud.estado = EstadoSolicitud.RADICADA.value
         instante = datetime.now(UTC)
+        if solicitud.estado == EstadoSolicitud.DEVUELTA.value:
+            self.db.add(
+                Auditoria(
+                    usuario_id=usuario.id,
+                    entidad="solicitud",
+                    registro_id=solicitud.id,
+                    accion=AccionAuditoria.UPDATE.value,
+                    campo="estado",
+                    valor_anterior=solicitud.estado,
+                    valor_nuevo=EstadoSolicitud.RADICADA.value,
+                    fecha_hora=instante,
+                )
+            )
+        solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante
         solicitud.fecha_recibido_ori = instante
         solicitud.decidida_por_id = None

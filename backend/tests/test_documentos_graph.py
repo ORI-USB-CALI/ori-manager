@@ -252,3 +252,40 @@ def test_provider_graph_construye_adaptador_con_secretos(monkeypatch):
         "refresh_token": "refresh-token",
         "storage_root": "staging",
     }
+
+
+def test_graph_guarda_exitosamente_cuando_put_falla_por_timeout_pero_archivo_existe():
+    """Valida que si OneDrive guarda el archivo pero la respuesta falla por timeout,
+    no se asume automáticamente que el archivo no existe y se confirma el guardado."""
+    class GraphConTimeoutEnPut(GraphFalso):
+        def responder(self, request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT" and request.url.path.endswith(":/content"):
+                super().responder(request)
+                raise httpx.ReadTimeout("Timeout en la lectura de la respuesta de Graph")
+            return super().responder(request)
+
+    graph = GraphConTimeoutEnPut()
+    almacen = _almacen(graph)
+
+    clave = "solicitudes/123/hash.pdf"
+    almacen.guardar(clave, b"contenido")
+    assert almacen.existe(clave) is True
+
+
+def test_graph_falla_cuando_put_falla_por_timeout_y_archivo_no_existe():
+    """Valida que si el PUT falla por timeout y el archivo NO existe en Graph,
+    sí se lanza ErrorAlmacenDocumentos."""
+    class GraphTimeoutSinGuardar(GraphFalso):
+        def responder(self, request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT" and request.url.path.endswith(":/content"):
+                raise httpx.ReadTimeout("Timeout antes de que Graph guardara el archivo")
+            return super().responder(request)
+
+    graph = GraphTimeoutSinGuardar()
+    almacen = _almacen(graph)
+
+    clave = "solicitudes/123/hash.pdf"
+    with pytest.raises(ErrorAlmacenDocumentos, match="Microsoft Graph falló"):
+        almacen.guardar(clave, b"contenido")
+
+

@@ -1,8 +1,12 @@
+import logging
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
@@ -10,6 +14,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from backend.core.roles import CodigoRol
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
@@ -26,6 +31,7 @@ from backend.models.enums import (
     EstadoSolicitud,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
+    TipoAliado,
     TipoNotificacion,
     TipoRevisionConvenio,
 )
@@ -221,6 +227,23 @@ class ElaboracionIncompleta(ErrorConvenio):
         super().__init__("Falta información requerida para finalizar la elaboración")
 
 
+class DocumentoConvenioInvalido(ErrorConvenio):
+    pass
+
+
+class DocumentoDemasiadoGrande(ErrorConvenio):
+    pass
+
+
+class ConvenioNoAdmiteSoportes(ErrorConvenio):
+    pass
+
+
+ESTADOS_CARGA_SOPORTES = frozenset(
+    {EstadoConvenio.VIGENTE, EstadoConvenio.POR_VENCER}
+)
+
+
 class ConfiguracionConvenioInvalida(RuntimeError):
     pass
 
@@ -253,6 +276,11 @@ class FiltrosConsultaConvenio:
     tipo_fecha: TipoFiltroFecha | None = None
     fecha_desde: date | None = None
     fecha_hasta: date | None = None
+    # HU-28 BE-2/BE-3
+    estados: tuple[EstadoConvenio, ...] | None = None
+    tipos_contraparte: tuple[TipoAliado, ...] | None = None
+    programa_id: int | None = None
+    alcance: AlcanceConvenio | None = None
 
 
 # HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
@@ -889,6 +917,40 @@ class ServicioConvenios:
             )
         return condiciones
 
+    @staticmethod
+    def _aplicar_filtros_avanzados(filtros: FiltrosConsultaConvenio) -> list:
+        """HU-28 BE-2/BE-3. Estado, tipo de contraparte y programa académico.
+        RN-03: dentro de un mismo filtro de selección múltiple los valores se
+        combinan con O (.in_()); entre filtros distintos, con Y (se
+        concatenan como condiciones separadas en consultar())."""
+        condiciones: list = []
+        if filtros.estados:
+            condiciones.append(
+                Convenio.estado.in_([estado.value for estado in filtros.estados])
+            )
+        if filtros.tipos_contraparte:
+            # CA-03: coalesce porque un convenio en trámite puede no tener
+            # aliado formal todavía (misma regla de contraparte que HU-26
+            # BE-1: Aliado si existe, si no la solicitud de origen).
+            condiciones.append(
+                func.coalesce(
+                    Aliado.tipo, SolicitudConvenio.tipo_aliado_propuesto
+                ).in_([tipo.value for tipo in filtros.tipos_contraparte])
+            )
+        if filtros.programa_id is not None:
+            condiciones.extend([
+                Convenio.alcance == AlcanceConvenio.PROGRAMA.value,
+                Convenio.unidad_organizacional_id == filtros.programa_id,
+                Convenio.unidad_organizacional.has(
+                    UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value
+                ),
+            ])
+        if filtros.alcance is not None:
+            # La ausencia de programa no determina el alcance: también
+            # existe información aún sin definir durante la elaboración.
+            condiciones.append(Convenio.alcance == filtros.alcance.value)
+        return condiciones
+
     def consultar(
         self, usuario: Usuario, filtros: FiltrosConsultaConvenio
     ) -> tuple[Sequence[tuple[Convenio, bool]], int]:
@@ -898,10 +960,15 @@ class ServicioConvenios:
         acceso al detalle sigue usando el alcance operativo existente.
         """
         self._validar_rango_fechas(filtros)
+        if filtros.alcance == AlcanceConvenio.INSTITUCIONAL and filtros.programa_id is not None:
+            raise FiltroConsultaInvalido(
+                "No se puede combinar el alcance institucional con un programa académico."
+            )
         condiciones = [
             self._filtro_alcance_consulta(usuario),
             *self._aplicar_busqueda(filtros.buscar),
             *self._aplicar_filtro_fechas(filtros),
+            *self._aplicar_filtros_avanzados(filtros),
         ]
         base = (
             select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
@@ -1561,6 +1628,197 @@ class ServicioConvenios:
             raise ConvenioNoEncontrado("Documento no encontrado")
         contenido = self._almacen_requerido().leer(documento.ruta_almacenamiento)
         return documento, contenido
+
+    def _compensar_almacenamiento(
+        self, almacen: AlmacenDocumentos, clave: str
+    ) -> None:
+        """Elimina el archivo huérfano del almacenamiento si falla la persistencia
+        o si el convenio dejó de cumplir los requisitos durante la carga."""
+        try:
+            almacen.eliminar(clave)
+            logger.info(
+                "Compensación exitosa: archivo huérfano %s eliminado del almacenamiento",
+                clave,
+            )
+        except Exception as exc:
+            logger.critical(
+                "FALLO_COMPENSACION_ALMACENAMIENTO: No fue posible eliminar el archivo huérfano %s tras fallo de persistencia. Error: %s",
+                clave,
+                exc,
+                exc_info=True,
+            )
+
+    def agregar_documento(
+        self,
+        *,
+        convenio_id: int,
+        nombre_archivo: str,
+        tipo_mime: str | None,
+        contenido: bytes,
+        usuario: Usuario,
+    ) -> Documento:
+        # Validación de nombre de archivo (CA-01, CA-02)
+        nombre = (nombre_archivo or "").strip()
+        if not nombre:
+            raise DocumentoConvenioInvalido(
+                "El nombre del archivo no puede estar vacío"
+            )
+        if len(nombre) > 255:
+            raise DocumentoConvenioInvalido(
+                "El nombre del archivo no puede superar 255 caracteres"
+            )
+        if "\x00" in nombre:
+            raise DocumentoConvenioInvalido(
+                "El nombre del archivo contiene caracteres inválidos"
+            )
+
+        nombre_lower = nombre.lower()
+        if not nombre_lower.endswith(".pdf"):
+            raise DocumentoConvenioInvalido(
+                "Solo se permiten documentos en formato PDF"
+            )
+
+        if tipo_mime != "application/pdf":
+            raise DocumentoConvenioInvalido(
+                "El tipo MIME del documento debe ser application/pdf"
+            )
+
+        LIMITE_20MB = 20 * 1024 * 1024
+        if len(contenido) > LIMITE_20MB:
+            raise DocumentoDemasiadoGrande(
+                "El archivo supera el tamaño máximo permitido (20 MB)"
+            )
+
+        if not contenido.startswith(b"%PDF-"):
+            raise DocumentoConvenioInvalido(
+                "Solo se permiten documentos en formato PDF"
+            )
+
+        # Validación inicial del convenio antes de subir al almacenamiento
+        convenio = self.obtener(convenio_id)
+        if convenio.estado not in ESTADOS_CARGA_SOPORTES:
+            raise ConvenioNoAdmiteSoportes(
+                "Solo se pueden cargar soportes en convenios vigentes o por vencer; "
+                f"el convenio está en estado {convenio.estado}"
+            )
+
+        almacen = self._almacen_requerido()
+        clave = f"convenios/{convenio.id}/documentos/{uuid4()}.pdf"
+        try:
+            almacen.guardar(clave, contenido)
+        except Exception:
+            # Si el guardado falla (por ejemplo por timeout no resuelto en OneDrive),
+            # no asumimos automáticamente que el archivo no existe: se intenta compensar/limpiar
+            # para evitar que quede huérfano en el almacenamiento remoto.
+            self._compensar_almacenamiento(almacen, clave)
+            raise
+
+        # Fase de persistencia en BD con re-verificación de estado frente a concurrencia
+        try:
+            # Expirar el convenio en el identity map para asegurar que SQLAlchemy lea
+            # el valor fresco de PostgreSQL y no la instancia cacheada en memoria.
+            if convenio in self.db:
+                self.db.expire(convenio)
+
+            stmt = (
+                select(Convenio)
+                .where(Convenio.id == convenio_id)
+                .execution_options(populate_existing=True)
+            )
+            if self.db.bind and self.db.bind.dialect.name == "postgresql":
+                stmt = stmt.with_for_update()
+            convenio_actual = self.db.scalar(stmt)
+
+            if convenio_actual is None:
+                self._compensar_almacenamiento(almacen, clave)
+                raise ConvenioNoEncontrado("Convenio no encontrado")
+
+            if convenio_actual.estado not in ESTADOS_CARGA_SOPORTES:
+                self._compensar_almacenamiento(almacen, clave)
+                raise ConvenioNoAdmiteSoportes(
+                    "Solo se pueden cargar soportes en convenios vigentes o por vencer; "
+                    f"el convenio está en estado {convenio_actual.estado}"
+                )
+
+            documento = Documento(
+                convenio_id=convenio_actual.id,
+                tipo="SOPORTE",
+                nombre_archivo=nombre,
+                ruta_almacenamiento=clave,
+                tipo_mime="application/pdf",
+                tamano_bytes=len(contenido),
+                cargado_por_id=usuario.id,
+                es_vigente=True,
+            )
+            self.db.add(documento)
+            self.db.commit()
+        except (ConvenioNoEncontrado, ConvenioNoAdmiteSoportes):
+            raise
+        except Exception:
+            try:
+                self.db.rollback()
+            except (SQLAlchemyError, RuntimeError) as exc_rb:
+                logger.warning(
+                    "Fallo al ejecutar rollback en sesión afectada: %s", exc_rb
+                )
+
+            # Verificar persistencia mediante sesión independiente de PostgreSQL
+            verificacion_exitosa = False
+            registro_existe = False
+            if self.db.bind is not None:
+                try:
+                    with Session(self.db.bind) as sesion_verificacion:
+                        doc_verificado = sesion_verificacion.scalar(
+                            select(Documento).where(
+                                Documento.ruta_almacenamiento == clave
+                            )
+                        )
+                        registro_existe = doc_verificado is not None
+                        verificacion_exitosa = True
+                except Exception as exc_verif:
+                    logger.critical(
+                        "INCIDENTE_PERSISTENCIA_INCIERTA: Fallo al verificar en PostgreSQL el estado del documento para convenio_id=%s con clave=%s tras error en commit. Error: %s",
+                        convenio_id,
+                        clave,
+                        exc_verif,
+                        exc_info=True,
+                    )
+
+            if verificacion_exitosa and registro_existe:
+                # Caso B: El registro se confirmó en PostgreSQL a pesar del error de comunicación.
+                # Conservar el PDF sin compensación para no dejar la BD con ruta rota.
+                logger.warning(
+                    "El registro de documento con clave %s existe en PostgreSQL a pesar del error en commit; conservando archivo físico en almacenamiento sin compensación.",
+                    clave,
+                )
+            elif verificacion_exitosa and not registro_existe:
+                # Caso A: Commit realmente fallido; compensar archivo huérfano.
+                self._compensar_almacenamiento(almacen, clave)
+            else:
+                # Caso C: Resultado incierto / PostgreSQL no disponible.
+                # No eliminar automáticamente el PDF; registrar incidente crítico para conciliación.
+                logger.critical(
+                    "INCIDENTE_PERSISTENCIA_INCIERTA: No se pudo verificar la persistencia en PostgreSQL para convenio_id=%s y clave=%s tras fallo en commit. Se conserva el archivo físico sin compensación para permitir posterior conciliación.",
+                    convenio_id,
+                    clave,
+                )
+
+            raise
+
+        # Fase post-commit: el registro ya está referenciado y confirmado en PostgreSQL.
+        # Bajo ninguna circunstancia un error posterior (como db.refresh) debe eliminar
+        # el archivo físico del almacenamiento.
+        try:
+            self.db.refresh(documento)
+        except (SQLAlchemyError, RuntimeError) as exc:
+            logger.warning(
+                "No fue posible refrescar la instancia del documento %s tras commit exitoso: %s. "
+                "El documento permanece persistido en BD y almacenamiento.",
+                getattr(documento, "id", None),
+                exc,
+            )
+
+        return documento
 
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""
