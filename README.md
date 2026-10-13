@@ -1,87 +1,36 @@
-# Alcance y restricciones
+# ORI Manager — Gestión y trazabilidad de convenios
 
-### El MVP debe permitir:
+Aplicación desarrollada para la Oficina de Relaciones Internacionales de la Universidad de San Buenaventura Cali.
 
-- Gestionar usuarios con 3 roles:
-    - Administrador (acceso total: crear, editar, eliminar todo).
-    - Usuario ORI (puede ver toda la información en detalle, pero no puede crear, editar, ni eliminar).
-    - Invitado (sin autenticación, solo consulta si existe un convenio con una entidad).
-- Gestionar aliados (universidades, colegios, empresas, entidades gubernamentales).
-    - Para empresas, incluir sector económico.
-- Gestionar el ciclo de vida completo del convenio:
-    - Solicitud (facultad/unidad solicitante).
-    - Elaboración.
-    - Revisión jurídica.
-    - Envío a contraparte.
-    - Revisión y firmas (6 firmas: 4 fijas, 2 variables).
-    - Archivo y seguimiento.
-- Registrar para cada convenio:
-    - Tipo de convenio (según necesidad).
-    - Programa o facultad asociada (puede ser estricto para un programa o para toda la universidad).
-    - Fechas: inicio, vencimiento, renovaciones.
-    - Responsables y contactos.
-    - Estado actual y porcentaje de avance.
-    - Actividades y próximos pasos.
-    - Historial de cambios (trazabilidad).
-    - Documentos asociados (versiones, avales, firmas, otrosíes), almacenados en OneDrive.
-- Alertas automáticas:
-    - 4 meses antes del vencimiento para decidir renovación.
-- Evaluación del convenio después de firmado:
-    - Permitir registrar si fue funcional o no valió la pena.
-- Funcionalidad de autocompletado para renovaciones:
-    - Copiar datos de un convenio existente para no llenar manualmente.
-- Búsqueda y filtros por:
-    - Aliado, estado, fechas, responsable, tipo, programa.
-- Reporte de utilización:
-    - Generar reporte de actividades realizadas en convenios vigentes.
-- Interfaz sencilla, pensada para usuarios de la ORI.
+> **Corte documental:** 13/10/2026. Los Sprints 1 y 2 están cerrados según el backlog de historias de usuario; el Sprint 3 está en curso. La presencia de funcionalidades en `develop` no significa que hayan sido aprobadas ni liberadas en producción.
 
-<aside>
+## Documentación
 
-### Fuera del alcance inicial
+- [Centro documental](docs/README.md), [arquitectura](docs/architecture/overview.md) y [política de documentación por commit](docs/development/documentation-policy.md).
+- [Estado de las historias de usuario](docs/product/estado-hu-2026-10-13.md), [Sprint 1](docs/sprints/sprint-01.md), [Sprint 2](docs/sprints/sprint-02.md) y [Sprint 3](docs/sprints/sprint-03.md).
+- [Manuales operativos](docs/operations/README.md), [runbook de producción](docs/operations/production-release.md) y [base de datos Supabase](docs/operations/supabase.md).
+- [Inicio propuesto para GitHub Wiki](docs/wiki/Home.md); [Gestión de Releases en Drive](https://drive.google.com/drive/folders/1TwlYItxGI0bYmJ6nxw6Ggk0Sbc08cRdb); [evidencias QA](https://drive.google.com/drive/folders/12aOj3os-8IVkqfuDmK2E85NWJABSQg8j).
 
-- Integraciones automáticas con correo electrónico.
-- Integraciones con otros sistemas institucionales.
-- Notificaciones avanzadas por múltiples canales (solo alertas internas en el sistema).
-- Firma digital de convenios.
-- Inteligencia artificial.
-- Generación avanzada de informes (BI).
-- Aplicación móvil.
-- Automatización de carga de documentos (se suben manualmente).
-- Sincronización automática con Word (se evaluará con TI en próxima reunión).
-- Flujos altamente configurables por el usuario.
-</aside>
+## Tecnologías
 
-# Reglas de negocio
+- Frontend: React, Vite y TypeScript.
+- Backend: FastAPI, Python 3.13, uv, SQLAlchemy, Psycopg y Alembic.
+- PostgreSQL 18 para desarrollo/CI; Supabase PostgreSQL para staging y producción.
+- Render y GitHub Actions para despliegue; Microsoft Graph para documentos y Brevo para correo transaccional en cloud.
 
-1. **Solicitud de convenio**
-    - Cualquier facultad o unidad administrativa puede solicitar un convenio.
-    - La solicitud se hace mediante un formato que se envía a ORI.
-2. **Tipos de aliados**
-    - Universidad
-    - Colegio
-    - Empresa (requiere sector económico)
-    - Entidad gubernamental
-3. **Tipos de convenio**
-    - Se define en la elaboración, según la naturaleza de la solicitud.
-4. **Alcance del convenio**
-    - Puede ser para un programa académico específico o para toda la universidad.
-5. **Flujo del convenio** (etapas)
-    - Solicitud → Elaboración → Revisión jurídica → Envío a contraparte → Revisión y firmas → Archivado y seguimiento
-6. **Firmas**
-    - 6 firmas en total: 4 fijas (autoridades universitarias) y 2 variables (según el caso).
-7. **Documentos**
-    - Todos los documentos se almacenan en una carpeta digital de OneDrive.
-8. **Evaluación**
-    - Una vez firmado, se debe permitir evaluar si el convenio fue funcional o no.
-9. **Renovación**
-    - No se llena manualmente desde cero: se autocompleta con datos del convenio anterior.
-10. **Alertas**
-    - Alerta automática 4 meses antes del vencimiento.
-    - Se debe decidir si se renueva o no.
-11. **Roles**
-    - **Admin**: acceso total.
-    - **Usuario ORI**: puede ver toda la información a detalle, pero no puede crear, editar ni eliminar.
-    - **Invitado** (sin login): solo puede ver si existe un convenio con X entidad, sin detalles.
-12. **Trazabilidad**
-    - Cada cambio, etapa, responsable y fecha debe quedar registrado en un historial.
+## Roles
+
+Los códigos de rol autenticado en `backend/src/backend/core/roles.py` son `ADMINISTRADOR_ORI`, `GESTOR_ORI`, `REVISOR_ORI`, `SOLICITANTE_INTERNO` y `SOLICITANTE_EXTERNO`. Los permisos efectivos están definidos en `backend/src/backend/core/permisos.py`.
+
+La anterior descripción de «tres roles» en este README era un alcance inicial desactualizado. La historia **HU-08 — Directorio público** está marcada `Sin iniciar` en el backlog; no debe confundirse con **HU-08 — Gestión de credenciales**, marcada `Terminado`.
+
+## Trabajo y validación
+
+- Desarrollo local con DevContainer y `compose.yaml`; valores sensibles en `.env` privado, nunca en Git.
+- Pruebas backend y frontend, lint y build según `.github/workflows/ci.yml`.
+- Cambios funcionales mediante ramas `feature/*`, `fix/*` o `chore/*` hacia `develop`; documentación mediante `docs/*` también hacia `develop`.
+- Promoción `develop` → `main` exclusivamente mediante PR de release. Consultar el [runbook](docs/operations/production-release.md).
+
+**Cada commit funcional nuevo debe actualizar en el mismo commit la documentación impactada**, o justificar expresamente por qué no aplica. [Política](docs/development/documentation-policy.md).
+
+La fuente de estados y prioridades es el backlog validado por los PO; el código y las pruebas describen la implementación, pero no sustituyen la aceptación de las HU.
