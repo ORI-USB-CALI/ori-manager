@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, NoReturn
+from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import (
@@ -21,6 +21,7 @@ from backend.core.config import settings
 from backend.core.permisos import Permiso
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
+from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     AlcanceConvenio,
@@ -31,6 +32,10 @@ from backend.models.enums import (
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.schemas.actividad_utilizacion import (
+    ActividadUtilizacionCrear,
+    ActividadUtilizacionLeer,
+)
 from backend.schemas.convenio import (
     AlertaVencimientoLeer,
     AprobarRevision,
@@ -74,6 +79,7 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.estadisticas_convenios import ReporteEstadisticoConveniosLeer
 from backend.schemas.evaluacion import (
     EstadoEvaluacionLeer,
     EvaluacionConvenioCrear,
@@ -85,12 +91,16 @@ from backend.schemas.renovacion import (
     SeguimientoRenovacionLeer,
 )
 from backend.schemas.reportes import ConvenioReporteActivoLeer
+from backend.schemas.soporte_convenio import SoporteConvenioLeer
+from backend.services.actividades_utilizacion import ServicioActividadesUtilizacion
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
+    DocumentoConvenioInvalido,
+    DocumentoDemasiadoGrande,
     ElaboracionIncompleta,
     ErrorConvenio,
     FiltroConsultaInvalido,
@@ -113,6 +123,11 @@ from backend.services.documentos import (
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
+)
+from backend.services.estadisticas_convenios import (
+    ServicioEstadisticasConvenios,
+    generar_excel_estadisticas_convenios,
+    generar_pdf_estadisticas_convenios,
 )
 from backend.services.evaluaciones import (
     ConvenioNoEvaluable,
@@ -137,6 +152,10 @@ from backend.services.reportes import (
     generar_excel_convenios_activos,
     generar_pdf_convenios_activos,
 )
+from backend.services.soportes_convenio import (
+    ConvenioNoAdmiteSoportes,
+    ServicioSoportesConvenio,
+)
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -160,6 +179,10 @@ PuedeRevisarContrapartePropia = Annotated[
 ]
 PuedeGestionarFirmas = Annotated[Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)]
 PuedeEvaluar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EVALUAR)]
+# Guard de CA-04 de HU-22C: solo Gestor ORI y Administrador ORI; otro rol, 403.
+PuedeGestionarSoportes = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_SOPORTES)
+]
 PuedeVerReportes = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER_REPORTES)]
 
 
@@ -195,7 +218,20 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
         ) from exc
-    if isinstance(exc, (ReferenciaConvenioInvalida, FiltroConsultaInvalido)):
+    if isinstance(exc, DocumentoConvenioInvalido):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if isinstance(exc, DocumentoDemasiadoGrande):
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)
+        ) from exc
+    if isinstance(
+        exc,
+        (
+            ReferenciaConvenioInvalida,
+            ConvenioNoAdmiteSoportes,
+            FiltroConsultaInvalido,
+        ),
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -551,12 +587,110 @@ def descargar_reporte_convenios_activos_excel(
     )
 
 
+def _filtros_estadisticas_convenios(
+    estado: Annotated[EstadoConvenio | None, Query()] = None,
+    aliado_activo: Annotated[bool | None, Query()] = None,
+    tipo_aliado: Annotated[TipoAliado | None, Query()] = None,
+    pais: Annotated[str | None, Query(max_length=80)] = None,
+) -> dict:
+    return {
+        "estado": estado,
+        "aliado_activo": aliado_activo,
+        "tipo_aliado": tipo_aliado,
+        "pais": pais,
+    }
+
+
+FiltrosEstadisticasConvenios = Annotated[dict, Depends(_filtros_estadisticas_convenios)]
+
+
+@router.get(
+    "/reportes/estadisticas", response_model=ReporteEstadisticoConveniosLeer
+)
+def obtener_reporte_estadisticas_convenios(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> ReporteEstadisticoConveniosLeer:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    return ReporteEstadisticoConveniosLeer.model_validate(reporte)
+
+
+@router.get("/reportes/estadisticas/pdf")
+def descargar_reporte_estadisticas_convenios_pdf(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> Response:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    contenido = generar_pdf_estadisticas_convenios(reporte)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "attachment; filename=estadisticas-convenios.pdf"
+        },
+    )
+
+
+@router.get("/reportes/estadisticas/excel")
+def descargar_reporte_estadisticas_convenios_excel(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> Response:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    contenido = generar_excel_estadisticas_convenios(reporte)
+    return Response(
+        content=contenido,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": "attachment; filename=estadisticas-convenios.xlsx"
+        },
+    )
+
+
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
 def obtener_convenio(
     convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> Convenio:
     try:
         return ServicioConvenios(db).obtener_en_alcance_operativo(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/actividades-utilizacion",
+    response_model=list[ActividadUtilizacionLeer],
+)
+def listar_actividades_utilizacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> list[ActividadConvenio]:
+    try:
+        return ServicioActividadesUtilizacion(db).listar(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/actividades-utilizacion",
+    response_model=ActividadUtilizacionLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_actividad_utilizacion(
+    convenio_id: int,
+    payload: ActividadUtilizacionCrear,
+    db: DatabaseSession,
+    usuario: PuedeEditar,
+) -> ActividadConvenio:
+    try:
+        return ServicioActividadesUtilizacion(db).registrar(
+            convenio_id, payload, usuario
+        )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -877,6 +1011,93 @@ def obtener_contenido_documento(
         content=contenido,
         media_type=documento.tipo_mime,
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+    )
+
+
+@router.post(
+    "/{convenio_id}/documentos",
+    response_model=DocumentoConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+async def cargar_documento_convenio(
+    convenio_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    usuario: PuedeGestionarSoportes,
+    archivo: Annotated[UploadFile, File()],
+) -> DocumentoConvenioLeer:
+    # CA-04 de HU-22C: el guard deja pasar solo a Gestor y Administrador ORI
+    # (403) y el estado del convenio se valida antes de leer el archivo (422).
+    try:
+        ServicioSoportesConvenio(db).verificar_carga(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    LIMITE_20MB = 20 * 1024 * 1024
+    contenido = await archivo.read(LIMITE_20MB + 1)
+    try:
+        documento = ServicioConvenios(db, almacen=almacen).agregar_documento(
+            convenio_id=convenio_id,
+            nombre_archivo=archivo.filename or "",
+            tipo_mime=archivo.content_type,
+            contenido=contenido,
+            usuario=usuario,
+        )
+        return DocumentoConvenioLeer.model_validate(documento)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible almacenar el documento",
+        ) from exc
+
+
+@router.get("/{convenio_id}/documentos", response_model=list[SoporteConvenioLeer])
+def listar_soportes(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarSoportes
+) -> list[SoporteConvenioLeer]:
+    """CA-03 de HU-22C: soportes vigentes del convenio, del más reciente al
+    más antiguo."""
+    try:
+        documentos = ServicioSoportesConvenio(db).listar(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return [SoporteConvenioLeer.desde_documento(documento) for documento in documentos]
+
+
+@router.get("/{convenio_id}/documentos/{documento_id}/descargar")
+def descargar_soporte(
+    convenio_id: int,
+    documento_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    _: PuedeGestionarSoportes,
+    disposicion: Literal["inline", "attachment"] = "attachment",
+) -> Response:
+    """CA-03 de HU-22C: entrega el soporte por el backend; `inline` lo abre en
+    el navegador y `attachment` lo descarga."""
+    try:
+        documento, contenido = ServicioSoportesConvenio(db).obtener_contenido(
+            convenio_id, documento_id, almacen
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible recuperar el documento almacenado",
+        ) from exc
+    nombre = quote(documento.nombre_archivo, safe="")
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            # Sin sniffing el navegador respeta el tipo declarado, y sin caché
+            # el soporte no queda guardado en proxies ni en equipos compartidos.
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
     )
 
 
