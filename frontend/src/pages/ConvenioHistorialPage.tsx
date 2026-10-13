@@ -12,10 +12,15 @@ export function ConvenioHistorialPage() {
       <section className="header-banner">
         <h1>Historial y trazabilidad</h1>
         <p>
-          Convenio #{id} · <Link to="/convenios/tablero">Tablero de convenios</Link>
-          {' · '}<Link to="/convenios">Consulta de convenios formalizados</Link>
+          Convenio #{id}
         </p>
       </section>
+
+      <nav className="page-toolbar" aria-label="Navegación del historial">
+        <Link className="btn btn-outline historial-volver" to={`/convenios/${id}`}>Volver al convenio</Link>
+        <Link className="btn btn-outline" to="/convenios/tablero">Tablero de convenios</Link>
+        <Link className="btn btn-outline" to="/convenios">Consulta de convenios formalizados</Link>
+      </nav>
 
       <HistorialConvenioContenido convenioId={id} />
 

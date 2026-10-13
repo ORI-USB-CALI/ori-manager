@@ -184,23 +184,38 @@ function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
                 <div className="timeline-observaciones">
                   <h4>Observaciones</h4>
                   {revision.observaciones.map((observacion) => (
-                    <div className="document-row" key={observacion.id}>
-                      <p>{observacion.descripcion}</p>
-                      <p className="texto-secundario">
-                        Registrada por {observacion.registrada_por?.nombre_completo ?? 'Contraparte externa'} el{' '}
-                        {fechaHora(observacion.creado_en)} ·{' '}
+                    <article className="historial-observacion" key={observacion.id} aria-labelledby={`observacion-${observacion.id}-titulo`}>
+                      <div className="historial-observacion-cabecera">
+                        <strong id={`observacion-${observacion.id}-titulo`}>Observación #{observacion.id}</strong>
                         <span className={`badge ${observacion.estado === 'ATENDIDA' ? 'badge-activo' : 'badge-pendiente'}`}>
                           {ETIQUETA_ESTADO_OBSERVACION[observacion.estado] ?? observacion.estado}
                         </span>
+                      </div>
+                      <p>{observacion.descripcion}</p>
+                      <p className="texto-secundario">
+                        {observacion.registrada_por && `Registrada por ${observacion.registrada_por.nombre_completo}`}
+                        {observacion.registrada_por && observacion.creado_en && ' · '}
+                        {observacion.creado_en && fechaHora(observacion.creado_en)}
                       </p>
-                      {observacion.respuesta && (
-                        <p>
-                          <strong>Respuesta:</strong> {observacion.respuesta}
-                          {observacion.atendida_por ? ` · ${observacion.atendida_por.nombre_completo}` : ''}
-                          {observacion.fecha_atencion ? ` · ${fechaHora(observacion.fecha_atencion)}` : ''}
-                        </p>
+                      {observacion.responsable && (
+                        <p className="texto-secundario">Responsable: {observacion.responsable.nombre_completo}</p>
                       )}
-                    </div>
+                      <div className="historial-respuesta" role="group" aria-label={`Respuesta a la observación #${observacion.id}`}>
+                        <strong><span aria-hidden="true">↳ </span>Respuesta</strong>
+                        {observacion.respuesta ? (
+                          <>
+                            <p>{observacion.respuesta}</p>
+                            {(observacion.atendida_por || observacion.fecha_atencion) && (
+                              <p className="texto-secundario">
+                                {observacion.atendida_por?.nombre_completo}
+                                {observacion.atendida_por && observacion.fecha_atencion && ' · '}
+                                {observacion.fecha_atencion && fechaHora(observacion.fecha_atencion)}
+                              </p>
+                            )}
+                          </>
+                        ) : <p className="texto-secundario">Pendiente de respuesta</p>}
+                      </div>
+                    </article>
                   ))}
                 </div>
               )}

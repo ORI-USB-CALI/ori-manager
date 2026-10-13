@@ -3088,3 +3088,42 @@ a:hover {
   padding: 0;
   list-style: none;
 }
+
+/* HT-03: accesibilidad, jerarquía y navegación en revisión de contraparte */
+.historial-volver {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 2px solid var(--text-primary);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.historial-volver:hover:not(:disabled), .historial-volver:focus-visible {
+  background: var(--bg-main);
+  color: var(--text-primary);
+}
+.historial-observacion {
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--text-secondary);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.historial-observacion-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.historial-respuesta {
+  margin: 14px 0 0 18px;
+  padding: 12px 14px;
+  background: var(--bg-main);
+  color: var(--text-primary);
+  border-left: 3px solid var(--text-secondary);
+  border-radius: 4px;
+}
+.historial-respuesta p { margin-top: 6px; }
