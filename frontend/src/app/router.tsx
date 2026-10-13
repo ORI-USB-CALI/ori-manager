@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { RequierePermiso } from '../auth/RequierePermiso'
 import { AliadoDetallePage } from '../pages/AliadoDetallePage'
 import { AliadosPage } from '../pages/AliadosPage'
+import { BitacoraPage } from '../pages/BitacoraPage'
 import { ConsultaConveniosPage } from '../pages/ConsultaConveniosPage'
 import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
         { path: '/reportes/estadisticas-convenios', element: <ReporteEstadisticasConveniosPage /> },
       ] },
       { element: <RequierePermiso permiso="usuarios.ver" />, children: [{ path: '/admin/usuarios', element: <UsuariosRolesPage /> }] },
+      { element: <RequierePermiso permiso="auditoria.ver" />, children: [{ path: '/admin/bitacora', element: <BitacoraPage /> }] },
       { element: <RequierePermiso permiso="aliados.ver" />, children: [
         { path: '/aliados', element: <AliadosPage /> },
         { path: '/aliados/:aliadoId', element: <AliadoDetallePage /> },
