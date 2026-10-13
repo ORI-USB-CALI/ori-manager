@@ -4,6 +4,7 @@ import { ApiError } from '../app/api'
 import {
   useComparacionVersionesSolicitud,
   useHistorialSolicitud,
+  type AlcanceHistorialSolicitud,
   type ComparacionVersiones,
   type DocumentoVersion,
   type TipoDocumento,
@@ -123,13 +124,19 @@ function Comparacion({ comparacion }: { comparacion: ComparacionVersiones }) {
 }
 
 /** HT-02: radicaciones de la solicitud de origen y comparación contra la anterior. */
-export function VersionesSolicitud({ solicitudId }: { solicitudId: number }) {
-  const historial = useHistorialSolicitud(solicitudId, 'recibida')
+export function VersionesSolicitud({
+  solicitudId,
+  alcance = 'recibida',
+}: {
+  solicitudId: number
+  alcance?: AlcanceHistorialSolicitud
+}) {
+  const historial = useHistorialSolicitud(solicitudId, alcance)
   const [elegida, setElegida] = useState<number | null>(null)
   const versiones = historial.data?.versiones ?? []
   const comparables = versiones.filter((version) => version.numero > 1)
   const numero = elegida ?? comparables.at(-1)?.numero ?? null
-  const comparacion = useComparacionVersionesSolicitud(solicitudId, numero)
+  const comparacion = useComparacionVersionesSolicitud(solicitudId, numero, alcance)
 
   // Sin acceso a las solicitudes recibidas la sección no aplica.
   if (historial.error instanceof ApiError && [403, 404].includes(historial.error.status)) return null
