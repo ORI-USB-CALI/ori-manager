@@ -119,9 +119,15 @@ export function SolicitudRecibidaPage() {
           <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : solicitud.estado === 'DEVUELTA' ? 'Devuelta' : 'Aprobada'}</dd>
           <dt>Responsable</dt><dd>{valor(solicitud.decidida_por_nombre)}</dd>
           <dt>Fecha y hora</dt><dd>{new Date(solicitud.fecha_decision).toLocaleString()}</dd>
-          {solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
-          {solicitud.observaciones_devolucion && <><dt>Observaciones de devolución</dt><dd>{solicitud.observaciones_devolucion}</dd></>}
+          {solicitud.estado === 'RECHAZADA' && solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
+          {solicitud.estado === 'DEVUELTA' && solicitud.observaciones_devolucion && <><dt>Observaciones de devolución</dt><dd>{solicitud.observaciones_devolucion}</dd></>}
         </dl></section>
+      )}
+
+      {solicitud.estado !== 'DEVUELTA' && solicitud.observaciones_devolucion && (
+        <section className="card"><h2>Observaciones de devolución anterior</h2>
+          <p>{solicitud.observaciones_devolucion}</p>
+        </section>
       )}
 
       {pendiente && gestiona && rechazando && (
