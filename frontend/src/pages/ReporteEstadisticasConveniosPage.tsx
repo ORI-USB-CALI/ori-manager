@@ -21,31 +21,59 @@ const ESTADOS: EstadoConvenio[] = [
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
 
-function TablaConteos({ titulo, conteos }: { titulo: string; conteos: Conteo[] }) {
+function GraficoConteos({ titulo, conteos }: { titulo: string; conteos: Conteo[] }) {
+  const maximo = Math.max(0, ...conteos.map((conteo) => conteo.cantidad))
   return (
-    <div className="card">
+    <section className="card estadisticas-agrupacion">
       <h3>{titulo}</h3>
       {conteos.length === 0 ? (
         <p>Sin datos para esta agrupación.</p>
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th scope="col">Categoría</th>
-              <th scope="col">Convenios</th>
-            </tr>
-          </thead>
-          <tbody>
-            {conteos.map((conteo) => (
-              <tr key={conteo.etiqueta}>
-                <td>{conteo.etiqueta}</td>
-                <td>{conteo.cantidad}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <figure className="estadisticas-grafico" aria-label={titulo}>
+            <figcaption className="section-help">
+              Número de convenios por categoría. Escala proporcional al mayor conteo de este gráfico.
+            </figcaption>
+            <ul className="estadisticas-barras">
+              {conteos.map(({ etiqueta, cantidad }) => (
+                <li key={etiqueta}>
+                  <div className="estadisticas-barra-etiqueta">
+                    <span>{etiqueta}</span><strong>{cantidad}</strong>
+                  </div>
+                  <div className="estadisticas-barra-fondo" aria-hidden="true">
+                    <div
+                      className="estadisticas-barra"
+                      style={{ width: `${maximo > 0 ? cantidad / maximo * 100 : 0}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </figure>
+          <details className="estadisticas-tabla">
+            <summary>Ver tabla de datos</summary>
+            <div className="table-container">
+              <table className="table" aria-label={titulo}>
+                <thead>
+                  <tr>
+                    <th scope="col">Categoría</th>
+                    <th scope="col">Convenios</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conteos.map((conteo) => (
+                    <tr key={conteo.etiqueta}>
+                      <td>{conteo.etiqueta}</td>
+                      <td>{conteo.cantidad}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -68,6 +96,9 @@ export function ReporteEstadisticasConveniosPage() {
   const reporte = useReporteEstadisticasConvenios(filtros, autorizado)
 
   if (!autorizado) return null
+
+  const descargasDeshabilitadas = reporte.isPending || reporte.isFetching || reporte.isError
+  const tieneDatos = reporte.data?.datos_suficientes && reporte.data.total_convenios > 0
 
   return (
     <>
@@ -138,20 +169,27 @@ export function ReporteEstadisticasConveniosPage() {
       </form>
 
       <div className="page-toolbar">
-        <a
-          className="btn btn-outline"
-          href={urlDescargaEstadisticasConvenios('pdf', filtros)}
-          aria-disabled={reporte.isPending || reporte.isError}
-        >
-          Descargar PDF
-        </a>
-        <a
-          className="btn btn-outline"
-          href={urlDescargaEstadisticasConvenios('excel', filtros)}
-          aria-disabled={reporte.isPending || reporte.isError}
-        >
-          Descargar Excel
-        </a>
+        {descargasDeshabilitadas ? (
+          <>
+            <button type="button" className="btn btn-outline" disabled>Descargar PDF</button>
+            <button type="button" className="btn btn-outline" disabled>Descargar Excel</button>
+          </>
+        ) : (
+          <>
+            <a
+              className="btn btn-outline"
+              href={urlDescargaEstadisticasConvenios('pdf', filtros)}
+            >
+              Descargar PDF
+            </a>
+            <a
+              className="btn btn-outline"
+              href={urlDescargaEstadisticasConvenios('excel', filtros)}
+            >
+              Descargar Excel
+            </a>
+          </>
+        )}
         <button
           type="button"
           className="btn btn-outline btn-small"
@@ -183,19 +221,19 @@ export function ReporteEstadisticasConveniosPage() {
         </section>
       )}
 
-      {reporte.data && !reporte.data.datos_suficientes && (
+      {reporte.isSuccess && !tieneDatos && (
         <div className="card estado-vacio">
           <p>No hay datos suficientes para generar el reporte estadístico.</p>
         </div>
       )}
 
-      {reporte.data && reporte.data.datos_suficientes && (
+      {reporte.isSuccess && reporte.data && tieneDatos && (
         <div className="estadisticas-grid">
-          <TablaConteos titulo="Por estado contractual" conteos={reporte.data.por_estado_contractual} />
-          <TablaConteos titulo="Por vigencia activa" conteos={reporte.data.por_vigencia_activa} />
-          <TablaConteos titulo="Por estado del aliado" conteos={reporte.data.por_estado_aliado} />
-          <TablaConteos titulo="Por tipo de aliado" conteos={reporte.data.por_tipo_aliado} />
-          <TablaConteos titulo="Por país" conteos={reporte.data.por_pais} />
+          <GraficoConteos titulo="Por estado contractual" conteos={reporte.data.por_estado_contractual} />
+          <GraficoConteos titulo="Por vigencia activa" conteos={reporte.data.por_vigencia_activa} />
+          <GraficoConteos titulo="Por estado del aliado" conteos={reporte.data.por_estado_aliado} />
+          <GraficoConteos titulo="Por tipo de aliado" conteos={reporte.data.por_tipo_aliado} />
+          <GraficoConteos titulo="Por país" conteos={reporte.data.por_pais} />
         </div>
       )}
     </>

@@ -512,8 +512,76 @@ a:hover {
 
 .estadisticas-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
+}
+
+.estadisticas-agrupacion {
+  min-width: 0;
+}
+
+.estadisticas-grafico {
+  margin-top: 16px;
+}
+
+.estadisticas-barras {
+  display: grid;
+  gap: 16px;
+  list-style: none;
+}
+
+.estadisticas-barra-etiqueta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.estadisticas-barra-etiqueta span,
+.estadisticas-tabla td {
+  overflow-wrap: anywhere;
+}
+
+.estadisticas-barra-etiqueta strong {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.estadisticas-barra-fondo {
+  height: 14px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bg-main);
+}
+
+.estadisticas-barra {
+  height: 100%;
+  background: var(--color-naranja);
+}
+
+.estadisticas-tabla {
+  margin-top: 20px;
+}
+
+.estadisticas-tabla summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.estadisticas-tabla .table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.estadisticas-tabla th:last-child {
+  width: 110px;
+}
+
+.estadisticas-tabla summary:focus-visible {
+  outline: 2px solid var(--color-naranja);
+  outline-offset: 4px;
 }
 
 .summary-grid p {

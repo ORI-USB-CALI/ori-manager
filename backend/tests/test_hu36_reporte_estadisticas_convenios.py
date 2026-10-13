@@ -1,11 +1,13 @@
 """HU-36: reporte estadístico de convenios (JSON, PDF y Excel)."""
 
+import re
 from collections.abc import Callable
 from io import BytesIO
 from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -14,6 +16,12 @@ from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio, TipoAliado
 from backend.models.pais import Pais
 from backend.models.usuario import Usuario
+from backend.services.estadisticas_convenios import (
+    Conteo,
+    ReporteEstadisticoConvenios,
+    ServicioEstadisticasConvenios,
+    generar_excel_estadisticas_convenios,
+)
 
 URL_JSON = "/api/convenios/reportes/estadisticas"
 URL_PDF = "/api/convenios/reportes/estadisticas/pdf"
@@ -62,11 +70,19 @@ def crear_convenio_estadistica(
     db: Session, gestor: Usuario, crear_convenio
 ) -> Callable[..., Convenio]:
     def _crear(
-        *, estado: EstadoConvenio, aliado: Aliado | None = None
+        *,
+        estado: EstadoConvenio,
+        aliado: Aliado | None = None,
+        nombre_propuesto: str | None = None,
+        tipo_propuesto: TipoAliado | None = None,
+        pais_propuesto: str | None = None,
     ) -> Convenio:
         convenio = crear_convenio(gestor)
         convenio.estado = estado.value
         convenio.aliado_id = aliado.id if aliado else None
+        convenio.solicitud.nombre_aliado_propuesto = nombre_propuesto
+        convenio.solicitud.tipo_aliado_propuesto = tipo_propuesto.value if tipo_propuesto else None
+        convenio.solicitud.pais_aliado_propuesto = pais_propuesto
         db.commit()
         db.refresh(convenio)
         return convenio
@@ -160,8 +176,9 @@ def test_convenio_sin_aliado_se_agrupa_como_sin_aliado_y_sin_pais(
 
     datos = respuesta.json()
     assert datos["por_estado_aliado"] == [{"etiqueta": "Sin aliado registrado", "cantidad": 1}]
-    assert datos["por_tipo_aliado"] == [{"etiqueta": "Sin aliado registrado", "cantidad": 1}]
+    assert datos["por_tipo_aliado"] == [{"etiqueta": "Sin tipo registrado", "cantidad": 1}]
     assert datos["por_pais"] == [{"etiqueta": "Sin país registrado", "cantidad": 1}]
+    assert client.get(URL_JSON, params={"pais": "   "}).json()["total_convenios"] == 1
 
 
 def test_no_duplica_convenios_al_consultar_aliado_y_pais(
@@ -179,6 +196,220 @@ def test_no_duplica_convenios_al_consultar_aliado_y_pais(
 
 
 # ---- Filtros ------------------------------------------------------------------
+
+
+def test_contraparte_propuesta_en_elaboracion_aporta_tipo_y_pais(
+    client, gestor, crear_convenio_estadistica
+) -> None:
+    convenio = crear_convenio_estadistica(
+        estado=EstadoConvenio.EN_TRAMITE,
+        nombre_propuesto="Empresa propuesta",
+        tipo_propuesto=TipoAliado.EMPRESA,
+        pais_propuesto="  España  ",
+    )
+
+    datos = client.get(URL_JSON).json()
+
+    assert datos["total_convenios"] == 1
+    assert datos["por_estado_contractual"] == [{"etiqueta": "EN_TRAMITE", "cantidad": 1}]
+    assert datos["por_vigencia_activa"] == [{"etiqueta": "Vigencia no activa", "cantidad": 1}]
+    assert datos["por_estado_aliado"] == [
+        {"etiqueta": "Contraparte propuesta (sin formalizar)", "cantidad": 1}
+    ]
+    assert datos["por_tipo_aliado"] == [{"etiqueta": "Empresa", "cantidad": 1}]
+    assert datos["por_pais"] == [{"etiqueta": "España", "cantidad": 1}]
+    assert convenio.aliado_id is None
+    assert convenio.solicitud.nombre_aliado_propuesto == "Empresa propuesta"
+    assert convenio.solicitud.pais_aliado_propuesto == "  España  "
+
+
+@pytest.mark.parametrize("pais", [None, "   "])
+def test_propuesta_sin_tipo_ni_pais_no_inventa_datos(
+    client, gestor, crear_convenio_estadistica, pais
+) -> None:
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.EN_TRAMITE,
+        nombre_propuesto="Contraparte sin completar",
+        pais_propuesto=pais,
+    )
+
+    datos = client.get(URL_JSON).json()
+
+    assert datos["por_tipo_aliado"] == [{"etiqueta": "Sin tipo registrado", "cantidad": 1}]
+    assert datos["por_pais"] == [{"etiqueta": "Sin país registrado", "cantidad": 1}]
+
+
+def test_distingue_estados_formales_propuestos_y_sin_informacion(
+    client, gestor, crear_convenio_estadistica, crear_aliado
+) -> None:
+    for activo in (True, False):
+        crear_convenio_estadistica(
+            estado=EstadoConvenio.VIGENTE, aliado=crear_aliado(activo=activo)
+        )
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.EN_TRAMITE, nombre_propuesto="Contraparte propuesta"
+    )
+    crear_convenio_estadistica(estado=EstadoConvenio.EN_TRAMITE)
+
+    datos = client.get(URL_JSON).json()
+
+    assert {c["etiqueta"]: c["cantidad"] for c in datos["por_estado_aliado"]} == {
+        "Aliado activo": 1,
+        "Aliado inactivo": 1,
+        "Contraparte propuesta (sin formalizar)": 1,
+        "Sin aliado registrado": 1,
+    }
+    for activo in ("true", "false"):
+        filtrado = client.get(URL_JSON, params={"aliado_activo": activo}).json()
+        assert filtrado["total_convenios"] == 1
+
+
+@pytest.mark.parametrize("con_pais_formal", [True, False])
+def test_aliado_formal_tiene_prioridad_incluso_sin_pais(
+    client, gestor, crear_convenio_estadistica, crear_aliado, crear_pais, con_pais_formal
+) -> None:
+    pais = crear_pais("Colombia") if con_pais_formal else None
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.VIGENTE,
+        aliado=crear_aliado(tipo=TipoAliado.EMPRESA, activo=False, pais=pais),
+        nombre_propuesto="Universidad anterior",
+        tipo_propuesto=TipoAliado.UNIVERSIDAD,
+        pais_propuesto="México",
+    )
+
+    datos = client.get(URL_JSON).json()
+
+    assert datos["por_tipo_aliado"] == [{"etiqueta": "Empresa", "cantidad": 1}]
+    assert datos["por_estado_aliado"] == [{"etiqueta": "Aliado inactivo", "cantidad": 1}]
+    assert datos["por_pais"] == [
+        {"etiqueta": "Colombia" if con_pais_formal else "Sin país registrado", "cantidad": 1}
+    ]
+    for filtros in ({"pais": "México"}, {"tipo_aliado": "UNIVERSIDAD"}):
+        assert client.get(URL_JSON, params=filtros).json()["total_convenios"] == 0
+
+
+def test_convenios_compartidos_y_paises_normalizados_sin_n_mas_uno(
+    db, client, gestor, crear_convenio_estadistica, crear_aliado, crear_pais
+) -> None:
+    aliado = crear_aliado(pais=crear_pais("Colombia"))
+    for _ in range(3):
+        crear_convenio_estadistica(estado=EstadoConvenio.VIGENTE, aliado=aliado)
+    for pais in ("  COLOMBIA  ", "colombia"):
+        crear_convenio_estadistica(
+            estado=EstadoConvenio.EN_TRAMITE,
+            tipo_propuesto=TipoAliado.UNIVERSIDAD,
+            pais_propuesto=pais,
+        )
+    consultas = []
+
+    def contar_select(_conn, _cursor, statement, _params, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            consultas.append(statement)
+
+    event.listen(db.bind, "before_cursor_execute", contar_select)
+    try:
+        # Identity map nuevo para que los datos de las fixtures no oculten N+1.
+        with Session(db.bind, join_transaction_mode="create_savepoint") as lectura:
+            reporte = ServicioEstadisticasConvenios(lectura).generar()
+    finally:
+        event.remove(db.bind, "before_cursor_execute", contar_select)
+    assert len(consultas) == 1
+    assert reporte.total_convenios == 5
+    assert reporte.por_pais == [Conteo(etiqueta="Colombia", cantidad=5)]
+    assert reporte.por_tipo_aliado == [Conteo(etiqueta="Universidad", cantidad=5)]
+    for campo in (
+        "por_estado_contractual", "por_vigencia_activa", "por_estado_aliado",
+        "por_tipo_aliado", "por_pais",
+    ):
+        assert sum(c.cantidad for c in getattr(reporte, campo)) == 5
+    assert client.get(URL_JSON, params={"pais": " COLOMBIA "}).json()["total_convenios"] == 5
+
+
+def test_filtros_propuestos_equivalentes_en_json_pdf_y_excel(
+    client, gestor, crear_convenio_estadistica
+) -> None:
+    for pais in ("Costa Rica", " costa   RICA "):
+        crear_convenio_estadistica(
+            estado=EstadoConvenio.EN_TRAMITE,
+            tipo_propuesto=TipoAliado.EMPRESA,
+            pais_propuesto=pais,
+        )
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.FINALIZADO,
+        tipo_propuesto=TipoAliado.EMPRESA,
+        pais_propuesto="Costa Rica",
+    )
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.EN_TRAMITE,
+        tipo_propuesto=TipoAliado.UNIVERSIDAD,
+        pais_propuesto="Costa Rica",
+    )
+    filtros = {"estado": "EN_TRAMITE", "tipo_aliado": "EMPRESA", "pais": " COSTA  rica "}
+    datos = client.get(URL_JSON, params=filtros).json()
+    assert datos["total_convenios"] == 2
+    excel = client.get(URL_EXCEL, params=filtros)
+    assert excel.status_code == 200
+    libro = load_workbook(BytesIO(excel.content))
+    for hoja, campo in zip(libro, (
+        "por_estado_contractual", "por_vigencia_activa", "por_estado_aliado",
+        "por_tipo_aliado", "por_pais",
+    ), strict=True):
+        assert list(hoja.iter_rows(min_row=2, values_only=True)) == [
+            (c["etiqueta"], c["cantidad"]) for c in datos[campo]
+        ]
+    pdf = client.get(URL_PDF, params=filtros)
+    assert pdf.status_code == 200
+    assert b"Costa Rica" in pdf.content
+    assert b"Empresa" in pdf.content
+    assert b"Contraparte propuesta" in pdf.content
+    assert len(re.findall(rb"\(2\) Tj", pdf.content)) == 5
+
+
+@pytest.mark.parametrize("prefijo", ["=", "+", "-", "@"])
+def test_excel_fuerza_texto_literal_en_las_cinco_agrupaciones(prefijo) -> None:
+    etiqueta = f"{prefijo}SUM(1,2)"
+    conteos = [Conteo(etiqueta=etiqueta, cantidad=2)]
+    reporte = ReporteEstadisticoConvenios(
+        datos_suficientes=True, total_convenios=2,
+        por_estado_contractual=conteos, por_vigencia_activa=conteos,
+        por_estado_aliado=conteos, por_tipo_aliado=conteos, por_pais=conteos,
+    )
+    libro = load_workbook(BytesIO(generar_excel_estadisticas_convenios(reporte)))
+    assert len(libro.sheetnames) == 5
+    for hoja in libro:
+        assert hoja["A2"].value == f"'{etiqueta}"
+        assert hoja["A2"].data_type == "s"
+        assert hoja["B2"].value == 2
+
+
+@pytest.mark.parametrize("formal", [True, False])
+@pytest.mark.parametrize("prefijo", ["=", "+", "-", "@"])
+def test_excel_api_protege_paises_formales_y_propuestos(
+    client, gestor, crear_convenio_estadistica, crear_aliado, crear_pais, formal, prefijo
+) -> None:
+    nombre = f"{prefijo}SUM(1,2)"
+    aliado = crear_aliado(pais=crear_pais(nombre)) if formal else None
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.VIGENTE, aliado=aliado, pais_propuesto=nombre
+    )
+
+    assert client.get(URL_JSON).json()["por_pais"] == [{"etiqueta": nombre, "cantidad": 1}]
+    libro = load_workbook(BytesIO(client.get(URL_EXCEL).content))
+    assert libro["País"]["A2"].value == f"'{nombre}"
+    assert libro["País"]["A2"].data_type == "s"
+
+
+def test_pdf_conserva_el_pais_como_texto_sin_interpretar_markup(
+    client, gestor, crear_convenio_estadistica
+) -> None:
+    crear_convenio_estadistica(
+        estado=EstadoConvenio.EN_TRAMITE, pais_propuesto="<b>Colombia</b> & Perú"
+    )
+    respuesta = client.get(URL_PDF)
+    assert respuesta.status_code == 200
+    # ReportLab escribe las entidades escapadas en varios operadores de texto.
+    texto = b"".join(re.findall(rb"\((.*?)\) Tj", respuesta.content))
+    assert b"<b>Colombia</b> &" in texto
 
 
 def test_filtra_por_estado(client, gestor, crear_convenio_estadistica) -> None:

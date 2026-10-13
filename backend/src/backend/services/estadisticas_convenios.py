@@ -18,18 +18,21 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, contains_eager
 
 from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio, TipoAliado
+from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.services.reportes import ESTADOS_CONVENIO_ACTIVO
 
 _ESTADOS_CONVENIO_ACTIVO = frozenset(e.value for e in ESTADOS_CONVENIO_ACTIVO)
 
 SIN_PAIS = "Sin país registrado"
 SIN_ALIADO = "Sin aliado registrado"
+SIN_TIPO = "Sin tipo registrado"
+CONTRAPARTE_PROPUESTA = "Contraparte propuesta (sin formalizar)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,29 +70,40 @@ class ServicioEstadisticasConvenios:
         consulta = (
             select(Convenio)
             .join(Convenio.aliado, isouter=True)
+            .join(Convenio.solicitud)
             .options(
                 contains_eager(Convenio.aliado).joinedload(Aliado.pais),
+                contains_eager(Convenio.solicitud),
             )
+            .order_by(Convenio.id)
         )
         if estado is not None:
             consulta = consulta.where(Convenio.estado == estado.value)
         if aliado_activo is not None:
             consulta = consulta.where(Aliado.activo == aliado_activo)
         if tipo_aliado is not None:
-            consulta = consulta.where(Aliado.tipo == tipo_aliado.value)
+            consulta = consulta.where(
+                or_(
+                    Aliado.tipo == tipo_aliado.value,
+                    and_(
+                        Convenio.aliado_id.is_(None),
+                        SolicitudConvenio.tipo_aliado_propuesto == tipo_aliado.value,
+                    ),
+                )
+            )
 
         convenios = self.db.scalars(consulta).unique().all()
 
         # El país se filtra en Python (no en SQL) porque es una coincidencia
-        # parcial e insensible a mayúsculas sobre `Pais.nombre`, ya cargado
-        # vía `joinedload` en la consulta anterior.
+        # parcial e insensible a mayúsculas sobre el país formal o propuesto.
+        # Ambas relaciones se cargan en la misma consulta, sin N+1.
 
-        if pais:
-            termino = pais.strip().casefold()
+        termino = " ".join((pais or "").split()).casefold()
+        if termino:
             convenios = [
                 c
                 for c in convenios
-                if c.aliado and c.aliado.pais and termino in c.aliado.pais.nombre.casefold()
+                if (nombre := _pais_convenio(c)) and termino in nombre.casefold()
             ]
 
         if not convenios:
@@ -104,31 +118,66 @@ class ServicioEstadisticasConvenios:
                 for c in convenios
             ),
             por_estado_aliado=_conteos(
-                _etiqueta_estado_aliado(c.aliado) for c in convenios
+                _etiqueta_estado_aliado(c) for c in convenios
             ),
             por_tipo_aliado=_conteos(
-                _ETIQUETAS_TIPO_ALIADO.get(c.aliado.tipo, c.aliado.tipo) if c.aliado else SIN_ALIADO
+                _ETIQUETAS_TIPO_ALIADO.get(tipo, tipo) if (tipo := _tipo_aliado(c)) else SIN_TIPO
                 for c in convenios
             ),
             por_pais=_conteos(
-                c.aliado.pais.nombre if c.aliado and c.aliado.pais else SIN_PAIS
+                _pais_convenio(c) or SIN_PAIS
                 for c in convenios
             ),
         )
 
 
-def _etiqueta_estado_aliado(aliado: Aliado | None) -> str:
-    if aliado is None:
-        return SIN_ALIADO
-    return "Aliado activo" if aliado.activo else "Aliado inactivo"
+def _tipo_aliado(convenio: Convenio) -> str | None:
+    if convenio.aliado is not None:
+        return convenio.aliado.tipo
+    return convenio.solicitud.tipo_aliado_propuesto
+
+
+def _pais_convenio(convenio: Convenio) -> str:
+    if convenio.aliado is not None:
+        nombre = convenio.aliado.pais.nombre if convenio.aliado.pais else None
+    else:
+        nombre = convenio.solicitud.pais_aliado_propuesto
+    return " ".join((nombre or "").split())
+
+
+def _etiqueta_estado_aliado(convenio: Convenio) -> str:
+    if convenio.aliado is not None:
+        return "Aliado activo" if convenio.aliado.activo else "Aliado inactivo"
+    solicitud = convenio.solicitud
+    if any(
+        valor and valor.strip()
+        for valor in (
+            solicitud.nombre_aliado_propuesto,
+            solicitud.tipo_aliado_propuesto,
+            solicitud.pais_aliado_propuesto,
+        )
+    ):
+        return CONTRAPARTE_PROPUESTA
+    return SIN_ALIADO
 
 
 def _conteos(valores) -> list[Conteo]:
-    contador = Counter(valores)
+    etiquetas: dict[str, str] = {}
+    contador: Counter[str] = Counter()
+    for valor in valores:
+        etiqueta = " ".join(valor.split())
+        clave = etiqueta.casefold()
+        etiquetas.setdefault(clave, etiqueta)
+        contador[clave] += 1
     return [
-        Conteo(etiqueta=etiqueta, cantidad=cantidad)
-        for etiqueta, cantidad in sorted(contador.items(), key=lambda par: (-par[1], par[0]))
+        Conteo(etiqueta=etiquetas[clave], cantidad=cantidad)
+        for clave, cantidad in sorted(contador.items(), key=lambda par: (-par[1], par[0]))
     ]
+
+
+def _texto_seguro(valor: str) -> str:
+    # Mismo criterio que HU-34: forzar texto literal sin modificar la BD.
+    return f"'{valor}" if valor.startswith(("=", "+", "-", "@")) else valor
 
 
 def _tabla_conteos(titulo: str, conteos: list[Conteo], estilos, estilo_celda) -> list:
@@ -225,7 +274,7 @@ def generar_excel_estadisticas_convenios(reporte: ReporteEstadisticoConvenios) -
         for celda in hoja[1]:
             celda.font = Font(bold=True)
         for conteo in conteos:
-            hoja.append([conteo.etiqueta, conteo.cantidad])
+            hoja.append([_texto_seguro(conteo.etiqueta), conteo.cantidad])
 
     buffer = io.BytesIO()
     libro.save(buffer)
