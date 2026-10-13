@@ -39,10 +39,10 @@ export function ActividadesUtilizacionConvenio({ convenioId, estado }: { conveni
     const form = new FormData(formulario)
     registrar.mutate(
       {
-        fecha: String(form.get('fecha') ?? ''),
-        actividad: String(form.get('actividad') ?? '').trim(),
+        fecha_ejecucion: String(form.get('fecha_ejecucion') ?? ''),
+        titulo: String(form.get('titulo') ?? '').trim(),
         descripcion: String(form.get('descripcion') ?? '').trim(),
-        responsable: String(form.get('responsable') ?? '').trim(),
+        responsable_nombre: String(form.get('responsable_nombre') ?? '').trim(),
         observaciones: String(form.get('observaciones') ?? '').trim() || null,
       },
       { onSuccess: () => formulario.reset() },
@@ -64,10 +64,10 @@ export function ActividadesUtilizacionConvenio({ convenioId, estado }: { conveni
             <tbody>
               {actividades.data.map((item) => (
                 <tr key={item.id}>
-                  <td>{fechaActividad(item.fecha)}</td>
-                  <td>{item.actividad}</td>
+                  <td>{fechaActividad(item.fecha_ejecucion)}</td>
+                  <td>{item.titulo}</td>
                   <td>{item.descripcion}</td>
-                  <td>{item.responsable}</td>
+                  <td>{item.responsable_nombre ?? '—'}</td>
                   <td>{item.observaciones ?? '—'}</td>
                 </tr>
               ))}
@@ -79,9 +79,9 @@ export function ActividadesUtilizacionConvenio({ convenioId, estado }: { conveni
       {puedeRegistrar && (
         <form onSubmit={enviar} className="form-grid">
           <h3 className="form-span-2">Registrar actividad</h3>
-          <label className="form-group" htmlFor="utilizacion-fecha"><span className="form-label">Fecha *</span><input id="utilizacion-fecha" className="form-control" type="date" name="fecha" required /></label>
-          <label className="form-group" htmlFor="utilizacion-responsable"><span className="form-label">Responsable *</span><input id="utilizacion-responsable" className="form-control" name="responsable" maxLength={200} required placeholder="Ej.: Facultad de Ingeniería" /></label>
-          <label className="form-group form-span-2" htmlFor="utilizacion-actividad"><span className="form-label">Actividad *</span><input id="utilizacion-actividad" className="form-control" name="actividad" maxLength={200} required placeholder="Ej.: Movilidad académica de dos estudiantes de Ingeniería" /></label>
+          <label className="form-group" htmlFor="utilizacion-fecha"><span className="form-label">Fecha *</span><input id="utilizacion-fecha" className="form-control" type="date" name="fecha_ejecucion" required /></label>
+          <label className="form-group" htmlFor="utilizacion-responsable"><span className="form-label">Responsable *</span><input id="utilizacion-responsable" className="form-control" name="responsable_nombre" maxLength={200} required placeholder="Ej.: Facultad de Ingeniería" /></label>
+          <label className="form-group form-span-2" htmlFor="utilizacion-actividad"><span className="form-label">Actividad *</span><input id="utilizacion-actividad" className="form-control" name="titulo" maxLength={200} required placeholder="Ej.: Movilidad académica de dos estudiantes de Ingeniería" /></label>
           <label className="form-group form-span-2" htmlFor="utilizacion-descripcion"><span className="form-label">Descripción *</span><textarea id="utilizacion-descripcion" className="form-control" name="descripcion" required /></label>
           <label className="form-group form-span-2" htmlFor="utilizacion-observaciones"><span className="form-label">Observaciones (opcional)</span><textarea id="utilizacion-observaciones" className="form-control" name="observaciones" /></label>
           <div className="page-toolbar form-span-2">

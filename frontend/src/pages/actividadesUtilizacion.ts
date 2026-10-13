@@ -6,20 +6,21 @@ import type { EstadoConvenio } from './epica02'
 export interface ActividadUtilizacion {
   id: number
   convenio_id: number
-  fecha: string
-  actividad: string
+  estado: 'REALIZADA'
+  fecha_ejecucion: string
+  titulo: string
   descripcion: string
-  responsable: string
+  responsable_nombre: string | null
   observaciones: string | null
   registrado_por_id: number
   creado_en: string
 }
 
 export interface ActividadUtilizacionCrear {
-  fecha: string
-  actividad: string
+  fecha_ejecucion: string
+  titulo: string
   descripcion: string
-  responsable: string
+  responsable_nombre: string
   observaciones: string | null
 }
 

@@ -136,3 +136,36 @@ class AccionAuditoria(StrEnum):
     INSERT = "INSERT"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
+
+
+class TipoNotificacion(StrEnum):
+    """HU-33. Cada valor corresponde a uno de los disparadores de CA-03 a
+    CA-06; no es un catálogo abierto para cualquier evento del sistema."""
+
+    REVISION_JURIDICA_PENDIENTE = "REVISION_JURIDICA_PENDIENTE"
+    DEVOLUCION_REVISION = "DEVOLUCION_REVISION"
+    SOLICITUD_DEVUELTA = "SOLICITUD_DEVUELTA"
+    REVISION_CONTRAPARTE_PENDIENTE = "REVISION_CONTRAPARTE_PENDIENTE"
+
+
+class EntidadNotificacion(StrEnum):
+    """Qué tipo de registro identifica `Notificacion.entidad_id` (CA-07)."""
+
+    CONVENIO = "CONVENIO"
+    SOLICITUD = "SOLICITUD"
+
+
+class ParteEjecutoraActividad(StrEnum):
+    """HU-34/HU-35. Quién ejecuta una actividad registrada sobre un
+    convenio vigente, tal como la define el MER aprobado."""
+
+    USB = "USB"
+    CONTRAPARTE = "CONTRAPARTE"
+    AMBAS = "AMBAS"
+
+
+class EstadoActividadConvenio(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    EN_CURSO = "EN_CURSO"
+    REALIZADA = "REALIZADA"
+    CANCELADA = "CANCELADA"

@@ -1,25 +1,34 @@
 from collections.abc import Callable
 from datetime import date
+from io import BytesIO
 from uuid import uuid4
 
 import pytest
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
-from backend.models.actividad_utilizacion import ActividadUtilizacion
+from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoConvenio
+from backend.models.enums import EstadoActividadConvenio, EstadoConvenio
 from backend.models.usuario import Usuario
+from backend.services import actividades_utilizacion
 from backend.services.actividades_utilizacion import (
     ServicioActividadesUtilizacion,
 )
+from backend.services.reportes import ServicioReportes
+
+HOY = date(2026, 10, 13)
+INICIO = date(2026, 1, 1)
+VENCIMIENTO = date(2027, 1, 1)
+URL_REPORTE = "/api/convenios/reportes/activos"
 
 ACTIVIDAD_EJEMPLO = {
-    "fecha": "2026-09-15",
-    "actividad": "Movilidad académica de dos estudiantes de Ingeniería",
+    "fecha_ejecucion": "2026-09-15",
+    "titulo": "Movilidad academica de dos estudiantes de Ingenieria",
     "descripcion": "Participación en intercambio académico durante el semestre 2026-2",
-    "responsable": "Facultad de Ingeniería",
+    "responsable_nombre": "Facultad de Ingeniería",
     "observaciones": "Estudiantes seleccionados por convocatoria interna",
 }
 
@@ -28,18 +37,36 @@ def url_actividades(convenio_id: int) -> str:
     return f"/api/convenios/{convenio_id}/actividades-utilizacion"
 
 
+@pytest.fixture(autouse=True)
+def fecha_dominio_fija(monkeypatch) -> None:
+    monkeypatch.setattr(actividades_utilizacion, "fecha_actual_dominio", lambda: HOY)
+
+
 @pytest.fixture
 def crear_convenio_en_estado(
     db: Session, gestor: Usuario, crear_convenio
 ) -> Callable[..., Convenio]:
-    def _crear(estado: EstadoConvenio = EstadoConvenio.VIGENTE) -> Convenio:
-        convenio = crear_convenio(gestor, codigo=f"HU35-{uuid4().hex[:12]}")
+    def _crear(
+        estado: EstadoConvenio = EstadoConvenio.VIGENTE,
+        fecha_inicio: date | None = INICIO,
+        fecha_vencimiento: date | None = VENCIMIENTO,
+    ) -> Convenio:
+        convenio = crear_convenio(
+            gestor,
+            codigo=f"HU35-{uuid4().hex[:12]}",
+            fecha_inicio=fecha_inicio,
+            fecha_vencimiento=fecha_vencimiento,
+        )
         convenio.estado = estado.value
         db.commit()
         db.refresh(convenio)
         return convenio
 
     return _crear
+
+
+def actividades_guardadas(db: Session) -> list[ActividadConvenio]:
+    return list(db.scalars(select(ActividadConvenio)))
 
 
 # ---- CA-01: registrar una actividad -----------------------------------------
@@ -57,9 +84,10 @@ def test_ca01_registra_actividad_asociada_al_convenio(
 
     assert respuesta.status_code == 201
     assert respuesta.json()["convenio_id"] == convenio.id
-    guardada = db.get(ActividadUtilizacion, respuesta.json()["id"])
+    guardada = db.get(ActividadConvenio, respuesta.json()["id"])
     assert guardada is not None
     assert guardada.convenio_id == convenio.id
+    assert guardada.estado == EstadoActividadConvenio.REALIZADA.value
 
 
 # ---- CA-02: conservar la información registrada -----------------------------
@@ -74,16 +102,17 @@ def test_ca02_conserva_los_datos_registrados(
         url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO
     ).json()
 
-    guardada = db.get(ActividadUtilizacion, cuerpo["id"])
-    assert guardada.fecha == date(2026, 9, 15)
-    assert guardada.actividad == ACTIVIDAD_EJEMPLO["actividad"]
+    guardada = db.get(ActividadConvenio, cuerpo["id"])
+    assert guardada.fecha_ejecucion == date(2026, 9, 15)
+    assert guardada.titulo == ACTIVIDAD_EJEMPLO["titulo"]
     assert guardada.descripcion == ACTIVIDAD_EJEMPLO["descripcion"]
-    assert guardada.responsable == ACTIVIDAD_EJEMPLO["responsable"]
+    assert guardada.responsable_nombre == ACTIVIDAD_EJEMPLO["responsable_nombre"]
     assert guardada.observaciones == ACTIVIDAD_EJEMPLO["observaciones"]
+    assert guardada.responsable_id is None
     assert guardada.registrado_por_id == gestor.id
     assert guardada.creado_en is not None
     assert cuerpo["registrado_por_id"] == gestor.id
-    assert cuerpo["creado_en"] is not None
+    assert cuerpo["estado"] == EstadoActividadConvenio.REALIZADA.value
 
 
 @pytest.mark.parametrize("observaciones", [None, "", "   "])
@@ -99,19 +128,8 @@ def test_ca02_observaciones_es_opcional(
     assert respuesta.json()["observaciones"] is None
 
 
-def test_ca02_observaciones_puede_omitirse(
-    client, gestor, crear_convenio_en_estado
-) -> None:
-    convenio = crear_convenio_en_estado()
-    datos = {k: v for k, v in ACTIVIDAD_EJEMPLO.items() if k != "observaciones"}
-
-    respuesta = client.post(url_actividades(convenio.id), json=datos)
-
-    assert respuesta.status_code == 201
-
-
 @pytest.mark.parametrize(
-    "campo", ["fecha", "actividad", "descripcion", "responsable"]
+    "campo", ["fecha_ejecucion", "titulo", "descripcion", "responsable_nombre"]
 )
 def test_ca02_rechaza_campos_obligatorios_faltantes(
     client, db: Session, gestor, crear_convenio_en_estado, campo
@@ -122,10 +140,10 @@ def test_ca02_rechaza_campos_obligatorios_faltantes(
     respuesta = client.post(url_actividades(convenio.id), json=datos)
 
     assert respuesta.status_code == 422
-    assert db.scalars(select(ActividadUtilizacion)).all() == []
+    assert actividades_guardadas(db) == []
 
 
-@pytest.mark.parametrize("campo", ["actividad", "descripcion", "responsable"])
+@pytest.mark.parametrize("campo", ["titulo", "descripcion", "responsable_nombre"])
 def test_ca02_rechaza_textos_obligatorios_vacios(
     client, gestor, crear_convenio_en_estado, campo
 ) -> None:
@@ -137,6 +155,90 @@ def test_ca02_rechaza_textos_obligatorios_vacios(
     assert respuesta.status_code == 422
 
 
+# ---- CA-02: fecha dentro de la vigencia y no futura -------------------------
+
+
+@pytest.mark.parametrize(
+    "fecha", [INICIO.isoformat(), HOY.isoformat()], ids=["inicio", "hoy"]
+)
+def test_fecha_acepta_limites_inicio_y_hoy(
+    client, gestor, crear_convenio_en_estado, fecha
+) -> None:
+    convenio = crear_convenio_en_estado()
+
+    respuesta = client.post(
+        url_actividades(convenio.id), json={**ACTIVIDAD_EJEMPLO, "fecha_ejecucion": fecha}
+    )
+
+    assert respuesta.status_code == 201
+
+
+def test_fecha_acepta_limite_de_vencimiento(
+    client, gestor, crear_convenio_en_estado
+) -> None:
+    convenio = crear_convenio_en_estado(fecha_vencimiento=date(2026, 9, 30))
+
+    respuesta = client.post(
+        url_actividades(convenio.id),
+        json={**ACTIVIDAD_EJEMPLO, "fecha_ejecucion": "2026-09-30"},
+    )
+
+    assert respuesta.status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("fecha_vencimiento", "fecha", "mensaje"),
+    [
+        (VENCIMIENTO, "2025-12-31", "período de vigencia"),
+        (date(2026, 9, 30), "2026-10-01", "período de vigencia"),
+        (VENCIMIENTO, "2026-10-14", "futura"),
+    ],
+    ids=["antes-del-inicio", "despues-del-vencimiento", "futura"],
+)
+def test_fecha_rechaza_fuera_del_periodo_o_futura(
+    client,
+    db: Session,
+    gestor,
+    crear_convenio_en_estado,
+    fecha_vencimiento,
+    fecha,
+    mensaje,
+) -> None:
+    convenio = crear_convenio_en_estado(fecha_vencimiento=fecha_vencimiento)
+
+    respuesta = client.post(
+        url_actividades(convenio.id), json={**ACTIVIDAD_EJEMPLO, "fecha_ejecucion": fecha}
+    )
+
+    assert respuesta.status_code == 422
+    assert mensaje in respuesta.json()["detail"]
+    assert actividades_guardadas(db) == []
+
+
+@pytest.mark.parametrize(
+    ("fecha_inicio", "fecha_vencimiento"),
+    [(None, VENCIMIENTO), (INICIO, None), (None, None)],
+    ids=["sin-inicio", "sin-vencimiento", "sin-ambas"],
+)
+def test_rechaza_convenio_sin_periodo_de_vigencia(
+    client,
+    db: Session,
+    gestor,
+    crear_convenio_en_estado,
+    fecha_inicio,
+    fecha_vencimiento,
+) -> None:
+    convenio = crear_convenio_en_estado(
+        fecha_inicio=fecha_inicio, fecha_vencimiento=fecha_vencimiento
+    )
+
+    respuesta = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO)
+
+    assert respuesta.status_code == 409
+    assert "período de vigencia" in respuesta.json()["detail"]
+    assert actividades_guardadas(db) == []
+
+
 # ---- CA-03: consultar actividades del convenio ------------------------------
 
 
@@ -146,7 +248,8 @@ def test_ca03_lista_actividades_del_convenio_ordenadas(
     convenio = crear_convenio_en_estado()
     otro = crear_convenio_en_estado()
     antigua = client.post(
-        url_actividades(convenio.id), json={**ACTIVIDAD_EJEMPLO, "fecha": "2026-03-01"}
+        url_actividades(convenio.id),
+        json={**ACTIVIDAD_EJEMPLO, "fecha_ejecucion": "2026-03-01"},
     ).json()
     reciente = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO).json()
     mismo_dia = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO).json()
@@ -161,6 +264,28 @@ def test_ca03_lista_actividades_del_convenio_ordenadas(
         antigua["id"],
     ]
     assert respuesta.json()[1] == reciente
+
+
+def test_ca03_no_mezcla_actividades_planificadas(
+    client, db: Session, gestor, crear_convenio_en_estado
+) -> None:
+    convenio = crear_convenio_en_estado()
+    realizada = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO).json()
+    db.add(
+        ActividadConvenio(
+            convenio_id=convenio.id,
+            titulo="Próximo seminario conjunto",
+            descripcion="Actividad planificada, no ejecutada",
+            fecha_planificada=date(2026, 11, 20),
+            estado=EstadoActividadConvenio.PENDIENTE.value,
+            registrado_por_id=gestor.id,
+        )
+    )
+    db.commit()
+
+    respuesta = client.get(url_actividades(convenio.id))
+
+    assert [item["id"] for item in respuesta.json()] == [realizada["id"]]
 
 
 # ---- CA-04: restringir el registro ------------------------------------------
@@ -189,7 +314,7 @@ def test_ca04_rol_sin_permiso_no_puede_registrar(
     respuesta = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO)
 
     assert respuesta.status_code == 403
-    assert db.scalars(select(ActividadUtilizacion)).all() == []
+    assert actividades_guardadas(db) == []
 
 
 def test_ca04_sin_sesion_no_puede_registrar(
@@ -235,7 +360,7 @@ def test_ca04_rechaza_registro_en_convenio_no_activo(
 
     assert respuesta.status_code == 409
     assert "vigentes o por vencer" in respuesta.json()["detail"]
-    assert db.scalars(select(ActividadUtilizacion)).all() == []
+    assert actividades_guardadas(db) == []
 
 
 def test_convenio_inexistente_responde_404(client, gestor) -> None:
@@ -268,20 +393,6 @@ def test_ca05_listado_refleja_registro_inmediatamente(
     assert client.get(url_actividades(convenio.id)).json() == [creada]
 
 
-def test_ca05_actividades_siguen_disponibles_si_el_convenio_deja_de_estar_activo(
-    client, db: Session, gestor, crear_convenio_en_estado
-) -> None:
-    convenio = crear_convenio_en_estado()
-    creada = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO).json()
-    convenio.estado = EstadoConvenio.VENCIDO.value
-    db.commit()
-
-    respuesta = client.get(url_actividades(convenio.id))
-
-    assert respuesta.status_code == 200
-    assert respuesta.json() == [creada]
-
-
 def test_ca05_servicio_lista_actividades_sin_volver_a_registrarlas(
     client, db: Session, gestor, crear_convenio_en_estado
 ) -> None:
@@ -291,11 +402,6 @@ def test_ca05_servicio_lista_actividades_sin_volver_a_registrarlas(
     actividades = ServicioActividadesUtilizacion(db).listar(convenio.id, gestor)
 
     assert [actividad.id for actividad in actividades] == [creada["id"]]
-    assert db.scalar(
-        select(ActividadUtilizacion.id).where(
-            ActividadUtilizacion.convenio_id == convenio.id
-        )
-    ) == creada["id"]
 
 
 def test_ca05_renovacion_no_hereda_actividades_del_origen(
@@ -309,3 +415,67 @@ def test_ca05_renovacion_no_hereda_actividades_del_origen(
 
     assert len(client.get(url_actividades(origen.id)).json()) == 1
     assert client.get(url_actividades(renovacion.id)).json() == []
+
+
+# ---- Integración HU-35 → HU-34 ----------------------------------------------
+
+
+def test_integracion_reporte_consulta_la_misma_actividad_registrada(
+    client, db: Session, gestor, crear_convenio_en_estado
+) -> None:
+    convenio = crear_convenio_en_estado()
+    creada = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO).json()
+
+    reporte = ServicioReportes(db).listar_convenios_activos()
+
+    del_convenio = next(item for item in reporte if item.id == convenio.id)
+    assert [actividad.id for actividad in del_convenio.actividades] == [creada["id"]]
+    respuesta = client.get(URL_REPORTE)
+    assert respuesta.status_code == 200
+    en_api = next(item for item in respuesta.json() if item["id"] == convenio.id)
+    assert [actividad["id"] for actividad in en_api["actividades"]] == [creada["id"]]
+    assert en_api["actividades"][0]["fecha_ejecucion"] == ACTIVIDAD_EJEMPLO["fecha_ejecucion"]
+
+
+def test_integracion_actividad_aparece_en_pdf_y_excel(
+    client, gestor, crear_convenio_en_estado
+) -> None:
+    convenio = crear_convenio_en_estado()
+    client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO)
+
+    pdf = client.get(f"{URL_REPORTE}/pdf")
+    excel = client.get(f"{URL_REPORTE}/excel")
+
+    assert pdf.status_code == 200
+    # El título se parte en varias líneas dentro de la celda del PDF.
+    assert b"Movilidad" in pdf.content
+    assert excel.status_code == 200
+    hoja = load_workbook(BytesIO(excel.content))["Actividades"]
+    titulos = [fila[1] for fila in hoja.iter_rows(min_row=2, values_only=True)]
+    assert ACTIVIDAD_EJEMPLO["titulo"] in titulos
+
+
+def test_integracion_convenio_sin_actividades_sigue_en_el_reporte(
+    client, gestor, crear_convenio_en_estado
+) -> None:
+    convenio = crear_convenio_en_estado()
+
+    respuesta = client.get(URL_REPORTE)
+
+    en_api = next(item for item in respuesta.json() if item["id"] == convenio.id)
+    assert en_api["actividades"] == []
+
+
+def test_integracion_actividad_sigue_disponible_cuando_el_convenio_finaliza(
+    client, db: Session, gestor, crear_convenio_en_estado
+) -> None:
+    convenio = crear_convenio_en_estado()
+    creada = client.post(url_actividades(convenio.id), json=ACTIVIDAD_EJEMPLO).json()
+    convenio.estado = EstadoConvenio.FINALIZADO.value
+    db.commit()
+
+    respuesta = client.get(url_actividades(convenio.id))
+
+    assert respuesta.status_code == 200
+    assert respuesta.json() == [creada]
+    assert db.get(ActividadConvenio, creada["id"]) is not None

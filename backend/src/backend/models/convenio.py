@@ -22,11 +22,12 @@ from backend.db.base import Base
 from backend.models.enums import AlcanceConvenio, EstadoConvenio
 
 if TYPE_CHECKING:
-    from backend.models.actividad_utilizacion import ActividadUtilizacion
+    from backend.models.actividad_convenio import ActividadConvenio
     from backend.models.aliado import Aliado
     from backend.models.decision_no_renovacion import DecisionNoRenovacion
     from backend.models.documento import Documento
     from backend.models.etapa import Etapa
+    from backend.models.evaluacion_convenio import EvaluacionConvenio
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
     from backend.models.plantilla_convenio import PlantillaConvenio
@@ -57,6 +58,9 @@ class Convenio(Base):
                 "convenio_origen_id IS NOT NULL AND estado = 'EN_TRAMITE'"
             ),
         ),
+        # HU-27 BE-4: filtros de fecha de ConsultaConveniosPage.
+        Index("ix_convenio_fecha_firma", "fecha_firma"),
+        Index("ix_convenio_vigencia", "fecha_inicio", "fecha_vencimiento"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -108,6 +112,12 @@ class Convenio(Base):
     documentos: Mapped[list[Documento]] = relationship(
         back_populates="convenio", foreign_keys="Documento.convenio_id"
     )
+    evaluacion: Mapped[EvaluacionConvenio | None] = relationship(
+        back_populates="convenio", uselist=False
+    )
+    actividades: Mapped[list[ActividadConvenio]] = relationship(
+        back_populates="convenio"
+    )
     historial_etapas: Mapped[list[HistorialEtapa]] = relationship(
         back_populates="convenio"
     )
@@ -122,7 +132,4 @@ class Convenio(Base):
     )
     procesos_firmas: Mapped[list[ProcesoFirmasConvenio]] = relationship(
         back_populates="convenio", order_by="ProcesoFirmasConvenio.id"
-    )
-    actividades_utilizacion: Mapped[list[ActividadUtilizacion]] = relationship(
-        back_populates="convenio"
     )

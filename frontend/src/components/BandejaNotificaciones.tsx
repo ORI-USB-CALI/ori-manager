@@ -2,12 +2,18 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 
 interface BandejaNotificacionesProps {
+  /** Nombre de esta bandeja (p. ej. "Alertas de vencimiento" o
+   * "Notificaciones de tareas pendientes"): el componente se reutiliza
+   * para más de una campana, así que cada una debe anunciarse distinto
+   * en el aria-label y en el título visible del panel. */
+  nombre: string
   contador: number
   children: ReactNode
   onAbrir?: () => void
 }
 
 export function BandejaNotificaciones({
+  nombre,
   contador,
   children,
   onAbrir,
@@ -17,6 +23,7 @@ export function BandejaNotificaciones({
   return (
     <BandejaNotificacionesInteractiva
       key={ubicacion.key}
+      nombre={nombre}
       contador={contador}
       onAbrir={onAbrir}
     >
@@ -26,6 +33,7 @@ export function BandejaNotificaciones({
 }
 
 function BandejaNotificacionesInteractiva({
+  nombre,
   contador,
   children,
   onAbrir,
@@ -78,7 +86,7 @@ function BandejaNotificacionesInteractiva({
         ref={botonRef}
         type="button"
         className="bandeja-notificaciones-trigger"
-        aria-label={contador > 0 ? `Notificaciones: ${contador} avisos activos` : 'Notificaciones'}
+        aria-label={contador > 0 ? `${nombre}: ${contador} avisos activos` : nombre}
         aria-expanded={abierta}
         aria-controls={panelId}
         onClick={alternarBandeja}
@@ -100,11 +108,11 @@ function BandejaNotificacionesInteractiva({
           aria-labelledby={tituloId}
         >
           <header className="bandeja-notificaciones-cabecera">
-            <h2 id={tituloId}>Notificaciones</h2>
+            <h2 id={tituloId}>{nombre}</h2>
             <button
               type="button"
               className="btn-icon bandeja-notificaciones-cerrar"
-              aria-label="Cerrar notificaciones"
+              aria-label={`Cerrar ${nombre.toLowerCase()}`}
               onClick={cerrarBandeja}
             >
               ×

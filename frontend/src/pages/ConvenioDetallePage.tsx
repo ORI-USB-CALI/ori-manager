@@ -8,6 +8,8 @@ import { useSesion } from '../auth/sesion'
 import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
+import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import {
@@ -222,6 +224,8 @@ export function ConvenioDetallePage() {
         <p><span className="badge">{datos.estado}</span></p>
       </section>
 
+      <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
+
       {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isPending || historialContraparte.isPending) && (
         <p className="estado-pagina">Verificando disponibilidad para envío a contraparte…</p>
       )}
@@ -336,6 +340,7 @@ export function ConvenioDetallePage() {
           <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
         </>
       )}
+      <EvaluacionConvenio convenioId={id} permitirRegistro />
       <ActividadesUtilizacionConvenio convenioId={datos.id} estado={datos.estado} />
       <div className="page-toolbar"><Link className="btn btn-outline" to={`/convenios/${datos.id}/historial`}>Ver historial y trazabilidad</Link></div>
 

@@ -2,14 +2,18 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.models.enums import EstadoActividadConvenio
+
 
 class ActividadUtilizacionCrear(BaseModel):
+    """HU-35: actividad ya realizada, registrada en `actividad_convenio`."""
+
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    fecha: date
-    actividad: str = Field(min_length=1, max_length=200)
+    fecha_ejecucion: date
+    titulo: str = Field(min_length=1, max_length=200)
     descripcion: str = Field(min_length=1)
-    responsable: str = Field(min_length=1, max_length=200)
+    responsable_nombre: str = Field(min_length=1, max_length=200)
     observaciones: str | None = None
 
     @field_validator("observaciones")
@@ -23,10 +27,11 @@ class ActividadUtilizacionLeer(BaseModel):
 
     id: int
     convenio_id: int
-    fecha: date
-    actividad: str
+    estado: EstadoActividadConvenio
+    fecha_ejecucion: date | None
+    titulo: str
     descripcion: str
-    responsable: str
+    responsable_nombre: str | None
     observaciones: str | None
     registrado_por_id: int
     creado_en: datetime

@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { RequierePermiso } from '../auth/RequierePermiso'
 import { AliadoDetallePage } from '../pages/AliadoDetallePage'
 import { AliadosPage } from '../pages/AliadosPage'
+import { ConsultaConveniosPage } from '../pages/ConsultaConveniosPage'
 import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
 import { ConvenioHistorialPage } from '../pages/ConvenioHistorialPage'
@@ -16,6 +17,7 @@ import { RevisionContrapartePage } from '../pages/RevisionContrapartePage'
 import { RevisionesContrapartePage } from '../pages/RevisionesContrapartePage'
 import { RevisionesJuridicasPage } from '../pages/RevisionesJuridicasPage'
 import { RenovacionesPage } from '../pages/RenovacionesPage'
+import { ReporteConveniosActivosPage } from '../pages/ReporteConveniosActivosPage'
 import { SolicitudRecibidaPage } from '../pages/SolicitudRecibidaPage'
 import { SolicitudesRecibidasPage } from '../pages/SolicitudesRecibidasPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
@@ -42,6 +44,9 @@ export const router = createBrowserRouter([
       { element: <RequierePermiso permiso="convenios.gestionar_renovaciones" />, children: [
         { path: '/renovaciones', element: <RenovacionesPage /> },
       ] },
+      { element: <RequierePermiso permiso="convenios.ver_reportes" />, children: [
+        { path: '/reportes/convenios-activos', element: <ReporteConveniosActivosPage /> },
+      ] },
       { element: <RequierePermiso permiso="usuarios.ver" />, children: [{ path: '/admin/usuarios', element: <UsuariosRolesPage /> }] },
       { element: <RequierePermiso permiso="aliados.ver" />, children: [
         { path: '/aliados', element: <AliadosPage /> },
@@ -53,6 +58,7 @@ export const router = createBrowserRouter([
         { path: '/ori/solicitudes/:solicitudId', element: <SolicitudRecibidaPage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
+        { path: '/convenios', element: <ConsultaConveniosPage /> },
         { path: '/convenios/tablero', element: <TableroConveniosPage /> },
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
