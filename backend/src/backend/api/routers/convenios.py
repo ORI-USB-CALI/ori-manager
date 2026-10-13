@@ -79,6 +79,7 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.estadisticas_convenios import ReporteEstadisticoConveniosLeer
 from backend.schemas.evaluacion import (
     EstadoEvaluacionLeer,
     EvaluacionConvenioCrear,
@@ -119,6 +120,11 @@ from backend.services.documentos import (
     AlmacenDocumentos,
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
+)
+from backend.services.estadisticas_convenios import (
+    ServicioEstadisticasConvenios,
+    generar_excel_estadisticas_convenios,
+    generar_pdf_estadisticas_convenios,
 )
 from backend.services.evaluaciones import (
     ConvenioNoEvaluable,
@@ -553,6 +559,72 @@ def descargar_reporte_convenios_activos_excel(
         ),
         headers={
             "Content-Disposition": "attachment; filename=convenios-activos.xlsx"
+        },
+    )
+
+
+def _filtros_estadisticas_convenios(
+    estado: Annotated[EstadoConvenio | None, Query()] = None,
+    aliado_activo: Annotated[bool | None, Query()] = None,
+    tipo_aliado: Annotated[TipoAliado | None, Query()] = None,
+    pais: Annotated[str | None, Query(max_length=80)] = None,
+) -> dict:
+    return {
+        "estado": estado,
+        "aliado_activo": aliado_activo,
+        "tipo_aliado": tipo_aliado,
+        "pais": pais,
+    }
+
+
+FiltrosEstadisticasConvenios = Annotated[dict, Depends(_filtros_estadisticas_convenios)]
+
+
+@router.get(
+    "/reportes/estadisticas", response_model=ReporteEstadisticoConveniosLeer
+)
+def obtener_reporte_estadisticas_convenios(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> ReporteEstadisticoConveniosLeer:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    return ReporteEstadisticoConveniosLeer.model_validate(reporte)
+
+
+@router.get("/reportes/estadisticas/pdf")
+def descargar_reporte_estadisticas_convenios_pdf(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> Response:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    contenido = generar_pdf_estadisticas_convenios(reporte)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "attachment; filename=estadisticas-convenios.pdf"
+        },
+    )
+
+
+@router.get("/reportes/estadisticas/excel")
+def descargar_reporte_estadisticas_convenios_excel(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> Response:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    contenido = generar_excel_estadisticas_convenios(reporte)
+    return Response(
+        content=contenido,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": "attachment; filename=estadisticas-convenios.xlsx"
         },
     )
 
