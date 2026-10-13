@@ -10,8 +10,13 @@ from io import BytesIO
 
 import pytest
 from openpyxl import load_workbook
+from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.firma_convenio import FirmaConvenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
+from backend.models.revision_convenio import RevisionConvenio
+from backend.models.version_convenio import VersionConvenio
 from backend.schemas.exportacion import (
     INFORMACION_NO_DISPONIBLE,
     ConvenioPdfDTO,
@@ -160,39 +165,131 @@ def test_version_indicada_inexistente_responde_422_sin_usar_otra(
     assert "version_contractual" in respuesta.json()["campos_faltantes"]
 
 
-def test_proceso_de_firmas_de_otra_version_bloquea_la_exportacion(
-    client, gestor, convenio_exportable
-):
-    # Guardar el editor crea la versión 2; el proceso de firmas es de la 1.
-    elaboracion = client.get(f"/api/convenios/{convenio_exportable.id}/elaboracion").json()
+def _crear_version_2(client, convenio_id: int, texto: str) -> None:
+    """Guardar el editor de HU-12 crea la versión 2 del convenio."""
+    elaboracion = client.get(f"/api/convenios/{convenio_id}/elaboracion").json()
     contenido = deepcopy(elaboracion["contenido"])
-    contenido["content"].append(
-        {"type": "paragraph", "content": [{"type": "text", "text": "Texto de la v2"}]}
-    )
+    contenido["content"] = [
+        {"type": "paragraph", "content": [{"type": "text", "text": texto}]}
+    ]
     guardada = client.patch(
-        f"/api/convenios/{convenio_exportable.id}/elaboracion",
+        f"/api/convenios/{convenio_id}/elaboracion",
         json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
     )
     assert guardada.status_code == 200
 
+
+def _completar_proceso_de_la_v1(db, convenio) -> None:
+    proceso = db.scalar(
+        select(ProcesoFirmasConvenio).where(
+            ProcesoFirmasConvenio.convenio_id == convenio.id
+        )
+    )
+    proceso.estado = "COMPLETADO"
+    db.commit()
+
+
+def _proceso_de_la_version_actual(db, convenio, creado_por, rector, representante):
+    """Proceso de firmas propio de la versión actual, como en convenio_exportable."""
+    db.expire_all()
+    version = db.scalar(
+        select(VersionConvenio).where(
+            VersionConvenio.convenio_id == convenio.id,
+            VersionConvenio.numero == convenio.version_actual,
+        )
+    )
+    revision_final = RevisionConvenio(
+        convenio_id=convenio.id,
+        tipo="FINAL",
+        version_convenio_id=version.id,
+        estado="RESUELTA",
+        resultado="APROBADA",
+    )
+    db.add(revision_final)
+    db.flush()
+    proceso = ProcesoFirmasConvenio(
+        convenio_id=convenio.id,
+        version_convenio_id=version.id,
+        revision_final_id=revision_final.id,
+        creado_por_id=creado_por.id,
+        estado="CONFIGURACION",
+    )
+    db.add(proceso)
+    db.flush()
+    db.add_all(
+        [
+            FirmaConvenio(
+                proceso_firmas_id=proceso.id,
+                orden=6,
+                rol_firmante="RECTOR",
+                parte="UNIVERSIDAD",
+                nombre_firmante=rector,
+                cargo_firmante="Rector",
+                estado="PENDIENTE",
+            ),
+            FirmaConvenio(
+                proceso_firmas_id=proceso.id,
+                orden=7,
+                rol_firmante="PARTE_SOLICITANTE",
+                parte="REPRESENTANTE_LEGAL_ENTIDAD",
+                nombre_firmante=representante,
+                cargo_firmante="Representante legal",
+                estado="PENDIENTE",
+            ),
+        ]
+    )
+    db.commit()
+
+
+def test_v2_sin_proceso_rechaza_aunque_la_v1_tenga_proceso_completado(
+    db, client, gestor, convenio_exportable
+):
+    _completar_proceso_de_la_v1(db, convenio_exportable)
+    _crear_version_2(client, convenio_exportable.id, "Texto de la v2")
+
     respuesta = _exportar(client, convenio_exportable.id)
 
+    # Rechaza por los requisitos de la versión actual, no por el histórico.
     assert respuesta.status_code == 422
-    assert "proceso_firmas_version" in respuesta.json()["campos_faltantes"]
+    campos = respuesta.json()["campos_faltantes"]
+    assert campos == ["representante_legal_institucion", "representante_legal_entidad"]
+
+
+@pytest.mark.parametrize("estado_v1", ["COMPLETADO", "CANCELADO"])
+def test_v2_con_su_proceso_se_exporta_solo_con_sus_firmantes(
+    db, client, gestor, convenio_exportable, estado_v1
+):
+    proceso_v1 = db.scalar(
+        select(ProcesoFirmasConvenio).where(
+            ProcesoFirmasConvenio.convenio_id == convenio_exportable.id
+        )
+    )
+    proceso_v1.estado = estado_v1
+    db.commit()
+    _crear_version_2(client, convenio_exportable.id, "Texto de la v2")
+    _proceso_de_la_version_actual(
+        db, convenio_exportable, gestor, "Rector de la v2", "Representante de la v2"
+    )
+
+    respuesta = _exportar(client, convenio_exportable.id, "excel")
+
+    assert respuesta.status_code == 200
+    textos = _textos_libro(respuesta.content)
+    assert {"Rector de la v2", "Representante de la v2", "Texto de la v2"} <= textos
+    # Los firmantes de la v1 (del fixture) nunca aparecen en la versión actual.
+    assert "Rector de Prueba" not in textos
+    assert "Representante Legal de Prueba" not in textos
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio_exportable.id, db)
+    assert [firmante.nombre for firmante in dto.firmantes] == [
+        "Rector de la v2",
+        "Representante de la v2",
+    ]
 
 
 def test_el_mapeo_usa_el_contenido_de_la_version_actual(
     db, client, gestor, convenio_exportable
 ):
-    elaboracion = client.get(f"/api/convenios/{convenio_exportable.id}/elaboracion").json()
-    contenido = deepcopy(elaboracion["contenido"])
-    contenido["content"] = [
-        {"type": "paragraph", "content": [{"type": "text", "text": "Solo en la v2"}]}
-    ]
-    client.patch(
-        f"/api/convenios/{convenio_exportable.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
-    )
+    _crear_version_2(client, convenio_exportable.id, "Solo en la v2")
 
     dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio_exportable.id, db)
 

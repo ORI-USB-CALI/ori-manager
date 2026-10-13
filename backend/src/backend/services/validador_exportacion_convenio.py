@@ -106,13 +106,10 @@ class ConvenioExportValidator:
             faltantes.append("version_contractual")
         elif not self._tiene_texto(version):
             faltantes.append("clausulas")
-        if version is not None and any(
-            proceso.version_convenio_id != version.id
-            for proceso in _procesos_vigentes(convenio)
-        ):
-            # Firmas de otra versión: no corresponden al documento exportado.
-            faltantes.append("proceso_firmas_version")
 
+        # Solo cuentan los firmantes del proceso de la versión actual. Los
+        # procesos de otras versiones (por ejemplo, uno COMPLETADO de la v1) no
+        # bloquean la exportación ni sustituyen a los de la versión actual.
         firmantes = self._firmantes_con_nombre(convenio, version)
         if not any(
             firma.rol_firmante == RolFirmanteConvenio.RECTOR.value for firma in firmantes

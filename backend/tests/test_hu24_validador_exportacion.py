@@ -130,15 +130,28 @@ def test_no_usa_otra_version_cuando_falta_la_indicada():
     ]
 
 
-def test_proceso_de_firmas_de_otra_version_es_incoherente():
+def test_proceso_completado_de_la_v1_no_bloquea_la_v2_con_su_proceso():
     convenio = _convenio_completo(
         version_actual=2,
         versiones=[_version(1, 1), _version(2, 2)],
-        procesos_firmas=[_proceso(version_id=1)],
+        procesos_firmas=[
+            _proceso(version_id=1, estado="COMPLETADO"),
+            _proceso(version_id=2, estado="CONFIGURACION"),
+        ],
     )
 
+    assert _faltantes(convenio) == []
+
+
+def test_v2_sin_proceso_no_usa_los_firmantes_de_la_v1_completada():
+    convenio = _convenio_completo(
+        version_actual=2,
+        versiones=[_version(1, 1), _version(2, 2)],
+        procesos_firmas=[_proceso(version_id=1, estado="COMPLETADO")],
+    )
+
+    # Se rechaza por los requisitos de la versión actual, no por el histórico.
     assert _faltantes(convenio) == [
-        "proceso_firmas_version",
         "representante_legal_institucion",
         "representante_legal_entidad",
     ]
