@@ -274,6 +274,17 @@ class ServicioSolicitudes:
         self, solicitud_id: int, motivo: str, actor: Usuario
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.RECHAZADA)
+        self.db.add(
+            Auditoria(
+                usuario_id=actor.id,
+                entidad="solicitud",
+                registro_id=solicitud.id,
+                accion=AccionAuditoria.UPDATE.value,
+                campo="motivo_rechazo",
+                valor_anterior=solicitud.motivo_rechazo,
+                valor_nuevo=motivo,
+            )
+        )
         solicitud.motivo_rechazo = motivo
         self.db.commit()
         return self.obtener_recibida(solicitud_id)

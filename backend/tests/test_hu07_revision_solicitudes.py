@@ -401,3 +401,35 @@ def test_aceptada_luego_inicia_elaboracion(client, gestor, crear_solicitud):
         f"/api/solicitudes/recibidas/{solicitud.id}/iniciar-elaboracion"
     )
     assert respuesta.status_code == 200
+
+
+def test_ht01_rechazo_conserva_motivo_y_auditoria_para_solicitante(
+    client, db, gestor, crear_solicitud
+):
+    solicitud = crear_solicitud()
+    respuesta = client.post(
+        f"/api/solicitudes/recibidas/{solicitud.id}/rechazar",
+        json={"motivo": "Falta documentación legal"},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "RECHAZADA"
+    assert respuesta.json()["motivo_rechazo"] == "Falta documentación legal"
+    assert respuesta.json()["fecha_decision"] is not None
+    cambios = list(db.scalars(select(Auditoria).where(
+        Auditoria.entidad == "solicitud", Auditoria.registro_id == solicitud.id
+    )))
+    assert any(c.campo == "estado" and c.valor_nuevo == "RECHAZADA" and c.usuario_id == gestor.id for c in cambios)
+    assert any(c.campo == "motivo_rechazo" and c.valor_nuevo == "Falta documentación legal" and c.usuario_id == gestor.id for c in cambios)
+
+
+def test_ht01_aprobacion_seguida_de_consulta_no_genera_404(
+    client, gestor, crear_solicitud
+):
+    solicitud = crear_solicitud()
+    aprobado = client.post(f"/api/solicitudes/recibidas/{solicitud.id}/aceptar")
+    assert aprobado.status_code == 200
+    assert aprobado.json()["estado"] == "APROBADA"
+    assert aprobado.json()["fecha_decision"] is not None
+    consultado = client.get(f"/api/solicitudes/recibidas/{solicitud.id}")
+    assert consultado.status_code == 200
+    assert consultado.json()["estado"] == "APROBADA"
