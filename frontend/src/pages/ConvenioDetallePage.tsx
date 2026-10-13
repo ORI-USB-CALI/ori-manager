@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
@@ -349,6 +350,7 @@ export function ConvenioDetallePage() {
         </>
       )}
       <EvaluacionConvenio convenioId={id} permitirRegistro />
+      <ActividadesUtilizacionConvenio convenioId={datos.id} estado={datos.estado} />
       <div className="page-toolbar"><Link className="btn btn-outline" to={`/convenios/${datos.id}/historial`}>Ver historial y trazabilidad</Link></div>
 
       {confirmarEnvio && (
