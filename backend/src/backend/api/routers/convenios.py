@@ -84,6 +84,7 @@ from backend.schemas.renovacion import (
     RenovacionIniciadaLeer,
     SeguimientoRenovacionLeer,
 )
+from backend.schemas.reportes import ConvenioReporteActivoLeer
 from backend.schemas.soporte_convenio import SoporteConvenioLeer
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
@@ -130,6 +131,11 @@ from backend.services.renovaciones import (
     ServicioRenovaciones,
     listar_seguimiento_renovaciones,
 )
+from backend.services.reportes import (
+    ServicioReportes,
+    generar_excel_convenios_activos,
+    generar_pdf_convenios_activos,
+)
 from backend.services.soportes_convenio import (
     ConvenioNoAdmiteSoportes,
     ServicioSoportesConvenio,
@@ -163,6 +169,7 @@ PuedeEvaluar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EVALUAR)]
 PuedeGestionarSoportes = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_SOPORTES)
 ]
+PuedeVerReportes = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER_REPORTES)]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -522,6 +529,52 @@ def listar_renovaciones(
         SeguimientoRenovacionLeer.model_validate(seguimiento)
         for seguimiento in seguimientos
     ]
+
+
+@router.get(
+    "/reportes/activos", response_model=list[ConvenioReporteActivoLeer]
+)
+def obtener_reporte_convenios_activos(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+) -> list[ConvenioReporteActivoLeer]:
+    convenios = ServicioReportes(db).listar_convenios_activos()
+    return [ConvenioReporteActivoLeer.model_validate(c) for c in convenios]
+
+
+@router.get("/reportes/activos/pdf")
+def descargar_reporte_convenios_activos_pdf(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+) -> Response:
+    convenios = ServicioReportes(db).listar_convenios_activos()
+    contenido = generar_pdf_convenios_activos(convenios)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "attachment; filename=convenios-activos.pdf"
+        },
+    )
+
+
+@router.get("/reportes/activos/excel")
+def descargar_reporte_convenios_activos_excel(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+) -> Response:
+    convenios = ServicioReportes(db).listar_convenios_activos()
+    contenido = generar_excel_convenios_activos(convenios)
+    return Response(
+        content=contenido,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": "attachment; filename=convenios-activos.xlsx"
+        },
+    )
 
 
 @router.get("/{convenio_id}", response_model=ConvenioLeer)

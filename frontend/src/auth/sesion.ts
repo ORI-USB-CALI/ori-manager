@@ -32,6 +32,7 @@ export type Permiso =
   | 'convenios.gestionar_firmas'
   | 'convenios.evaluar'
   | 'convenios.gestionar_soportes'
+  | 'convenios.ver_reportes'
   | 'solicitudes.crear'
   | 'solicitudes.ver_propias'
   | 'solicitudes.editar_propias'
