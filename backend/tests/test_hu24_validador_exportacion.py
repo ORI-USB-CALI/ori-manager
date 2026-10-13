@@ -30,6 +30,24 @@ def _firma(rol, parte, nombre="Nombre del firmante"):
     return FirmaConvenio(rol_firmante=rol, parte=parte, nombre_firmante=nombre)
 
 
+def _version(id_, numero, contenido=DOCUMENTO_CON_TEXTO):
+    # Ids explícitos: el validador asocia procesos y versiones por id.
+    return VersionConvenio(id=id_, numero=numero, contenido=contenido)
+
+
+def _proceso(version_id=1, estado="CONFIGURACION", firmas=None):
+    return ProcesoFirmasConvenio(
+        version_convenio_id=version_id,
+        estado=estado,
+        firmas=firmas
+        if firmas is not None
+        else [
+            _firma("RECTOR", "UNIVERSIDAD"),
+            _firma("PARTE_SOLICITANTE", "REPRESENTANTE_LEGAL_ENTIDAD"),
+        ],
+    )
+
+
 def _convenio_completo(**cambios) -> Convenio:
     """Convenio en memoria (sin BD) con todo lo que exige la exportación."""
     datos = {
@@ -41,16 +59,8 @@ def _convenio_completo(**cambios) -> Convenio:
         "version_actual": 1,
         "aliado": Aliado(nombre="Universidad Aliada"),
         "solicitud": SolicitudConvenio(nombre_aliado_propuesto=None),
-        "versiones": [VersionConvenio(numero=1, contenido=DOCUMENTO_CON_TEXTO)],
-        "procesos_firmas": [
-            ProcesoFirmasConvenio(
-                estado="CONFIGURACION",
-                firmas=[
-                    _firma("RECTOR", "UNIVERSIDAD"),
-                    _firma("PARTE_SOLICITANTE", "REPRESENTANTE_LEGAL_ENTIDAD"),
-                ],
-            )
-        ],
+        "versiones": [_version(1, 1)],
+        "procesos_firmas": [_proceso()],
     }
     datos.update(cambios)
     return Convenio(**datos)
@@ -77,15 +87,8 @@ def test_convenio_completo_no_tiene_faltantes():
         ({"fecha_vencimiento": None}, "fecha_fin_vigencia"),
         ({"objeto": "  "}, "objeto"),
         ({"tipo_convenio_id": None}, "tipo_convenio"),
-        ({"versiones": []}, "clausulas"),
-        (
-            {"versiones": [VersionConvenio(numero=1, contenido=DOCUMENTO_VACIO)]},
-            "clausulas",
-        ),
-        (
-            {"versiones": [VersionConvenio(numero=1, contenido={"type": "html"})]},
-            "clausulas",
-        ),
+        ({"versiones": [_version(1, 1, DOCUMENTO_VACIO)]}, "clausulas"),
+        ({"versiones": [_version(1, 1, {"type": "html"})]}, "clausulas"),
     ],
 )
 def test_cada_campo_obligatorio_se_reporta_solo(cambios, campo):
@@ -100,15 +103,70 @@ def test_aliado_propuesto_en_la_solicitud_cuenta_como_entidad():
     assert _faltantes(convenio) == []
 
 
-def test_usa_la_ultima_version_si_no_aparece_la_actual():
+# ---- Versión contractual -------------------------------------------------------
+
+
+def test_sin_versiones_falta_la_version_contractual():
+    faltantes = _faltantes(_convenio_completo(versiones=[]))
+
+    assert "version_contractual" in faltantes
+    # Sin la versión no se pueden evaluar sus cláusulas ni sus firmas.
+    assert "clausulas" not in faltantes
+
+
+def test_no_usa_otra_version_cuando_falta_la_indicada():
+    # El convenio indica la versión 3; existen la 1 y la 2, ambas con texto.
     convenio = _convenio_completo(
         version_actual=3,
-        versiones=[
-            VersionConvenio(numero=1, contenido=DOCUMENTO_VACIO),
-            VersionConvenio(numero=2, contenido=DOCUMENTO_CON_TEXTO),
+        versiones=[_version(1, 1), _version(2, 2)],
+        procesos_firmas=[_proceso(version_id=2)],
+    )
+
+    # Ni el texto ni las firmas de la versión 2 sustituyen a la 3.
+    assert _faltantes(convenio) == [
+        "version_contractual",
+        "representante_legal_institucion",
+        "representante_legal_entidad",
+    ]
+
+
+def test_proceso_de_firmas_de_otra_version_es_incoherente():
+    convenio = _convenio_completo(
+        version_actual=2,
+        versiones=[_version(1, 1), _version(2, 2)],
+        procesos_firmas=[_proceso(version_id=1)],
+    )
+
+    assert _faltantes(convenio) == [
+        "proceso_firmas_version",
+        "representante_legal_institucion",
+        "representante_legal_entidad",
+    ]
+
+
+def test_proceso_cancelado_de_otra_version_no_afecta_al_vigente():
+    convenio = _convenio_completo(
+        version_actual=2,
+        versiones=[_version(1, 1), _version(2, 2)],
+        procesos_firmas=[
+            _proceso(version_id=1, estado="CANCELADO"),
+            _proceso(version_id=2, estado="EN_CURSO"),
         ],
     )
+
     assert _faltantes(convenio) == []
+
+
+def test_version_sin_id_no_se_asocia_a_ningun_proceso():
+    convenio = _convenio_completo(
+        versiones=[VersionConvenio(numero=1, contenido=DOCUMENTO_CON_TEXTO)],
+        procesos_firmas=[_proceso(version_id=None)],
+    )
+
+    assert "representante_legal_institucion" in _faltantes(convenio)
+
+
+# ---- Representantes legales ----------------------------------------------------
 
 
 def test_sin_proceso_de_firmas_faltan_ambos_representantes():
@@ -119,9 +177,7 @@ def test_sin_proceso_de_firmas_faltan_ambos_representantes():
 
 
 def test_proceso_cancelado_no_cuenta_para_los_representantes():
-    proceso = _convenio_completo().procesos_firmas[0]
-    proceso.estado = "CANCELADO"
-    convenio = _convenio_completo(procesos_firmas=[proceso])
+    convenio = _convenio_completo(procesos_firmas=[_proceso(estado="CANCELADO")])
     assert _faltantes(convenio) == [
         "representante_legal_institucion",
         "representante_legal_entidad",
@@ -129,7 +185,7 @@ def test_proceso_cancelado_no_cuenta_para_los_representantes():
 
 
 def test_firmante_sin_nombre_no_cuenta_como_representante():
-    proceso = ProcesoFirmasConvenio(
+    proceso = _proceso(
         estado="EN_CURSO",
         firmas=[
             _firma("RECTOR", "UNIVERSIDAD", nombre="   "),
@@ -142,7 +198,7 @@ def test_firmante_sin_nombre_no_cuenta_como_representante():
 
 
 def test_unidad_solicitante_representa_a_la_contraparte_interna():
-    proceso = ProcesoFirmasConvenio(
+    proceso = _proceso(
         estado="COMPLETADO",
         firmas=[
             _firma("RECTOR", "UNIVERSIDAD"),

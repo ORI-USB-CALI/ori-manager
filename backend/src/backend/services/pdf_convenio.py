@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from datetime import UTC, datetime
+from html import escape
 from typing import Any
 
 from reportlab.lib import colors
@@ -27,11 +28,16 @@ from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.exportacion import (
+    INFORMACION_NO_DISPONIBLE,
     ConvenioPdfDTO,
     FirmantePdfDTO,
     SeccionContenidoDTO,
 )
 from backend.services.convenios import ConvenioNoEncontrado
+from backend.services.validador_exportacion_convenio import (
+    proceso_firmas_de_version,
+    version_contractual,
+)
 
 # Nombres amigables para los roles institucionales
 ETIQUETAS_ROL: dict[str, str] = {
@@ -43,6 +49,19 @@ ETIQUETAS_ROL: dict[str, str] = {
     RolFirmanteConvenio.RECTOR.value: "Rectoría",
     RolFirmanteConvenio.PARTE_SOLICITANTE.value: "Representante Parte Solicitante",
 }
+
+
+def _o_no_disponible(valor: str | None) -> str:
+    """El dato tal cual o la representación explícita de que no está."""
+    if valor is None or not str(valor).strip():
+        return INFORMACION_NO_DISPONIBLE
+    return str(valor)
+
+
+def _e(valor: object) -> str:
+    """Escapa texto de usuario: Paragraph interpreta un mini-XML propio
+    (mismo criterio que el reporte de HU-34)."""
+    return escape(str(valor))
 
 
 class NumberedCanvas(canvas.Canvas):
@@ -131,96 +150,85 @@ class ServicioPdfConvenio:
         solicitud = convenio.solicitud
         aliado = convenio.aliado
         solicitante = solicitud.solicitante if solicitud else None
-        unidad = (
-            convenio.unidad_organizacional.nombre
-            if convenio.unidad_organizacional
-            else "No informada"
-        )
 
-        # Obtener la versión actual o la más reciente
-        version_actual: VersionConvenio | None = None
-        for v in convenio.versiones:
-            if v.numero == convenio.version_actual:
-                version_actual = v
-                break
-        if version_actual is None and convenio.versiones:
-            version_actual = max(convenio.versiones, key=lambda item: item.numero)
-
-        # Extraer secciones de contenido estructurado
+        # Solo la versión que indica el convenio y los firmantes del proceso de
+        # esa versión: lo mismo que validó ConvenioExportValidator.
+        version = version_contractual(convenio)
         secciones: list[SeccionContenidoDTO] = []
-        if version_actual and version_actual.contenido:
-            secciones = self._extraer_secciones_contenido(version_actual.contenido)
+        if version is not None and version.contenido:
+            secciones = self._extraer_secciones_contenido(version.contenido)
 
-        # Extraer firmantes (del proceso de firmas activo o más reciente)
         firmantes_dto: list[FirmantePdfDTO] = []
-        proceso_activo = next(
-            (
-                p
-                for p in convenio.procesos_firmas
-                if p.estado in ("CONFIGURACION", "EN_CURSO", "COMPLETADO")
-            ),
-            None,
-        )
-        if proceso_activo and proceso_activo.firmas:
-            for f in sorted(proceso_activo.firmas, key=lambda item: item.orden):
+        proceso = proceso_firmas_de_version(convenio, version)
+        if proceso is not None:
+            for f in sorted(proceso.firmas, key=lambda item: item.orden):
                 firmantes_dto.append(
                     FirmantePdfDTO(
                         orden=f.orden,
                         rol=ETIQUETAS_ROL.get(f.rol_firmante, f.rol_firmante),
                         parte=f.parte,
-                        nombre=f.nombre_firmante or "Por definir",
-                        cargo=f.cargo_firmante or "Por definir",
-                        modalidad=f.modalidad or "Por definir",
+                        nombre=_o_no_disponible(f.nombre_firmante),
+                        cargo=_o_no_disponible(f.cargo_firmante),
+                        modalidad=_o_no_disponible(f.modalidad),
                         estado=f.estado,
                     )
                 )
+
+        # Con aliado registrado se usan sus datos; si no, los propuestos en la
+        # solicitud. Nunca se mezclan ni se completan con valores supuestos.
+        if aliado is not None:
+            aliado_datos = {
+                "aliado_nombre": aliado.nombre,
+                "aliado_tipo": aliado.tipo,
+                "aliado_identificacion": aliado.identificacion,
+                "aliado_pais": aliado.pais.nombre if aliado.pais else None,
+                "aliado_ciudad": aliado.ciudad,
+            }
+        else:
+            aliado_datos = {
+                "aliado_nombre": solicitud.nombre_aliado_propuesto,
+                "aliado_tipo": solicitud.tipo_aliado_propuesto,
+                "aliado_identificacion": solicitud.identificacion_aliado_propuesto,
+                "aliado_pais": solicitud.pais_aliado_propuesto,
+                "aliado_ciudad": solicitud.ciudad_aliado_propuesto,
+            }
 
         return ConvenioPdfDTO(
             convenio_id=convenio.id,
             codigo=convenio.codigo,
             solicitud_consecutivo=solicitud.consecutivo,
-            tipo_convenio=convenio.tipo_convenio.nombre
-            if convenio.tipo_convenio
-            else "No informado",
+            tipo_convenio=_o_no_disponible(
+                convenio.tipo_convenio.nombre if convenio.tipo_convenio else None
+            ),
             estado=convenio.estado,
-            etapa=convenio.etapa_actual.nombre
-            if convenio.etapa_actual
-            else "No informada",
-            alcance=convenio.alcance or "Institucional",
-            objeto=convenio.objeto or solicitud.objeto or "No especificado",
-            justificacion=solicitud.justificacion or "No especificada",
-            implicacion_financiera=convenio.implicacion_financiera
-            or solicitud.implicacion_financiera
-            or "Sin costo para la Universidad",
+            etapa=_o_no_disponible(
+                convenio.etapa_actual.nombre if convenio.etapa_actual else None
+            ),
+            alcance=_o_no_disponible(convenio.alcance),
+            objeto=_o_no_disponible(convenio.objeto),
+            justificacion=_o_no_disponible(solicitud.justificacion),
+            implicacion_financiera=_o_no_disponible(convenio.implicacion_financiera),
             fecha_inicio=convenio.fecha_inicio,
             fecha_vencimiento=convenio.fecha_vencimiento,
             duracion_meses=convenio.duracion_meses,
             porcentaje_avance=convenio.porcentaje_avance,
             version_actual=convenio.version_actual,
             fecha_emision=datetime.now(UTC),
-            solicitante_nombre=solicitante.nombre_completo
-            if solicitante
-            else "No informado",
-            solicitante_correo=solicitante.correo if solicitante else "No informado",
-            solicitante_unidad=unidad,
+            solicitante_nombre=_o_no_disponible(
+                solicitante.nombre_completo if solicitante else None
+            ),
+            solicitante_correo=_o_no_disponible(
+                solicitante.correo if solicitante else None
+            ),
+            solicitante_unidad=_o_no_disponible(
+                convenio.unidad_organizacional.nombre
+                if convenio.unidad_organizacional
+                else None
+            ),
             solicitante_tipo=solicitud.tipo_solicitante,
-            aliado_nombre=aliado.nombre
-            if aliado
-            else solicitud.nombre_aliado_propuesto or "No informado",
-            aliado_tipo=aliado.tipo
-            if aliado
-            else solicitud.tipo_aliado_propuesto or "No informado",
-            aliado_identificacion=aliado.identificacion
-            if aliado
-            else solicitud.identificacion_aliado_propuesto or "No informada",
-            aliado_pais=aliado.pais.nombre
-            if (aliado and aliado.pais)
-            else solicitud.pais_aliado_propuesto or "Colombia",
-            aliado_ciudad=aliado.ciudad
-            if aliado
-            else solicitud.ciudad_aliado_propuesto or "Cali",
-            aliado_contacto_nombre=solicitud.contacto_contraparte_nombre or "—",
-            aliado_contacto_correo=solicitud.contacto_contraparte_correo or "—",
+            **{campo: _o_no_disponible(valor) for campo, valor in aliado_datos.items()},
+            aliado_contacto_nombre=_o_no_disponible(solicitud.contacto_contraparte_nombre),
+            aliado_contacto_correo=_o_no_disponible(solicitud.contacto_contraparte_correo),
             secciones_contenido=secciones,
             firmantes=firmantes_dto,
         )
@@ -419,21 +427,21 @@ class ServicioPdfConvenio:
         filas = [
             [
                 Paragraph("<b>Código oficial:</b>", estilos["tabla_header"]),
-                Paragraph(dto.codigo or "Sin asignar", estilos["tabla_celda"]),
+                Paragraph(_e(_o_no_disponible(dto.codigo)), estilos["tabla_celda"]),
                 Paragraph("<b>Solicitud origen:</b>", estilos["tabla_header"]),
-                Paragraph(dto.solicitud_consecutivo, estilos["tabla_celda"]),
+                Paragraph(_e(dto.solicitud_consecutivo), estilos["tabla_celda"]),
             ],
             [
                 Paragraph("<b>Tipo de convenio:</b>", estilos["tabla_header"]),
-                Paragraph(dto.tipo_convenio, estilos["tabla_celda"]),
+                Paragraph(_e(dto.tipo_convenio), estilos["tabla_celda"]),
                 Paragraph("<b>Estado actual:</b>", estilos["tabla_header"]),
-                Paragraph(dto.estado.replace("_", " "), estilos["tabla_celda"]),
+                Paragraph(_e(dto.estado.replace("_", " ")), estilos["tabla_celda"]),
             ],
             [
                 Paragraph("<b>Versión contractual:</b>", estilos["tabla_header"]),
                 Paragraph(f"Versión {dto.version_actual}", estilos["tabla_celda"]),
                 Paragraph("<b>Alcance institucional:</b>", estilos["tabla_header"]),
-                Paragraph(dto.alcance, estilos["tabla_celda"]),
+                Paragraph(_e(dto.alcance), estilos["tabla_celda"]),
             ],
         ]
 
@@ -477,16 +485,17 @@ class ServicioPdfConvenio:
             [
                 Paragraph(
                     f"<b>Institución:</b> Universidad de San Buenaventura Cali<br/>"
-                    f"<b>Solicitante:</b> {dto.solicitante_nombre}<br/>"
-                    f"<b>Unidad / Facultad:</b> {dto.solicitante_unidad}<br/>"
-                    f"<b>Correo de contacto:</b> {dto.solicitante_correo}",
+                    f"<b>Solicitante:</b> {_e(dto.solicitante_nombre)}<br/>"
+                    f"<b>Unidad / Facultad:</b> {_e(dto.solicitante_unidad)}<br/>"
+                    f"<b>Correo de contacto:</b> {_e(dto.solicitante_correo)}",
                     estilos["tabla_celda"],
                 ),
                 Paragraph(
-                    f"<b>Entidad / Aliado:</b> {dto.aliado_nombre}<br/>"
-                    f"<b>Tipo de entidad:</b> {dto.aliado_tipo}<br/>"
-                    f"<b>Identificación / NIT:</b> {dto.aliado_identificacion}<br/>"
-                    f"<b>Ubicación:</b> {dto.aliado_ciudad}, {dto.aliado_pais}",
+                    f"<b>Entidad / Aliado:</b> {_e(dto.aliado_nombre)}<br/>"
+                    f"<b>Tipo de entidad:</b> {_e(dto.aliado_tipo)}<br/>"
+                    f"<b>Identificación / NIT:</b> {_e(dto.aliado_identificacion)}<br/>"
+                    f"<b>Ciudad:</b> {_e(dto.aliado_ciudad)}<br/>"
+                    f"<b>País:</b> {_e(dto.aliado_pais)}",
                     estilos["tabla_celda"],
                 ),
             ],
@@ -522,16 +531,16 @@ class ServicioPdfConvenio:
         elementos.append(
             Paragraph("<b>Objeto del Convenio:</b>", estilos["tabla_header"])
         )
-        elementos.append(Paragraph(dto.objeto, estilos["texto_normal"]))
+        elementos.append(Paragraph(_e(dto.objeto), estilos["texto_normal"]))
         elementos.append(Spacer(1, 6))
 
-        if dto.justificacion and dto.justificacion != "No especificada":
+        if dto.justificacion != INFORMACION_NO_DISPONIBLE:
             elementos.append(
                 Paragraph(
                     "<b>Justificación Institucional:</b>", estilos["tabla_header"]
                 )
             )
-            elementos.append(Paragraph(dto.justificacion, estilos["texto_normal"]))
+            elementos.append(Paragraph(_e(dto.justificacion), estilos["texto_normal"]))
             elementos.append(Spacer(1, 10))
 
     def _construir_vigencia_y_finanzas(
@@ -547,15 +556,19 @@ class ServicioPdfConvenio:
         )
 
         f_inicio = (
-            dto.fecha_inicio.strftime("%d/%m/%Y") if dto.fecha_inicio else "Por definir"
+            dto.fecha_inicio.strftime("%d/%m/%Y")
+            if dto.fecha_inicio
+            else INFORMACION_NO_DISPONIBLE
         )
         f_fin = (
             dto.fecha_vencimiento.strftime("%d/%m/%Y")
             if dto.fecha_vencimiento
-            else "Por definir"
+            else INFORMACION_NO_DISPONIBLE
         )
         duracion = (
-            f"{dto.duracion_meses} meses" if dto.duracion_meses else "No establecida"
+            f"{dto.duracion_meses} meses"
+            if dto.duracion_meses
+            else INFORMACION_NO_DISPONIBLE
         )
 
         filas = [
@@ -569,7 +582,7 @@ class ServicioPdfConvenio:
             ],
             [
                 Paragraph("<b>Implicación financiera:</b>", estilos["tabla_header"]),
-                Paragraph(dto.implicacion_financiera, estilos["tabla_celda"]),
+                Paragraph(_e(dto.implicacion_financiera), estilos["tabla_celda"]),
                 Paragraph("", estilos["tabla_celda"]),
                 Paragraph("", estilos["tabla_celda"]),
                 Paragraph("", estilos["tabla_celda"]),
@@ -609,35 +622,19 @@ class ServicioPdfConvenio:
             )
         )
 
-        if dto.secciones_contenido:
-            for sec in dto.secciones_contenido:
-                if sec.tipo == "heading":
-                    elementos.append(Paragraph(sec.texto, estilos["clausula_titulo"]))
-                else:
-                    elementos.append(Paragraph(sec.texto, estilos["texto_normal"]))
-                    elementos.append(Spacer(1, 4))
-        else:
-            # Estructura supletoria formal
+        if not dto.secciones_contenido:
+            # Sin cláusulas reales no se redacta contenido supletorio.
             elementos.append(
-                Paragraph(
-                    "<b>CLÁUSULA PRIMERA — COMPROMISOS GENERALES:</b> Las partes se comprometen a cooperar activamente para el desarrollo del objeto convenido, actuando bajo principios de buena fe y reciprocidad académica e interinstitucional.",
-                    estilos["texto_normal"],
-                )
+                Paragraph("Contenido contractual no disponible.", estilos["texto_normal"])
             )
-            elementos.append(Spacer(1, 4))
-            elementos.append(
-                Paragraph(
-                    f"<b>CLÁUSULA SEGUNDA — OBLIGACIONES ESPECÍFICAS:</b> La Universidad de San Buenaventura Cali y {dto.aliado_nombre} coordinarán operativamente las actividades correspondientes a través de los supervisores designados.",
-                    estilos["texto_normal"],
+        for sec in dto.secciones_contenido:
+            if sec.tipo == "heading":
+                elementos.append(
+                    Paragraph(sec.texto_formateado, estilos["clausula_titulo"])
                 )
-            )
-            elementos.append(Spacer(1, 4))
-            elementos.append(
-                Paragraph(
-                    "<b>CLÁUSULA TERCERA — VIGENCIA:</b> El presente instrumento tendrá vigencia a partir de su suscripción formal y hasta la fecha establecida en el cronograma.",
-                    estilos["texto_normal"],
-                )
-            )
+            else:
+                elementos.append(Paragraph(sec.texto_formateado, estilos["texto_normal"]))
+                elementos.append(Spacer(1, 4))
 
         elementos.append(Spacer(1, 10))
 
@@ -662,11 +659,11 @@ class ServicioPdfConvenio:
             filas.append(
                 [
                     Paragraph(str(f.orden), estilos["tabla_celda"]),
-                    Paragraph(f.rol, estilos["tabla_celda"]),
-                    Paragraph(f.nombre, estilos["tabla_celda"]),
-                    Paragraph(f.cargo, estilos["tabla_celda"]),
-                    Paragraph(f.modalidad.capitalize(), estilos["tabla_celda"]),
-                    Paragraph(f.estado.capitalize(), estilos["tabla_celda"]),
+                    Paragraph(_e(f.rol), estilos["tabla_celda"]),
+                    Paragraph(_e(f.nombre), estilos["tabla_celda"]),
+                    Paragraph(_e(f.cargo), estilos["tabla_celda"]),
+                    Paragraph(_e(f.modalidad.capitalize()), estilos["tabla_celda"]),
+                    Paragraph(_e(f.estado.capitalize()), estilos["tabla_celda"]),
                 ]
             )
 
@@ -715,58 +712,78 @@ class ServicioPdfConvenio:
     def _extraer_secciones_contenido(
         self, contenido: dict[str, Any]
     ) -> list[SeccionContenidoDTO]:
-        """Convierte recursivamente el JSON ProseMirror a una lista plana de secciones formateadas."""
+        """Aplana el documento ProseMirror (subconjunto de HU-12) en secciones.
+
+        Cada texto se escapa antes de aplicar el marcado válido del documento
+        (negrita, cursiva, saltos de línea y listas): lo que escribe el usuario
+        nunca se interpreta como marcado de ReportLab.
+        """
         secciones: list[SeccionContenidoDTO] = []
 
-        def extraer_texto_nodo(nodo: dict[str, Any]) -> str:
-            tipo = nodo.get("type")
-            if tipo == "text":
-                texto = nodo.get("text", "")
-                marcas = {
-                    m.get("type") for m in nodo.get("marks", []) if isinstance(m, dict)
-                }
-                if "bold" in marcas:
-                    texto = f"<b>{texto}</b>"
-                if "italic" in marcas:
-                    texto = f"<i>{texto}</i>"
-                return texto
-            if tipo == "hardBreak":
-                return "<br/>"
-            hijos = nodo.get("content", [])
-            return "".join(
-                extraer_texto_nodo(hijo) for hijo in hijos if isinstance(hijo, dict)
-            )
+        def en_linea(nodo: dict[str, Any]) -> tuple[str, str]:
+            """Texto plano y texto formateado de un párrafo o un título."""
+            planos: list[str] = []
+            formateados: list[str] = []
+            for hijo in nodo.get("content", []):
+                if not isinstance(hijo, dict):
+                    continue
+                if hijo.get("type") == "hardBreak":
+                    planos.append("\n")
+                    formateados.append("<br/>")
+                elif hijo.get("type") == "text":
+                    texto = str(hijo.get("text", ""))
+                    marcas = {
+                        marca.get("type")
+                        for marca in hijo.get("marks", [])
+                        if isinstance(marca, dict)
+                    }
+                    seguro = escape(texto)
+                    if "bold" in marcas:
+                        seguro = f"<b>{seguro}</b>"
+                    if "italic" in marcas:
+                        seguro = f"<i>{seguro}</i>"
+                    planos.append(texto)
+                    formateados.append(seguro)
+            return "".join(planos).strip(), "".join(formateados).strip()
 
-        for bloque in contenido.get("content", []):
-            if not isinstance(bloque, dict):
-                continue
-            tipo = bloque.get("type")
-            if tipo == "heading":
-                nivel = bloque.get("attrs", {}).get("level", 2)
-                texto = extraer_texto_nodo(bloque).strip()
-                if texto:
+        def recorrer(bloques: Any, profundidad: int = 0, vineta: str | None = None) -> None:
+            for bloque in bloques if isinstance(bloques, list) else []:
+                if not isinstance(bloque, dict):
+                    continue
+                tipo = bloque.get("type")
+                if tipo in ("paragraph", "heading"):
+                    plano, formateado = en_linea(bloque)
+                    if not plano:
+                        continue
+                    if profundidad:
+                        # Solo el primer bloque del ítem lleva la viñeta o el número.
+                        marca = vineta or "  "
+                        vineta = None
+                        plano = f"{'  ' * (profundidad - 1)}{marca}{plano}"
+                        formateado = (
+                            f"{'&nbsp;' * 4 * (profundidad - 1)}{escape(marca)}{formateado}"
+                        )
+                    es_titulo = tipo == "heading" and not profundidad
                     secciones.append(
-                        SeccionContenidoDTO(tipo="heading", nivel=nivel, texto=texto)
+                        SeccionContenidoDTO(
+                            tipo="heading" if es_titulo else "paragraph",
+                            nivel=int(bloque.get("attrs", {}).get("level", 2))
+                            if es_titulo
+                            else 1,
+                            texto=plano,
+                            texto_formateado=formateado,
+                        )
                     )
-            elif tipo == "paragraph":
-                texto = extraer_texto_nodo(bloque).strip()
-                if texto:
-                    secciones.append(
-                        SeccionContenidoDTO(tipo="paragraph", nivel=1, texto=texto)
-                    )
-            elif tipo in ("bulletList", "orderedList"):
-                items = bloque.get("content", [])
-                for i, item in enumerate(items, start=1):
-                    if isinstance(item, dict):
-                        texto_item = extraer_texto_nodo(item).strip()
-                        if texto_item:
-                            prefijo = f"{i}. " if tipo == "orderedList" else "&bull; "
-                            secciones.append(
-                                SeccionContenidoDTO(
-                                    tipo="paragraph",
-                                    nivel=1,
-                                    texto=f"{prefijo}{texto_item}",
-                                )
+                elif tipo in ("bulletList", "orderedList"):
+                    numerada = tipo == "orderedList"
+                    inicio = int(bloque.get("attrs", {}).get("start", 1)) if numerada else 1
+                    for numero, item in enumerate(bloque.get("content", []), start=inicio):
+                        if isinstance(item, dict):
+                            recorrer(
+                                item.get("content", []),
+                                profundidad + 1,
+                                f"{numero}. " if numerada else "• ",
                             )
 
+        recorrer(contenido.get("content", []))
         return secciones

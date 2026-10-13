@@ -6,20 +6,19 @@ def test_exportar_convenio_pdf_exitoso(
 ) -> None:
     entrar_como(gestor)
 
-    # Probar endpoint BE-04 (/api/v1/convenios/{id}/exportar)
-    response = client.get(f"/api/v1/convenios/{convenio_exportable.id}/exportar?formato=pdf")
+    # Probar endpoint BE-04 (/api/convenios/{id}/exportar)
+    response = client.get(f"/api/convenios/{convenio_exportable.id}/exportar?formato=pdf")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert 'attachment; filename="Convenio_' in response.headers["content-disposition"]
     assert response.headers["content-disposition"].endswith('.pdf"')
     assert response.content.startswith(b"%PDF-")
 
-    # Probar compatibilidad con /api/convenios/{id}/exportar
-    response_api = client.get(
-        f"/api/convenios/{convenio_exportable.id}/exportar?formato=pdf"
+    # El router de convenios ya no se registra también bajo /api/v1.
+    response_v1 = client.get(
+        f"/api/v1/convenios/{convenio_exportable.id}/exportar?formato=pdf"
     )
-    assert response_api.status_code == 200
-    assert response_api.content.startswith(b"%PDF-")
+    assert response_v1.status_code == 404
 
 
 def test_exportar_convenio_excel_exitoso(
@@ -28,7 +27,7 @@ def test_exportar_convenio_excel_exitoso(
     entrar_como(gestor)
 
     response = client.get(
-        f"/api/v1/convenios/{convenio_exportable.id}/exportar?formato=excel"
+        f"/api/convenios/{convenio_exportable.id}/exportar?formato=excel"
     )
     assert response.status_code == 200
     assert (
@@ -47,7 +46,7 @@ def test_exportar_convenio_formato_invalido(
     entrar_como(gestor)
 
     response = client.get(
-        f"/api/v1/convenios/{convenio_listo.id}/exportar?formato=invalido"
+        f"/api/convenios/{convenio_listo.id}/exportar?formato=invalido"
     )
     assert response.status_code == 400
     assert "Formato no válido" in response.json()["detail"]
@@ -59,7 +58,7 @@ def test_exportar_convenio_autorizacion(
     # 1. Sin autenticación -> 401 Unauthorized
     client.cookies.clear()
     res_no_auth = client.get(
-        f"/api/v1/convenios/{convenio_listo.id}/exportar?formato=pdf"
+        f"/api/convenios/{convenio_listo.id}/exportar?formato=pdf"
     )
     assert res_no_auth.status_code == 401
 
@@ -67,7 +66,7 @@ def test_exportar_convenio_autorizacion(
     solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
     entrar_como(solicitante)
     res_forbidden = client.get(
-        f"/api/v1/convenios/{convenio_listo.id}/exportar?formato=pdf"
+        f"/api/convenios/{convenio_listo.id}/exportar?formato=pdf"
     )
     assert res_forbidden.status_code == 403
 
@@ -75,7 +74,7 @@ def test_exportar_convenio_autorizacion(
 def test_exportar_convenio_no_encontrado(client, entrar_como, gestor) -> None:
     entrar_como(gestor)
 
-    response = client.get("/api/v1/convenios/999999/exportar?formato=pdf")
+    response = client.get("/api/convenios/999999/exportar?formato=pdf")
     assert response.status_code == 404
 
 
@@ -89,7 +88,7 @@ def test_exportar_convenio_datos_insuficientes_ca03(
     convenio.objeto = None
     db.commit()
 
-    response = client.get(f"/api/v1/convenios/{convenio.id}/exportar?formato=pdf")
+    response = client.get(f"/api/convenios/{convenio.id}/exportar?formato=pdf")
     assert response.status_code == 422
     data = response.json()
     assert data["error"] == "CONVENIO_INCOMPLETO"

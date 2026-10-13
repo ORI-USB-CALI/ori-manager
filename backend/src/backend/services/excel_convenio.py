@@ -29,6 +29,17 @@ _ANCHO_MAXIMO = 80
 
 _ETIQUETAS_SECCION = {"heading": "Sección", "paragraph": "Cláusula", "list_item": "Ítem"}
 
+# Mismo criterio de seguridad que el reporte de HU-34 (OWASP CSV/Excel
+# injection): un texto que empieza por uno de estos caracteres se guarda con
+# un apóstrofo delante para que la hoja de cálculo no lo evalúe como fórmula.
+_PREFIJOS_FORMULA = ("=", "+", "-", "@")
+
+
+def _texto_seguro(valor: object) -> object:
+    if isinstance(valor, str) and valor.startswith(_PREFIJOS_FORMULA):
+        return f"'{valor}"
+    return valor
+
 
 class ConvenioExcelExportService:
     """Genera el libro .xlsx del convenio en memoria."""
@@ -82,7 +93,17 @@ class ConvenioExcelExportService:
             hoja,
             1,
             "Participantes",
-            ["Parte", "Nombre", "Tipo", "Identificación", "Ubicación", "Contacto", "Correo"],
+            [
+                "Parte",
+                "Nombre",
+                "Tipo",
+                "Identificación",
+                "Unidad",
+                "Ciudad",
+                "País",
+                "Contacto",
+                "Correo",
+            ],
             [
                 [
                     "Parte solicitante",
@@ -90,6 +111,8 @@ class ConvenioExcelExportService:
                     dto.solicitante_tipo,
                     None,
                     dto.solicitante_unidad,
+                    None,
+                    None,
                     dto.solicitante_nombre,
                     dto.solicitante_correo,
                 ],
@@ -98,7 +121,9 @@ class ConvenioExcelExportService:
                     dto.aliado_nombre,
                     dto.aliado_tipo,
                     dto.aliado_identificacion,
-                    f"{dto.aliado_ciudad}, {dto.aliado_pais}",
+                    None,
+                    dto.aliado_ciudad,
+                    dto.aliado_pais,
                     dto.aliado_contacto_nombre,
                     dto.aliado_contacto_correo,
                 ],
@@ -133,7 +158,7 @@ def _escribir_cabecera(hoja: Worksheet, fila: int, titulos: Sequence[str]) -> No
 
 
 def _escribir_valor(hoja: Worksheet, fila: int, columna: int, valor: object) -> None:
-    celda = hoja.cell(row=fila, column=columna, value=valor)
+    celda = hoja.cell(row=fila, column=columna, value=_texto_seguro(valor))
     if isinstance(valor, str) and len(valor) > _ANCHO_MAXIMO:
         celda.alignment = _AJUSTE_TEXTO
 

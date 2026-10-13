@@ -3,6 +3,9 @@
 El validador no consulta la base de datos ni renderiza: recibe el convenio ya
 cargado (aliado, solicitud, versiones y procesos de firmas con sus firmas) y
 devuelve qué datos obligatorios faltan para emitir un documento oficial.
+
+`version_contractual` y `proceso_firmas_de_version` también los usa el mapeo
+del PDF y del Excel, para que lo validado sea exactamente lo que se exporta.
 """
 
 from __future__ import annotations
@@ -14,15 +17,15 @@ from backend.models.enums import (
     RolFirmanteConvenio,
 )
 from backend.models.firma_convenio import FirmaConvenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.services.contenido_convenio import (
     ContenidoConvenioInvalido,
     documento_tiene_texto,
 )
 
-# Mismo criterio que el mapper del PDF: se imprime el primer proceso de firmas
-# que no esté cancelado, así que es el que se valida.
-_ESTADOS_PROCESO_EXPORTABLE = frozenset(
+# Un proceso cancelado (por ejemplo, tras un cambio sustancial) ya no vale.
+_ESTADOS_PROCESO_VIGENTE = frozenset(
     {
         EstadoProcesoFirmasConvenio.CONFIGURACION.value,
         EstadoProcesoFirmasConvenio.EN_CURSO.value,
@@ -42,12 +45,46 @@ def _vacio(valor: str | None) -> bool:
     return valor is None or not valor.strip()
 
 
-class ConvenioExportValidator:
-    """Indica qué datos obligatorios le faltan al convenio para exportarlo.
+def version_contractual(convenio: Convenio) -> VersionConvenio | None:
+    """La versión que indica el convenio. Nunca se sustituye por otra."""
+    return next(
+        (
+            version
+            for version in convenio.versiones
+            if version.numero == convenio.version_actual
+        ),
+        None,
+    )
 
-    Un dato falta cuando el documento oficial saldría con un texto de relleno
-    ("No informado", "Por definir") en su lugar.
-    """
+
+def _procesos_vigentes(convenio: Convenio) -> list[ProcesoFirmasConvenio]:
+    return [
+        proceso
+        for proceso in convenio.procesos_firmas
+        if proceso.estado in _ESTADOS_PROCESO_VIGENTE
+    ]
+
+
+def proceso_firmas_de_version(
+    convenio: Convenio, version: VersionConvenio | None
+) -> ProcesoFirmasConvenio | None:
+    """Proceso de firmas vigente de esa versión: sus firmantes son los únicos
+    que corresponden al documento que se exporta."""
+    # Sin id (objeto aún no persistido) no hay forma de asociarla a un proceso.
+    if version is None or version.id is None:
+        return None
+    return next(
+        (
+            proceso
+            for proceso in _procesos_vigentes(convenio)
+            if proceso.version_convenio_id == version.id
+        ),
+        None,
+    )
+
+
+class ConvenioExportValidator:
+    """Indica qué datos obligatorios le faltan al convenio para exportarlo."""
 
     def campos_faltantes(self, convenio: Convenio) -> list[str]:
         faltantes: list[str] = []
@@ -63,10 +100,20 @@ class ConvenioExportValidator:
             faltantes.append("objeto")
         if convenio.tipo_convenio_id is None and convenio.tipo_convenio is None:
             faltantes.append("tipo_convenio")
-        if not self._tiene_clausulas(convenio):
-            faltantes.append("clausulas")
 
-        firmantes = self._firmantes_con_nombre(convenio)
+        version = version_contractual(convenio)
+        if version is None:
+            faltantes.append("version_contractual")
+        elif not self._tiene_texto(version):
+            faltantes.append("clausulas")
+        if version is not None and any(
+            proceso.version_convenio_id != version.id
+            for proceso in _procesos_vigentes(convenio)
+        ):
+            # Firmas de otra versión: no corresponden al documento exportado.
+            faltantes.append("proceso_firmas_version")
+
+        firmantes = self._firmantes_con_nombre(convenio, version)
         if not any(
             firma.rol_firmante == RolFirmanteConvenio.RECTOR.value for firma in firmantes
         ):
@@ -76,16 +123,8 @@ class ConvenioExportValidator:
         return faltantes
 
     @staticmethod
-    def _version_exportada(convenio: Convenio) -> VersionConvenio | None:
-        # Igual que el mapper del PDF: la versión actual y, si no aparece, la última.
-        for version in convenio.versiones:
-            if version.numero == convenio.version_actual:
-                return version
-        return max(convenio.versiones, key=lambda version: version.numero, default=None)
-
-    def _tiene_clausulas(self, convenio: Convenio) -> bool:
-        version = self._version_exportada(convenio)
-        if version is None or not version.contenido:
+    def _tiene_texto(version: VersionConvenio) -> bool:
+        if not version.contenido:
             return False
         try:
             return documento_tiene_texto(version.contenido)
@@ -93,15 +132,10 @@ class ConvenioExportValidator:
             return False
 
     @staticmethod
-    def _firmantes_con_nombre(convenio: Convenio) -> list[FirmaConvenio]:
-        proceso = next(
-            (
-                proceso
-                for proceso in convenio.procesos_firmas
-                if proceso.estado in _ESTADOS_PROCESO_EXPORTABLE
-            ),
-            None,
-        )
+    def _firmantes_con_nombre(
+        convenio: Convenio, version: VersionConvenio | None
+    ) -> list[FirmaConvenio]:
+        proceso = proceso_firmas_de_version(convenio, version)
         if proceso is None:
             return []
         return [firma for firma in proceso.firmas if not _vacio(firma.nombre_firmante)]

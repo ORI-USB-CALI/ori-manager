@@ -97,7 +97,9 @@ class ServicioExportacionConvenio:
 
         # 2. Construir nombre seguro de archivo
         raw_codigo = (convenio.codigo or f"ID-{convenio.id}").strip()
-        codigo_seguro = re.sub(r"[^\w\-.]", "_", raw_codigo)
+        # Solo ASCII: va en la cabecera Content-Disposition, que no admite
+        # cualquier carácter, y no debe poder formar rutas.
+        codigo_seguro = re.sub(r"[^A-Za-z0-9_.-]", "_", raw_codigo)
         fecha_actual = datetime.now(UTC).date().isoformat()
 
         # 3. Normalizar formato

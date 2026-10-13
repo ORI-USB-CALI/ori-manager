@@ -61,9 +61,8 @@ export function ExportarConvenioMenu({ convenioId }: Props) {
     setAbierto(false)
 
     try {
-      // La exportación se publica en /api/v1 (apiFetchArchivo antepone /api).
       const { blob, nombreArchivo } = await apiFetchArchivo(
-        `/v1/convenios/${convenioId}/exportar?formato=${formato}`,
+        `/convenios/${convenioId}/exportar?formato=${formato}`,
       )
       // FE-02: nombre de Content-Disposition o, si no viene, la convención estándar.
       descargarBlob(blob, nombreArchivo ?? `Convenio_${convenioId}.${formato === 'excel' ? 'xlsx' : 'pdf'}`)

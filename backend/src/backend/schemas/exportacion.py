@@ -5,6 +5,10 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Representación explícita de un dato ausente en el PDF y el Excel. Un dato
+# que falta nunca se reemplaza por un valor supuesto.
+INFORMACION_NO_DISPONIBLE = "Información no disponible"
+
 
 class FormatoExportacion(StrEnum):
     PDF = "pdf"
@@ -28,7 +32,10 @@ class SeccionContenidoDTO(BaseModel):
 
     tipo: str  # "heading" | "paragraph" | "list_item"
     nivel: int = 1
+    # Texto plano, tal como lo escribió el usuario (Excel).
     texto: str
+    # Mismo texto escapado, con solo el marcado válido del documento (PDF).
+    texto_formateado: str
 
 
 class ConvenioPdfDTO(BaseModel):

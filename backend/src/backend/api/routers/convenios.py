@@ -1274,6 +1274,10 @@ def exportar_convenio(
         )
 
     try:
+        # Además de convenios.ver, el convenio debe estar en el alcance
+        # operativo del usuario (la misma regla del detalle): fuera de él, 404.
+        # Va antes de validar para no revelar qué datos le faltan.
+        ServicioConvenios(db).verificar_alcance_operativo(convenio_id, usuario)
         contenido, media_type, filename = ServicioExportacionConvenio().exportar(
             convenio_id=convenio_id,
             formato=formato_normalizado,

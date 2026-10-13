@@ -49,8 +49,14 @@ def _dto(**cambios) -> ConvenioPdfDTO:
         "aliado_contacto_nombre": "Luis Contacto",
         "aliado_contacto_correo": "luis@aliada.edu.co",
         "secciones_contenido": [
-            SeccionContenidoDTO(tipo="heading", texto="Cláusulas"),
-            SeccionContenidoDTO(tipo="paragraph", texto="Primera: objeto del convenio"),
+            SeccionContenidoDTO(
+                tipo="heading", texto="Cláusulas", texto_formateado="Cláusulas"
+            ),
+            SeccionContenidoDTO(
+                tipo="paragraph",
+                texto="Primera: objeto del convenio",
+                texto_formateado="<b>Primera:</b> objeto del convenio",
+            ),
         ],
         "firmantes": [
             FirmantePdfDTO(
