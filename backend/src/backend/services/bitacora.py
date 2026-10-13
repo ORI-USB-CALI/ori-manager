@@ -65,6 +65,7 @@ class Actor:
 class Accion:
     actor: Actor
     descripcion: str
+    instante: datetime | None = None
 
 
 def _actor_de(usuario: Usuario) -> Actor:
@@ -77,10 +78,18 @@ def asignar_actor(db: Session, usuario: Usuario) -> None:
     db.info[CLAVE_ACTOR] = _actor_de(usuario)
 
 
-def describir_accion(db: Session, usuario: Usuario, descripcion: str) -> None:
+def describir_accion(
+    db: Session,
+    usuario: Usuario,
+    descripcion: str,
+    *,
+    instante: datetime | None = None,
+) -> None:
     """Atribuye al usuario los cambios de la transacción en curso y los acompaña
-    con la acción de negocio que los origina."""
-    db.info[CLAVE_ACCION] = Accion(_actor_de(usuario), descripcion)
+    con la acción de negocio que los origina. Si se indica el instante, los
+    registros llevan esa misma fecha y hora, por ejemplo la de una decisión que
+    también queda guardada en su propia entidad."""
+    db.info[CLAVE_ACCION] = Accion(_actor_de(usuario), descripcion, instante)
 
 
 def _a_texto(valor: object) -> str | None:
@@ -105,6 +114,7 @@ def _registro_id(objeto: object) -> int:
 def _fila(
     actor: Actor,
     contexto: str | None,
+    instante: datetime | None,
     entidad: str,
     registro_id: int,
     accion: AccionAuditoria,
@@ -112,7 +122,7 @@ def _fila(
     anterior: object = None,
     nuevo: object = None,
 ) -> dict[str, object]:
-    return {
+    fila: dict[str, object] = {
         "usuario_id": actor.usuario_id,
         "rol": actor.rol,
         "entidad": entidad,
@@ -123,10 +133,18 @@ def _fila(
         "valor_nuevo": _a_texto(nuevo),
         "contexto": contexto,
     }
+    # Sin instante, la fecha la asigna la base al insertar.
+    if instante is not None:
+        fila["fecha_hora"] = instante
+    return fila
 
 
 def _filas_de_modificacion(
-    objeto: object, entidad: str, actor: Actor, contexto: str | None
+    objeto: object,
+    entidad: str,
+    actor: Actor,
+    contexto: str | None,
+    instante: datetime | None,
 ) -> list[dict[str, object]]:
     estado = inspect(objeto)
     registro_id = _registro_id(objeto)
@@ -156,6 +174,7 @@ def _filas_de_modificacion(
             _fila(
                 actor,
                 contexto,
+                instante,
                 entidad,
                 registro_id,
                 AccionAuditoria.UPDATE,
@@ -176,6 +195,7 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
     if actor is None:
         return
     contexto = accion.descripcion if accion else None
+    instante = accion.instante if accion else None
     # Lo que se completa de un registro en la misma transacción que lo crea es
     # parte de su creación: su inserción ya lo representa.
     insertados = session.info.setdefault(CLAVE_INSERTADOS, set())
@@ -187,12 +207,21 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
             registro_id = _registro_id(objeto)
             insertados.add((entidad, registro_id))
             filas.append(
-                _fila(actor, contexto, entidad, registro_id, AccionAuditoria.INSERT)
+                _fila(
+                    actor,
+                    contexto,
+                    instante,
+                    entidad,
+                    registro_id,
+                    AccionAuditoria.INSERT,
+                )
             )
     for objeto in session.dirty:
         entidad = ENTIDADES_AUDITADAS.get(type(objeto))
         if entidad is not None and (entidad, _registro_id(objeto)) not in insertados:
-            filas.extend(_filas_de_modificacion(objeto, entidad, actor, contexto))
+            filas.extend(
+                _filas_de_modificacion(objeto, entidad, actor, contexto, instante)
+            )
     for objeto in session.deleted:
         entidad = ENTIDADES_AUDITADAS.get(type(objeto))
         if entidad is not None:
@@ -200,6 +229,7 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
                 _fila(
                     actor,
                     contexto,
+                    instante,
                     entidad,
                     _registro_id(objeto),
                     AccionAuditoria.DELETE,
