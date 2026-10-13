@@ -61,9 +61,14 @@ export function ConvenioHistorialPage() {
       <section className="header-banner">
         <h1>Historial y trazabilidad</h1>
         <p>
-          Convenio #{id} · <Link to="/convenios">Volver a la consulta</Link>
+          Convenio #{id}
         </p>
       </section>
+
+      <nav className="page-toolbar" aria-label="Navegación del historial">
+        <Link className="btn btn-outline historial-volver" to={`/convenios/${id}`}>← Volver al convenio</Link>
+        <Link className="btn btn-outline" to="/convenios">Volver a la consulta</Link>
+      </nav>
 
       <ObservacionesJuridicas revisiones={revisiones} />
 
@@ -185,23 +190,25 @@ export function ConvenioHistorialPage() {
                 <div className="timeline-observaciones">
                   <h4>Observaciones</h4>
                   {revision.observaciones.map((observacion) => (
-                    <div className="document-row" key={observacion.id}>
-                      <p>{observacion.descripcion}</p>
-                      <p className="texto-secundario">
-                        Registrada por {observacion.registrada_por?.nombre_completo ?? 'Contraparte externa'} el{' '}
-                        {fechaHora(observacion.creado_en)} ·{' '}
+                    <article className="historial-observacion" key={observacion.id}>
+                      <div className="historial-observacion-cabecera">
+                        <strong>Observación</strong>
                         <span className={`badge ${observacion.estado === 'ATENDIDA' ? 'badge-activo' : 'badge-pendiente'}`}>
                           {ETIQUETA_ESTADO_OBSERVACION[observacion.estado] ?? observacion.estado}
                         </span>
-                      </p>
-                      {observacion.respuesta && (
-                        <p>
-                          <strong>Respuesta:</strong> {observacion.respuesta}
-                          {observacion.atendida_por ? ` · ${observacion.atendida_por.nombre_completo}` : ''}
-                          {observacion.fecha_atencion ? ` · ${fechaHora(observacion.fecha_atencion)}` : ''}
-                        </p>
-                      )}
-                    </div>
+                      </div>
+                      <p>{observacion.descripcion}</p>
+                      <p className="texto-secundario">{observacion.registrada_por?.nombre_completo ?? 'Contraparte externa'} · {fechaHora(observacion.creado_en)}</p>
+                      <div className="historial-respuesta">
+                        <strong>↳ Respuesta</strong>
+                        {observacion.respuesta ? (
+                          <>
+                            <p>{observacion.respuesta}</p>
+                            <p className="texto-secundario">{observacion.atendida_por?.nombre_completo ?? 'Usuario no identificado'} · {fechaHora(observacion.fecha_atencion)}</p>
+                          </>
+                        ) : <p className="texto-secundario">Pendiente de respuesta</p>}
+                      </div>
+                    </article>
                   ))}
                 </div>
               )}

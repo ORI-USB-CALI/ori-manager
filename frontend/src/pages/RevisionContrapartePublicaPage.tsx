@@ -344,12 +344,13 @@ export function RevisionContrapartePublicaPage() {
                 <span className="form-label">Cargo *</span>
                 <input id="cargo-devolucion" className="form-control" value={cargoDevolucion} maxLength={160} disabled={devolver.isPending} onChange={(event) => setCargoDevolucion(event.target.value)} />
               </label>
-              <div className="devolucion-observaciones">
+              <div className="devolucion-observaciones" aria-describedby="ayuda-devolucion-observaciones">
+                <p id="ayuda-devolucion-observaciones" className="section-help">Debe existir al menos una observación para devolver el convenio. Los campos marcados con * son obligatorios.</p>
                 {observaciones.map((observacion, indice) => (
                   <div className="observacion-borrador" key={indice}>
                     <label className="form-group" htmlFor={`observacion-${indice}`}>
                       <span className="form-label">Observación {indice + 1} *</span>
-                      <textarea id={`observacion-${indice}`} className="form-control" value={observacion} disabled={devolver.isPending} onChange={(event) => actualizarObservacion(indice, event.target.value)} />
+                      <textarea id={`observacion-${indice}`} className="form-control" value={observacion} required aria-required="true" disabled={devolver.isPending} onChange={(event) => actualizarObservacion(indice, event.target.value)} />
                     </label>
                     {observaciones.length > 1 && (
                       <button className="btn btn-outline btn-small" type="button" disabled={devolver.isPending} onClick={() => eliminarObservacion(indice)}>

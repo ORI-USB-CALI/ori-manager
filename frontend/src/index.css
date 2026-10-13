@@ -2722,3 +2722,42 @@ a:hover {
   padding-top: 0;
   border-top: 0;
 }
+
+/* HT-03: accesibilidad, jerarquía y navegación en revisión de contraparte */
+.historial-volver {
+  background: #ffffff;
+  color: #17324d;
+  border: 2px solid #17324d;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.historial-volver:hover:not(:disabled), .historial-volver:focus-visible {
+  background: #e8f0f8;
+  color: #10263b;
+}
+.historial-observacion {
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid #315b7d;
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.historial-observacion-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.historial-respuesta {
+  margin: 14px 0 0 18px;
+  padding: 12px 14px;
+  background: #edf4f9;
+  color: #17324d;
+  border-left: 3px solid #315b7d;
+  border-radius: 4px;
+}
+.historial-respuesta p { margin-top: 6px; }
