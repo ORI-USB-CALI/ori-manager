@@ -415,3 +415,125 @@ def test_servicio_falla_guardado_almacenamiento_compensa_para_evitar_huerfanos(
     assert len(docs) == 0
 
 
+def test_caso_a_commit_realmente_fallido_compensa_archivo(
+    db, gestor, convenio_listo, tmp_path, monkeypatch
+) -> None:
+    """Caso A: Commit realmente fallido (PostgreSQL no persiste el registro).
+    Resultado esperado: el archivo se elimina mediante compensación y no queda metadata."""
+    almacen = AlmacenDocumentosLocal(tmp_path)
+    servicio = ServicioConvenios(db, almacen=almacen)
+
+    def commit_que_falla():
+        raise RuntimeError("Fallo real al persistir transacción en PostgreSQL")
+
+    monkeypatch.setattr(db, "commit", commit_que_falla)
+
+    with pytest.raises(RuntimeError, match="Fallo real al persistir"):
+        servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte_caso_a.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
+
+    # El archivo físico se elimina por compensación
+    archivos = list(tmp_path.rglob("*.pdf"))
+    assert archivos == []
+
+    # No queda metadata en la base de datos
+    docs = db.query(Documento).filter(Documento.convenio_id == convenio_listo.id).all()
+    assert len(docs) == 0
+
+
+def test_caso_b_commit_exitoso_con_error_comunicacion_conserva_archivo(
+    db, gestor, convenio_listo, tmp_path, monkeypatch
+) -> None:
+    """Caso B: Commit exitoso con error de comunicación.
+    Simular que el registro se confirma en PostgreSQL, pero luego db.commit() lanza excepción.
+    Resultado esperado: la metadata existe en BD, el archivo se conserva intacto en almacenamiento
+    sin compensación, y la llamada falla informando el error."""
+    almacen = AlmacenDocumentosLocal(tmp_path)
+    servicio = ServicioConvenios(db, almacen=almacen)
+
+    commit_real = db.commit
+
+    def commit_con_desconexion():
+        commit_real()
+        raise RuntimeError("Conexión perdida después de confirmar la transacción en PostgreSQL")
+
+    monkeypatch.setattr(db, "commit", commit_con_desconexion)
+
+    with pytest.raises(RuntimeError, match="Conexión perdida después de confirmar"):
+        servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte_caso_b.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
+
+    # La metadata EXISTE en la base de datos
+    docs = db.query(Documento).filter(Documento.convenio_id == convenio_listo.id).all()
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.nombre_archivo == "soporte_caso_b.pdf"
+
+    # El archivo físico se CONSERVA en almacenamiento (NO se ejecutó compensación)
+    archivos = list(tmp_path.rglob("*.pdf"))
+    assert len(archivos) == 1
+    assert almacen.existe(doc.ruta_almacenamiento) is True
+
+
+def test_caso_c_resultado_incierto_postgresql_no_disponible_no_elimina_archivo(
+    db, gestor, convenio_listo, tmp_path, monkeypatch, caplog
+) -> None:
+    """Caso C: Resultado incierto / PostgreSQL no disponible tras el fallo.
+    Simular que la verificación independiente no puede conectarse o falla al consultar PostgreSQL.
+    Resultado esperado: no eliminar el PDF automáticamente (conservarlo), registrar log CRITICAL
+    con convenio_id y clave de almacenamiento, y la llamada falla."""
+    import logging
+
+    from sqlalchemy.exc import OperationalError
+
+    almacen = AlmacenDocumentosLocal(tmp_path)
+    servicio = ServicioConvenios(db, almacen=almacen)
+
+    def commit_que_falla():
+        raise OperationalError("Fallo de red durante commit", {}, None)
+
+    monkeypatch.setattr(db, "commit", commit_que_falla)
+
+    # Simular que al abrir la sesión independiente para verificar en PostgreSQL, la conexión falla
+    class SessionInaccesible:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            raise OperationalError("No se puede conectar al servidor PostgreSQL", {}, None)
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("backend.services.convenios.Session", SessionInaccesible)
+
+    with (
+        caplog.at_level(logging.CRITICAL),
+        pytest.raises(OperationalError),
+    ):
+        servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte_caso_c.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
+
+    # 1. No eliminar automáticamente el PDF: el archivo físico se conserva intacto
+    archivos = list(tmp_path.rglob("*.pdf"))
+    assert len(archivos) == 1
+
+    # 2. Registrar el incidente con nivel crítico incluyendo convenio_id y clave de almacenamiento
+    assert "INCIDENTE_PERSISTENCIA_INCIERTA" in caplog.text
+    assert f"convenio_id={convenio_listo.id}" in caplog.text
+    assert "convenios/" in caplog.text and archivos[0].name in caplog.text

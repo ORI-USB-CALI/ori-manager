@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     brevo_api_key: SecretStr | None = None
     email_from_address: str | None = None
     email_from_name: str | None = None
-    public_frontend_url: str | None = None
+    public_frontend_url: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
         env_file=".env",

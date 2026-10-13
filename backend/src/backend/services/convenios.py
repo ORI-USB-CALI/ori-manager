@@ -1750,8 +1750,54 @@ class ServicioConvenios:
         except (ConvenioNoEncontrado, ConvenioNoAdmiteSoportes):
             raise
         except Exception:
-            self.db.rollback()
-            self._compensar_almacenamiento(almacen, clave)
+            try:
+                self.db.rollback()
+            except (SQLAlchemyError, RuntimeError) as exc_rb:
+                logger.warning(
+                    "Fallo al ejecutar rollback en sesión afectada: %s", exc_rb
+                )
+
+            # Verificar persistencia mediante sesión independiente de PostgreSQL
+            verificacion_exitosa = False
+            registro_existe = False
+            if self.db.bind is not None:
+                try:
+                    with Session(self.db.bind) as sesion_verificacion:
+                        doc_verificado = sesion_verificacion.scalar(
+                            select(Documento).where(
+                                Documento.ruta_almacenamiento == clave
+                            )
+                        )
+                        registro_existe = doc_verificado is not None
+                        verificacion_exitosa = True
+                except Exception as exc_verif:
+                    logger.critical(
+                        "INCIDENTE_PERSISTENCIA_INCIERTA: Fallo al verificar en PostgreSQL el estado del documento para convenio_id=%s con clave=%s tras error en commit. Error: %s",
+                        convenio_id,
+                        clave,
+                        exc_verif,
+                        exc_info=True,
+                    )
+
+            if verificacion_exitosa and registro_existe:
+                # Caso B: El registro se confirmó en PostgreSQL a pesar del error de comunicación.
+                # Conservar el PDF sin compensación para no dejar la BD con ruta rota.
+                logger.warning(
+                    "El registro de documento con clave %s existe en PostgreSQL a pesar del error en commit; conservando archivo físico en almacenamiento sin compensación.",
+                    clave,
+                )
+            elif verificacion_exitosa and not registro_existe:
+                # Caso A: Commit realmente fallido; compensar archivo huérfano.
+                self._compensar_almacenamiento(almacen, clave)
+            else:
+                # Caso C: Resultado incierto / PostgreSQL no disponible.
+                # No eliminar automáticamente el PDF; registrar incidente crítico para conciliación.
+                logger.critical(
+                    "INCIDENTE_PERSISTENCIA_INCIERTA: No se pudo verificar la persistencia en PostgreSQL para convenio_id=%s y clave=%s tras fallo en commit. Se conserva el archivo físico sin compensación para permitir posterior conciliación.",
+                    convenio_id,
+                    clave,
+                )
+
             raise
 
         # Fase post-commit: el registro ya está referenciado y confirmado en PostgreSQL.
