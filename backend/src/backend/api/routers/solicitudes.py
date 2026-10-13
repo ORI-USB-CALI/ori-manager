@@ -1,7 +1,16 @@
 from typing import Annotated, NoReturn
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +23,7 @@ from backend.models.enums import TipoDocumentoSolicitud
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
+from backend.schemas.comparacion_versiones import ComparacionVersiones
 from backend.schemas.convenio import ConvenioLeer
 from backend.schemas.solicitud import (
     CatalogosSolicitud,
@@ -29,6 +39,10 @@ from backend.schemas.solicitud import (
     SolicitudRecibidaLeer,
     SolicitudRecibidaListado,
     TipoDocumentoOpcion,
+)
+from backend.services.comparacion_versiones import (
+    ComparacionInvalida,
+    ServicioComparacionVersiones,
 )
 from backend.services.convenios import (
     ConvenioDuplicado,
@@ -85,7 +99,9 @@ def _lanzar_http(exc: ErrorSolicitud) -> NoReturn:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     if isinstance(exc, (SolicitudNoEditable, SolicitudNoRevisable)):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    if isinstance(exc, (DocumentoInvalido, ReferenciaSolicitudInvalida)):
+    if isinstance(
+        exc, (DocumentoInvalido, ReferenciaSolicitudInvalida, ComparacionInvalida)
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     if isinstance(exc, SolicitudIncompleta):
         raise HTTPException(
@@ -217,6 +233,24 @@ def obtener_historial_solicitud_recibida(
 
 
 @router.get(
+    "/recibidas/{solicitud_id}/versiones/{numero}/comparacion",
+    response_model=ComparacionVersiones,
+)
+def comparar_versiones_solicitud_recibida(
+    solicitud_id: int,
+    numero: int,
+    db: DatabaseSession,
+    _: PuedeVerRecibidas,
+    base: Annotated[int | None, Query(ge=1)] = None,
+) -> ComparacionVersiones:
+    try:
+        ServicioSolicitudes(db).obtener_recibida(solicitud_id)
+        return ServicioComparacionVersiones(db).comparar(solicitud_id, numero, base)
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
     "/recibidas/{solicitud_id}/documentos/{documento_id}/contenido"
 )
 def obtener_documento_solicitud_recibida(
@@ -317,6 +351,24 @@ def obtener_historial_solicitud(
     try:
         servicio = ServicioSolicitudes(db)
         return servicio.historial(servicio.obtener(solicitud_id, usuario))
+    except ErrorSolicitud as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{solicitud_id}/versiones/{numero}/comparacion",
+    response_model=ComparacionVersiones,
+)
+def comparar_versiones_solicitud(
+    solicitud_id: int,
+    numero: int,
+    db: DatabaseSession,
+    usuario: PuedeVerPropias,
+    base: Annotated[int | None, Query(ge=1)] = None,
+) -> ComparacionVersiones:
+    try:
+        ServicioSolicitudes(db).obtener(solicitud_id, usuario)
+        return ServicioComparacionVersiones(db).comparar(solicitud_id, numero, base)
     except ErrorSolicitud as exc:
         _lanzar_http(exc)
 
