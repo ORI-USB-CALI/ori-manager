@@ -281,8 +281,14 @@ export function SolicitudPage() {
   return (
     <>
       <section className="header-banner"><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></section>
-      {solicitud?.observaciones_devolucion && ['DEVUELTA', 'RADICADA', 'EN_ESTUDIO'].includes(solicitud.estado) && (
-        <section className="card"><h2>Observaciones de devolución ORI</h2>
+      {solicitud?.estado === 'RECHAZADA' && (
+        <section className="card" role="status">
+          <h2>Motivo del rechazo ORI</h2>
+          <p>{solicitud.motivo_rechazo?.trim() || 'No se registró un motivo de rechazo. Comuníquese con la ORI para solicitar información.'}</p>
+        </section>
+      )}
+      {solicitud?.observaciones_devolucion && ['DEVUELTA', 'RADICADA', 'EN_ESTUDIO', 'APROBADA', 'RECHAZADA'].includes(solicitud.estado) && (
+        <section className="card"><h2>{solicitud.estado === 'DEVUELTA' ? 'Observaciones de devolución ORI' : 'Observaciones de devolución anterior'}</h2>
           <p>{solicitud.observaciones_devolucion}</p>
           {solicitud.estado === 'DEVUELTA' && <p className="section-help">Corrija la información y los documentos indicados. Luego vuelva a radicar la solicitud.</p>}
         </section>
