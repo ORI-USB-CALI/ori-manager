@@ -17,6 +17,7 @@ import { RevisionContrapartePage } from '../pages/RevisionContrapartePage'
 import { RevisionesContrapartePage } from '../pages/RevisionesContrapartePage'
 import { RevisionesJuridicasPage } from '../pages/RevisionesJuridicasPage'
 import { RenovacionesPage } from '../pages/RenovacionesPage'
+import { SolicitudHistorialPage } from '../pages/SolicitudHistorialPage'
 import { SolicitudRecibidaPage } from '../pages/SolicitudRecibidaPage'
 import { SolicitudesRecibidasPage } from '../pages/SolicitudesRecibidasPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { element: <RequierePermiso permiso="solicitudes.ver_recibidas" />, children: [
         { path: '/ori/solicitudes', element: <SolicitudesRecibidasPage /> },
         { path: '/ori/solicitudes/:solicitudId', element: <SolicitudRecibidaPage /> },
+        { path: '/ori/solicitudes/:solicitudId/historial', element: <SolicitudHistorialPage alcance="recibida" /> },
       ] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
         { path: '/convenios', element: <ConsultaConveniosPage /> },
@@ -73,6 +75,7 @@ export const router = createBrowserRouter([
       { element: <RequierePermiso permiso="solicitudes.ver_propias" />, children: [
         { path: '/solicitudes', element: <MisSolicitudesPage /> },
         { path: '/solicitudes/:solicitudId', element: <SolicitudPage /> },
+        { path: '/solicitudes/:solicitudId/historial', element: <SolicitudHistorialPage alcance="propia" /> },
       ] },
       { element: <RequierePermiso permiso="solicitudes.crear" />, children: [{ path: '/solicitudes/nueva', element: <SolicitudPage /> }] },
       { path: '*', element: <NotFoundPage /> },
