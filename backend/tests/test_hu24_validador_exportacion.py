@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
+from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
@@ -234,12 +235,22 @@ def test_error_expone_el_contrato_de_la_tarea():
 # ---- Endpoint de exportación ---------------------------------------------------
 
 
+@pytest.fixture
+def convenio_oficial_incompleto(db, convenio_listo):
+    """Fuera de ELABORACION rige la validación completa del documento oficial."""
+    convenio_listo.etapa_actual = db.scalar(
+        select(Etapa).where(Etapa.codigo == "REVISION_AVAL_JURIDICO")
+    )
+    db.commit()
+    return convenio_listo
+
+
 @pytest.mark.parametrize("formato", ["pdf", "excel"])
 def test_convenio_incompleto_responde_422_con_el_json_de_la_tarea(
-    client, gestor, convenio_listo, formato
+    client, gestor, convenio_oficial_incompleto, formato
 ):
     respuesta = client.get(
-        f"/api/convenios/{convenio_listo.id}/exportar?formato={formato}"
+        f"/api/convenios/{convenio_oficial_incompleto.id}/exportar?formato={formato}"
     )
 
     assert respuesta.status_code == 422
@@ -253,7 +264,7 @@ def test_convenio_incompleto_responde_422_con_el_json_de_la_tarea(
 
 
 def test_convenio_incompleto_no_renderiza_ni_guarda_archivos(
-    client, db, gestor, convenio_listo, monkeypatch
+    client, db, gestor, convenio_oficial_incompleto, monkeypatch
 ):
     def no_debe_renderizar(*_args, **_kwargs):
         raise AssertionError("No se debe renderizar un convenio incompleto")
@@ -271,7 +282,7 @@ def test_convenio_incompleto_no_renderiza_ni_guarda_archivos(
 
     for formato in ("pdf", "excel"):
         respuesta = client.get(
-            f"/api/convenios/{convenio_listo.id}/exportar?formato={formato}"
+            f"/api/convenios/{convenio_oficial_incompleto.id}/exportar?formato={formato}"
         )
         assert respuesta.status_code == 422
 

@@ -14,11 +14,14 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.models.convenio import Convenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
-from backend.schemas.exportacion import FormatoExportacion
+from backend.schemas.exportacion import FormatoExportacion, ModoEmision
 from backend.services.convenios import ConvenioNoEncontrado, ErrorConvenio
 from backend.services.excel_convenio import ConvenioExcelExportService
 from backend.services.pdf_convenio import ServicioPdfConvenio
-from backend.services.validador_exportacion_convenio import ConvenioExportValidator
+from backend.services.validador_exportacion_convenio import (
+    ConvenioExportValidator,
+    modo_emision,
+)
 
 MENSAJE_CONVENIO_INCOMPLETO = (
     "No es posible generar el documento oficial. Faltan datos obligatorios."
@@ -61,6 +64,8 @@ class ServicioExportacionConvenio:
                 joinedload(Convenio.tipo_convenio),
                 joinedload(Convenio.unidad_organizacional),
                 joinedload(Convenio.aliado),
+                # La etapa define el modo de emisión (borrador u oficial).
+                joinedload(Convenio.etapa_actual),
                 selectinload(Convenio.solicitud),
                 selectinload(Convenio.versiones),
                 selectinload(Convenio.procesos_firmas).selectinload(
@@ -101,6 +106,12 @@ class ServicioExportacionConvenio:
         # cualquier carácter, y no debe poder formar rutas.
         codigo_seguro = re.sub(r"[^A-Za-z0-9_.-]", "_", raw_codigo)
         fecha_actual = datetime.now(UTC).date().isoformat()
+        # Un borrador nunca se descarga con el nombre de un documento oficial.
+        prefijo = (
+            "BORRADOR_Convenio"
+            if modo_emision(convenio) is ModoEmision.BORRADOR
+            else "Convenio"
+        )
 
         # 3. Normalizar formato
         formato_str = (
@@ -111,13 +122,13 @@ class ServicioExportacionConvenio:
 
         if formato_str == FormatoExportacion.PDF.value:
             contenido = self.servicio_pdf.generar_pdf(convenio_id, db)
-            filename = f"Convenio_{codigo_seguro}_{fecha_actual}.pdf"
+            filename = f"{prefijo}_{codigo_seguro}_{fecha_actual}.pdf"
             media_type = "application/pdf"
             return contenido, media_type, filename
 
         if formato_str == FormatoExportacion.EXCEL.value:
             contenido = self.servicio_excel.generar_excel(convenio_id, db)
-            filename = f"Convenio_{codigo_seguro}_{fecha_actual}.xlsx"
+            filename = f"{prefijo}_{codigo_seguro}_{fecha_actual}.xlsx"
             media_type = (
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )

@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.revision_convenio import RevisionConvenio
@@ -41,6 +42,7 @@ def _exportar(client, convenio_id, formato="pdf"):
 def _dto(**cambios) -> ConvenioPdfDTO:
     datos = {
         "convenio_id": 1,
+        "modo_emision": "OFICIAL",
         "codigo": "CONV-0001",
         "solicitud_consecutivo": "SOL-0001",
         "tipo_convenio": "Marco",
@@ -165,8 +167,20 @@ def test_version_indicada_inexistente_responde_422_sin_usar_otra(
     assert "version_contractual" in respuesta.json()["campos_faltantes"]
 
 
-def _crear_version_2(client, convenio_id: int, texto: str) -> None:
-    """Guardar el editor de HU-12 crea la versión 2 del convenio."""
+def _mover_a_etapa(db, convenio, codigo: str) -> None:
+    convenio.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == codigo))
+    db.commit()
+
+
+def _crear_version_2(client, db, convenio, texto: str) -> None:
+    """Guardar el editor de HU-12 crea la versión 2 del convenio.
+
+    El editor exige la etapa ELABORACION; después se vuelve a la etapa
+    anterior para que la exportación siga siendo oficial.
+    """
+    convenio_id = convenio.id
+    etapa_original = convenio.etapa_actual.codigo
+    _mover_a_etapa(db, convenio, "ELABORACION")
     elaboracion = client.get(f"/api/convenios/{convenio_id}/elaboracion").json()
     contenido = deepcopy(elaboracion["contenido"])
     contenido["content"] = [
@@ -177,6 +191,7 @@ def _crear_version_2(client, convenio_id: int, texto: str) -> None:
         json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
     )
     assert guardada.status_code == 200
+    _mover_a_etapa(db, convenio, etapa_original)
 
 
 def _completar_proceso_de_la_v1(db, convenio) -> None:
@@ -245,7 +260,7 @@ def test_v2_sin_proceso_rechaza_aunque_la_v1_tenga_proceso_completado(
     db, client, gestor, convenio_exportable
 ):
     _completar_proceso_de_la_v1(db, convenio_exportable)
-    _crear_version_2(client, convenio_exportable.id, "Texto de la v2")
+    _crear_version_2(client, db, convenio_exportable, "Texto de la v2")
 
     respuesta = _exportar(client, convenio_exportable.id)
 
@@ -266,7 +281,7 @@ def test_v2_con_su_proceso_se_exporta_solo_con_sus_firmantes(
     )
     proceso_v1.estado = estado_v1
     db.commit()
-    _crear_version_2(client, convenio_exportable.id, "Texto de la v2")
+    _crear_version_2(client, db, convenio_exportable, "Texto de la v2")
     _proceso_de_la_version_actual(
         db, convenio_exportable, gestor, "Rector de la v2", "Representante de la v2"
     )
@@ -289,7 +304,7 @@ def test_v2_con_su_proceso_se_exporta_solo_con_sus_firmantes(
 def test_el_mapeo_usa_el_contenido_de_la_version_actual(
     db, client, gestor, convenio_exportable
 ):
-    _crear_version_2(client, convenio_exportable.id, "Solo en la v2")
+    _crear_version_2(client, db, convenio_exportable, "Solo en la v2")
 
     dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio_exportable.id, db)
 

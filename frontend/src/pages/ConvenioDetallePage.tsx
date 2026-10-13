@@ -225,7 +225,10 @@ export function ConvenioDetallePage() {
             <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
             <p><span className="badge">{datos.estado}</span></p>
           </div>
-          <ExportarConvenioMenu convenioId={datos.id} />
+          <ExportarConvenioMenu
+            convenioId={datos.id}
+            esBorrador={etapaActual === 'ELABORACION' && datos.estado === 'EN_TRAMITE'}
+          />
         </div>
       </section>
 

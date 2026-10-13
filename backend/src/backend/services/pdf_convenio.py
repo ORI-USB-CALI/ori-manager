@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from datetime import UTC, datetime
+from functools import partial
 from html import escape
 from typing import Any
 
@@ -29,12 +30,15 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.exportacion import (
     INFORMACION_NO_DISPONIBLE,
+    MARCA_BORRADOR,
     ConvenioPdfDTO,
     FirmantePdfDTO,
+    ModoEmision,
     SeccionContenidoDTO,
 )
 from backend.services.convenios import ConvenioNoEncontrado
 from backend.services.validador_exportacion_convenio import (
+    modo_emision,
     proceso_firmas_de_version,
     version_contractual,
 )
@@ -67,8 +71,9 @@ def _e(valor: object) -> str:
 class NumberedCanvas(canvas.Canvas):
     """Canvas de dos pasadas para calcular dinámicamente 'Página X de Y' y decorados."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, borrador: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self._borrador = borrador
         self._saved_page_states: list[dict[str, Any]] = []
 
     def showPage(self) -> None:
@@ -95,11 +100,20 @@ class NumberedCanvas(canvas.Canvas):
                 20 * mm, alto - 15 * mm, "UNIVERSIDAD DE SAN BUENAVENTURA CALI · ORI"
             )
             self.drawRightString(
-                ancho - 20 * mm, alto - 15 * mm, "Documento Oficial de Convenio"
+                ancho - 20 * mm,
+                alto - 15 * mm,
+                "Borrador de convenio" if self._borrador else "Documento Oficial de Convenio",
             )
             self.setStrokeColor(colors.HexColor("#CBD5E1"))
             self.setLineWidth(0.5)
             self.line(20 * mm, alto - 17 * mm, ancho - 20 * mm, alto - 17 * mm)
+
+        # Un borrador lleva su marca en todas las páginas, no solo en la primera.
+        if self._borrador:
+            self.setFont("Helvetica-Bold", 9)
+            self.setFillColor(colors.HexColor("#B91C1C"))
+            self.drawCentredString(ancho / 2, alto - 10 * mm, MARCA_BORRADOR)
+            self.drawCentredString(ancho / 2, 8 * mm, MARCA_BORRADOR)
 
         # Pie de página en todas las páginas
         self.setStrokeColor(colors.HexColor("#CBD5E1"))
@@ -158,9 +172,12 @@ class ServicioPdfConvenio:
         if version is not None and version.contenido:
             secciones = self._extraer_secciones_contenido(version.contenido)
 
+        # Un borrador no está formalizado: nunca muestra firmas, ni siquiera
+        # las de un proceso configurado, para no presentarlas como completadas.
+        modo = modo_emision(convenio)
         firmantes_dto: list[FirmantePdfDTO] = []
         proceso = proceso_firmas_de_version(convenio, version)
-        if proceso is not None:
+        if proceso is not None and modo is ModoEmision.OFICIAL:
             for f in sorted(proceso.firmas, key=lambda item: item.orden):
                 firmantes_dto.append(
                     FirmantePdfDTO(
@@ -195,6 +212,7 @@ class ServicioPdfConvenio:
 
         return ConvenioPdfDTO(
             convenio_id=convenio.id,
+            modo_emision=modo,
             codigo=convenio.codigo,
             solicitud_consecutivo=solicitud.consecutivo,
             tipo_convenio=_o_no_disponible(
@@ -248,7 +266,11 @@ class ServicioPdfConvenio:
             rightMargin=20 * mm,
             topMargin=22 * mm,
             bottomMargin=24 * mm,
-            title=f"Convenio_{dto.codigo or dto.convenio_id}",
+            title=(
+                f"Borrador_Convenio_{dto.codigo or dto.convenio_id}"
+                if dto.modo_emision is ModoEmision.BORRADOR
+                else f"Convenio_{dto.codigo or dto.convenio_id}"
+            ),
             author="Universidad de San Buenaventura Cali - ORI",
         )
 
@@ -277,7 +299,12 @@ class ServicioPdfConvenio:
         if dto.firmantes:
             self._construir_firmantes(dto, estilos, elementos)
 
-        doc.build(elementos, canvasmaker=NumberedCanvas)
+        doc.build(
+            elementos,
+            canvasmaker=partial(
+                NumberedCanvas, borrador=dto.modo_emision is ModoEmision.BORRADOR
+            ),
+        )
         return buffer.getvalue()
 
     def _configurar_estilos(self) -> dict[str, ParagraphStyle]:
@@ -309,6 +336,15 @@ class ServicioPdfConvenio:
                 fontSize=12,
                 leading=15,
                 textColor=colors.HexColor("#0F172A"),
+                alignment=1,
+            ),
+            "marca_borrador": ParagraphStyle(
+                "MarcaBorrador",
+                parent=base["Normal"],
+                fontName="Helvetica-Bold",
+                fontSize=11,
+                leading=14,
+                textColor=colors.HexColor("#B91C1C"),
                 alignment=1,
             ),
             "fecha_emision": ParagraphStyle(
@@ -389,15 +425,24 @@ class ServicioPdfConvenio:
             Paragraph("OFICINA DE RELACIONES INTERNACIONALES (ORI)", estilos["unidad"])
         )
         elementos.append(Spacer(1, 2))
+        borrador = dto.modo_emision is ModoEmision.BORRADOR
         elementos.append(
-            Paragraph("DOCUMENTO OFICIAL DE CONVENIO", estilos["titulo_doc"])
+            Paragraph(
+                "BORRADOR DE CONVENIO" if borrador else "DOCUMENTO OFICIAL DE CONVENIO",
+                estilos["titulo_doc"],
+            )
         )
+        if borrador:
+            elementos.append(Spacer(1, 2))
+            elementos.append(Paragraph(MARCA_BORRADOR, estilos["marca_borrador"]))
         elementos.append(Spacer(1, 3))
 
         fecha_texto = dto.fecha_emision.strftime("%d de %B de %Y")
         elementos.append(
             Paragraph(
-                f"Fecha de emisión: {fecha_texto} · Identificador: #{dto.convenio_id}",
+                f"{'Fecha de generación' if borrador else 'Fecha de emisión'}: "
+                f"{fecha_texto} · Identificador: #{dto.convenio_id} · "
+                f"Versión contractual: {dto.version_actual}",
                 estilos["fecha_emision"],
             )
         )

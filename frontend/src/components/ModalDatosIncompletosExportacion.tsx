@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 interface Props {
   camposFaltantes: string[]
+  esBorrador?: boolean
   onCerrar: () => void
 }
 
@@ -13,6 +14,16 @@ const NOMBRES_CAMPOS: Record<string, string> = {
   fecha_inicio: 'Fecha de inicio',
   fecha_vencimiento: 'Fecha de vencimiento',
   implicacion_financiera: 'Compromiso financiero',
+  // Claves del contrato de exportación de HU-24 (campos_faltantes).
+  solicitud_origen: 'Solicitud de origen',
+  codigo_convenio: 'Código del convenio',
+  entidad_participante: 'Entidad participante (aliado)',
+  fecha_inicio_vigencia: 'Fecha de inicio de vigencia',
+  fecha_fin_vigencia: 'Fecha de fin de vigencia',
+  version_contractual: 'Versión contractual actual',
+  clausulas: 'Contenido contractual (cláusulas)',
+  representante_legal_institucion: 'Representante legal de la institución (Rector)',
+  representante_legal_entidad: 'Representante legal de la entidad',
 }
 
 function formatearNombreCampo(campo: string): string {
@@ -22,7 +33,7 @@ function formatearNombreCampo(campo: string): string {
   return campo.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
 }
 
-export function ModalDatosIncompletosExportacion({ camposFaltantes, onCerrar }: Props) {
+export function ModalDatosIncompletosExportacion({ camposFaltantes, esBorrador = false, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -68,7 +79,9 @@ export function ModalDatosIncompletosExportacion({ camposFaltantes, onCerrar }: 
 
       <section className="modal-section">
         <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>
-          El convenio no cuenta con la información requerida para emitir un documento oficial. Por favor complete los siguientes campos antes de continuar:
+          {esBorrador
+            ? 'Para generar el borrador, el convenio necesita la siguiente información. Por favor complete estos campos antes de continuar:'
+            : 'El convenio no cuenta con la información requerida para emitir un documento oficial. Por favor complete los siguientes campos antes de continuar:'}
         </p>
         <ul style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {camposFaltantes.map((campo) => (

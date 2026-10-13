@@ -7,6 +7,8 @@ import { ModalDatosIncompletosExportacion } from './ModalDatosIncompletosExporta
 
 interface Props {
   convenioId: number
+  /** Solo informativo: el backend decide si el documento es borrador. */
+  esBorrador?: boolean
 }
 
 type FormatoExportacion = 'pdf' | 'excel'
@@ -20,7 +22,7 @@ function camposFaltantesDe(detalle: unknown): string[] {
   return Array.isArray(lista) ? lista.filter((campo): campo is string => typeof campo === 'string') : []
 }
 
-export function ExportarConvenioMenu({ convenioId }: Props) {
+export function ExportarConvenioMenu({ convenioId, esBorrador = false }: Props) {
   const [abierto, setAbierto] = useState(false)
   const [descargando, setDescargando] = useState(false)
   const [formatoActivo, setFormatoActivo] = useState<FormatoExportacion | null>(null)
@@ -153,6 +155,11 @@ export function ExportarConvenioMenu({ convenioId }: Props) {
 
         {abierto && !descargando && (
           <div className="exportar-menu-desplegable" role="menu">
+            {esBorrador && (
+              <p className="exportar-aviso-borrador">
+                El documento se generará como borrador, sin formalización ni firmas.
+              </p>
+            )}
             <button
               type="button"
               role="menuitem"
@@ -220,6 +227,7 @@ export function ExportarConvenioMenu({ convenioId }: Props) {
       {modalErrorAbierto && (
         <ModalDatosIncompletosExportacion
           camposFaltantes={camposFaltantes}
+          esBorrador={esBorrador}
           onCerrar={() => setModalErrorAbierto(false)}
         />
       )}

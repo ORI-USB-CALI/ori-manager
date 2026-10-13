@@ -2783,6 +2783,16 @@ a:hover {
   gap: 4px;
 }
 
+.exportar-aviso-borrador {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
 .exportar-menu-item {
   width: 100%;
   display: flex;

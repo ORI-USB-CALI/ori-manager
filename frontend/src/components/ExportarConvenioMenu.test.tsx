@@ -22,11 +22,11 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderizarMenu(convenioId = 42) {
+function renderizarMenu(convenioId = 42, esBorrador = false) {
   const notify = vi.fn()
   const renderResult = render(
     <NotificationsContext.Provider value={notify}>
-      <ExportarConvenioMenu convenioId={convenioId} />
+      <ExportarConvenioMenu convenioId={convenioId} esBorrador={esBorrador} />
     </NotificationsContext.Provider>,
   )
   return { ...renderResult, notify }
@@ -209,8 +209,61 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
       expect(screen.getByRole('dialog')).toBeTruthy()
     })
     expect(screen.getByText('Objeto del convenio')).toBeTruthy()
-    expect(screen.getByText('Fecha fin vigencia')).toBeTruthy()
+    expect(screen.getByText('Fecha de fin de vigencia')).toBeTruthy()
     expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }))
+  })
+
+  it('aclara que el documento será un borrador cuando el convenio está en elaboración', () => {
+    renderizarMenu(20, true)
+
+    fireEvent.click(screen.getByRole('button', { name: /exportar o generar documento/i }))
+
+    expect(
+      screen.getByText('El documento se generará como borrador, sin formalización ni firmas.'),
+    ).toBeTruthy()
+    // Conserva las dos opciones, sin selector entre borrador y oficial.
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+  })
+
+  it('no muestra la aclaración de borrador fuera de elaboración', () => {
+    renderizarMenu(20, false)
+
+    fireEvent.click(screen.getByRole('button', { name: /exportar o generar documento/i }))
+
+    expect(screen.queryByText(/se generará como borrador/i)).toBeNull()
+  })
+
+  it('el modal de un borrador incompleto lista solo lo que pide el borrador', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            error: 'CONVENIO_INCOMPLETO',
+            message: 'No es posible generar el documento oficial. Faltan datos obligatorios.',
+            campos_faltantes: ['entidad_participante', 'version_contractual', 'clausulas'],
+          }),
+        ),
+    }))
+
+    renderizarMenu(21, true)
+
+    fireEvent.click(screen.getByRole('button', { name: /exportar o generar documento/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /exportar como pdf/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    })
+    expect(screen.getByText(/para generar el borrador/i)).toBeTruthy()
+    expect(screen.getByText('Entidad participante (aliado)')).toBeTruthy()
+    expect(screen.getByText('Versión contractual actual')).toBeTruthy()
+    expect(screen.getByText('Contenido contractual (cláusulas)')).toBeTruthy()
+    // No exige firmas ni vigencia que el borrador no requiere.
+    expect(screen.queryByText(/representante legal/i)).toBeNull()
+    expect(screen.queryByText(/vigencia/i)).toBeNull()
+    expect(screen.queryByText(/documento oficial/i)).toBeNull()
   })
 
   it('notifica error 403 cuando el usuario no tiene permisos', async () => {

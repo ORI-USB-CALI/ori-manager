@@ -29,6 +29,7 @@ from backend.models.enums import (
     TipoRevisionConvenio,
     TipoSolicitante,
 )
+from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.revision_convenio import RevisionConvenio
@@ -260,7 +261,8 @@ def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
 
     Además de lo que trae `convenio_listo` (tipo, objeto, fechas y una versión
     con texto), registra código, aliado y un proceso de firmas con el Rector y
-    el representante legal de la entidad.
+    el representante legal de la entidad. Queda en la etapa de firmas: fuera de
+    ELABORACION se exporta como documento oficial, no como borrador.
     """
     aliado = Aliado(
         nombre="Universidad Aliada de Prueba",
@@ -319,6 +321,9 @@ def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
                 estado=EstadoFirmaConvenio.PENDIENTE.value,
             ),
         ]
+    )
+    convenio_listo.etapa_actual = db.scalar(
+        select(Etapa).where(Etapa.codigo == "APROBACION_FIRMAS")
     )
     db.commit()
     # Las colecciones cargadas antes del commit no se refrescan solas.

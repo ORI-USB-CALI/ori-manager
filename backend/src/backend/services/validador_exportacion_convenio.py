@@ -1,8 +1,12 @@
 """Validación de completitud previa a la exportación del convenio (CA-03 de HU-24).
 
 El validador no consulta la base de datos ni renderiza: recibe el convenio ya
-cargado (aliado, solicitud, versiones y procesos de firmas con sus firmas) y
-devuelve qué datos obligatorios faltan para emitir un documento oficial.
+cargado (aliado, solicitud, etapa, versiones y procesos de firmas con sus
+firmas) y devuelve qué datos obligatorios faltan para exportarlo.
+
+Hay dos reglas, según `modo_emision`: el borrador de un convenio en
+elaboración exige solo lo esencial para identificarlo y mostrar su contenido
+real; el resto de exportaciones conserva la validación completa.
 
 `version_contractual` y `proceso_firmas_de_version` también los usa el mapeo
 del PDF y del Excel, para que lo validado sea exactamente lo que se exporta.
@@ -12,6 +16,7 @@ from __future__ import annotations
 
 from backend.models.convenio import Convenio
 from backend.models.enums import (
+    EstadoConvenio,
     EstadoProcesoFirmasConvenio,
     ParteFirmaConvenio,
     RolFirmanteConvenio,
@@ -19,10 +24,12 @@ from backend.models.enums import (
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.version_convenio import VersionConvenio
+from backend.schemas.exportacion import ModoEmision
 from backend.services.contenido_convenio import (
     ContenidoConvenioInvalido,
     documento_tiene_texto,
 )
+from backend.services.convenios import CODIGO_ETAPA_ELABORACION
 
 # Un proceso cancelado (por ejemplo, tras un cambio sustancial) ya no vale.
 _ESTADOS_PROCESO_VIGENTE = frozenset(
@@ -83,10 +90,53 @@ def proceso_firmas_de_version(
     )
 
 
+def modo_emision(convenio: Convenio) -> ModoEmision:
+    """Borrador solo en la etapa de elaboración de un convenio en trámite.
+
+    EN_TRAMITE por sí solo no basta: también lo están las revisiones jurídica,
+    de contraparte y las firmas, que conservan el comportamiento existente.
+    """
+    en_elaboracion = (
+        convenio.etapa_actual is not None
+        and convenio.etapa_actual.codigo == CODIGO_ETAPA_ELABORACION
+    )
+    if en_elaboracion and convenio.estado == EstadoConvenio.EN_TRAMITE.value:
+        return ModoEmision.BORRADOR
+    return ModoEmision.OFICIAL
+
+
 class ConvenioExportValidator:
     """Indica qué datos obligatorios le faltan al convenio para exportarlo."""
 
     def campos_faltantes(self, convenio: Convenio) -> list[str]:
+        if modo_emision(convenio) is ModoEmision.BORRADOR:
+            return self._faltantes_borrador(convenio)
+        return self._faltantes_oficial(convenio)
+
+    def _faltantes_borrador(self, convenio: Convenio) -> list[str]:
+        """Lo esencial para identificar el convenio y mostrar contenido real.
+
+        No exige código, vigencia, representantes ni proceso de firmas: esos
+        datos ausentes se presentan como "Información no disponible".
+        """
+        faltantes: list[str] = []
+        if convenio.solicitud is None:
+            faltantes.append("solicitud_origen")
+        if _vacio(convenio.objeto):
+            faltantes.append("objeto")
+        if convenio.aliado is None and (
+            convenio.solicitud is None
+            or _vacio(convenio.solicitud.nombre_aliado_propuesto)
+        ):
+            faltantes.append("entidad_participante")
+        version = version_contractual(convenio)
+        if version is None:
+            faltantes.append("version_contractual")
+        elif not self._tiene_texto(version):
+            faltantes.append("clausulas")
+        return faltantes
+
+    def _faltantes_oficial(self, convenio: Convenio) -> list[str]:
         faltantes: list[str] = []
         if _vacio(convenio.codigo):
             faltantes.append("codigo_convenio")

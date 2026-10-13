@@ -23,6 +23,7 @@ OBJETO_LARGO = "Cooperación académica e investigativa entre ambas institucione
 def _dto(**cambios) -> ConvenioPdfDTO:
     datos = {
         "convenio_id": 1,
+        "modo_emision": "OFICIAL",
         "codigo": "CONV-0001",
         "solicitud_consecutivo": "SOL-0001",
         "tipo_convenio": "Marco",

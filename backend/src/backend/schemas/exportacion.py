@@ -10,9 +10,20 @@ from pydantic import BaseModel, ConfigDict, Field
 INFORMACION_NO_DISPONIBLE = "Información no disponible"
 
 
+# Marca visible de los documentos generados en etapa de elaboración.
+MARCA_BORRADOR = "BORRADOR — NO FORMALIZADO"
+
+
 class FormatoExportacion(StrEnum):
     PDF = "pdf"
     EXCEL = "excel"
+
+
+class ModoEmision(StrEnum):
+    """Lo determina el backend a partir del convenio, nunca el cliente."""
+
+    BORRADOR = "BORRADOR"
+    OFICIAL = "OFICIAL"
 
 
 class FirmantePdfDTO(BaseModel):
@@ -42,6 +53,8 @@ class ConvenioPdfDTO(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     convenio_id: int
+    # Obligatorio y sin valor por defecto: cada exportación declara su modo.
+    modo_emision: ModoEmision
     codigo: str | None
     solicitud_consecutivo: str
     tipo_convenio: str

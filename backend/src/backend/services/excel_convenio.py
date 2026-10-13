@@ -14,7 +14,12 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session
 
-from backend.schemas.exportacion import ConvenioPdfDTO
+from backend.schemas.exportacion import (
+    INFORMACION_NO_DISPONIBLE,
+    MARCA_BORRADOR,
+    ConvenioPdfDTO,
+    ModoEmision,
+)
 from backend.services.pdf_convenio import ServicioPdfConvenio
 
 HOJA_DATOS_GENERALES = "Datos Generales"
@@ -23,6 +28,7 @@ HOJA_PARTICIPANTES_COMPROMISOS = "Participantes y Compromisos"
 _FUENTE_CABECERA = Font(bold=True)
 _FONDO_CABECERA = PatternFill(fill_type="solid", start_color="D9D9D9", end_color="D9D9D9")
 _FUENTE_TITULO_SECCION = Font(bold=True, size=12)
+_FUENTE_MARCA_BORRADOR = Font(bold=True, size=12, color="B91C1C")
 _AJUSTE_TEXTO = Alignment(wrap_text=True, vertical="top")
 _ANCHO_MINIMO = 10
 _ANCHO_MAXIMO = 80
@@ -64,7 +70,8 @@ class ConvenioExcelExportService:
         return salida.getvalue()
 
     def _escribir_datos_generales(self, hoja: Worksheet, dto: ConvenioPdfDTO) -> None:
-        _escribir_cabecera(hoja, 1, ["Campo", "Valor"])
+        inicio = _escribir_marca(hoja, dto)
+        _escribir_cabecera(hoja, inicio, ["Campo", "Valor"])
         filas: list[tuple[str, object]] = [
             ("Código del convenio", dto.codigo),
             ("Consecutivo de la solicitud", dto.solicitud_consecutivo),
@@ -81,17 +88,20 @@ class ConvenioExcelExportService:
             ("Versión del documento", dto.version_actual),
             ("Unidad solicitante", dto.solicitante_unidad),
         ]
-        for fila, (campo, valor) in enumerate(filas, start=2):
+        for fila, (campo, valor) in enumerate(filas, start=inicio + 1):
             hoja.cell(row=fila, column=1, value=campo).font = _FUENTE_CABECERA
-            _escribir_valor(hoja, fila, 2, valor)
-        hoja.freeze_panes = "A2"
+            # Un dato ausente se declara como tal, nunca se supone.
+            _escribir_valor(
+                hoja, fila, 2, INFORMACION_NO_DISPONIBLE if valor is None else valor
+            )
+        hoja.freeze_panes = f"A{inicio + 1}"
 
     def _escribir_participantes_y_compromisos(
         self, hoja: Worksheet, dto: ConvenioPdfDTO
     ) -> None:
         fila = _escribir_tabla(
             hoja,
-            1,
+            _escribir_marca(hoja, dto),
             "Participantes",
             [
                 "Parte",
@@ -148,6 +158,14 @@ class ConvenioExcelExportService:
             for seccion in dto.secciones_contenido
         )
         _escribir_tabla(hoja, fila + 1, "Compromisos", ["Tipo", "Detalle"], compromisos)
+
+
+def _escribir_marca(hoja: Worksheet, dto: ConvenioPdfDTO) -> int:
+    """En un borrador, la marca va en la primera fila; devuelve la fila libre."""
+    if dto.modo_emision is not ModoEmision.BORRADOR:
+        return 1
+    hoja.cell(row=1, column=1, value=MARCA_BORRADOR).font = _FUENTE_MARCA_BORRADOR
+    return 3
 
 
 def _escribir_cabecera(hoja: Worksheet, fila: int, titulos: Sequence[str]) -> None:
