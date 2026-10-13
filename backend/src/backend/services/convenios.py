@@ -1699,11 +1699,27 @@ class ServicioConvenios:
 
         almacen = self._almacen_requerido()
         clave = f"convenios/{convenio.id}/documentos/{uuid4()}.pdf"
-        almacen.guardar(clave, contenido)
-
-        # Transacción de persistencia con re-verificación de estado frente a concurrencia
         try:
-            stmt = select(Convenio).where(Convenio.id == convenio_id)
+            almacen.guardar(clave, contenido)
+        except Exception:
+            # Si el guardado falla (por ejemplo por timeout no resuelto en OneDrive),
+            # no asumimos automáticamente que el archivo no existe: se intenta compensar/limpiar
+            # para evitar que quede huérfano en el almacenamiento remoto.
+            self._compensar_almacenamiento(almacen, clave)
+            raise
+
+        # Fase de persistencia en BD con re-verificación de estado frente a concurrencia
+        try:
+            # Expirar el convenio en el identity map para asegurar que SQLAlchemy lea
+            # el valor fresco de PostgreSQL y no la instancia cacheada en memoria.
+            if convenio in self.db:
+                self.db.expire(convenio)
+
+            stmt = (
+                select(Convenio)
+                .where(Convenio.id == convenio_id)
+                .execution_options(populate_existing=True)
+            )
             if self.db.bind and self.db.bind.dialect.name == "postgresql":
                 stmt = stmt.with_for_update()
             convenio_actual = self.db.scalar(stmt)
@@ -1731,14 +1747,27 @@ class ServicioConvenios:
             )
             self.db.add(documento)
             self.db.commit()
-            self.db.refresh(documento)
-            return documento
         except (ConvenioNoEncontrado, ConvenioNoAdmiteSoportes):
             raise
         except Exception:
             self.db.rollback()
             self._compensar_almacenamiento(almacen, clave)
             raise
+
+        # Fase post-commit: el registro ya está referenciado y confirmado en PostgreSQL.
+        # Bajo ninguna circunstancia un error posterior (como db.refresh) debe eliminar
+        # el archivo físico del almacenamiento.
+        try:
+            self.db.refresh(documento)
+        except (SQLAlchemyError, RuntimeError) as exc:
+            logger.warning(
+                "No fue posible refrescar la instancia del documento %s tras commit exitoso: %s. "
+                "El documento permanece persistido en BD y almacenamiento.",
+                getattr(documento, "id", None),
+                exc,
+            )
+
+        return documento
 
     def obtener_para_elaboracion(self, convenio_id: int) -> Convenio:
         """Convenio con su antecedente y catálogos, para la pantalla de Elaboración."""

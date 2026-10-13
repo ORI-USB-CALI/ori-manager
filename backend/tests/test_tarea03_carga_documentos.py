@@ -246,15 +246,17 @@ def test_servicio_compensacion_falla_limpieza_registra_incidente_en_log(
     monkeypatch.setattr(db, "commit", commit_que_falla)
     servicio = ServicioConvenios(db, almacen=AlmacenConFalloEnLimpieza())
 
-    with caplog.at_level(logging.CRITICAL):
-        with pytest.raises(RuntimeError, match="Fallo de BD en commit"):
-            servicio.agregar_documento(
-                convenio_id=convenio_listo.id,
-                nombre_archivo="soporte.pdf",
-                tipo_mime="application/pdf",
-                contenido=b"%PDF-1.4 contenido",
-                usuario=gestor,
-            )
+    with (
+        caplog.at_level(logging.CRITICAL),
+        pytest.raises(RuntimeError, match="Fallo de BD en commit"),
+    ):
+        servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
 
     assert len(claves_guardadas) == 1
     assert "FALLO_COMPENSACION_ALMACENAMIENTO" in caplog.text
@@ -293,4 +295,123 @@ def test_servicio_rechaza_y_compensa_si_convenio_cambia_de_estado_durante_carga(
     assert archivos == []
     docs = db.query(Documento).filter(Documento.convenio_id == convenio_listo.id).all()
     assert len(docs) == 0
+
+
+def test_concurrencia_dos_sesiones_independientes_detecta_cambio_estado(
+    db, gestor, convenio_listo, tmp_path
+) -> None:
+    """Valida que la comprobación posterior a la subida no use datos obsoletos
+    del identity map de SQLAlchemy cuando otra sesión independiente en PostgreSQL
+    actualiza y comitea el estado del convenio concurrentemente."""
+    from sqlalchemy.orm import Session
+
+    from backend.models.convenio import Convenio
+    from backend.services.soportes_convenio import ConvenioNoAdmiteSoportes
+
+    almacen = AlmacenDocumentosLocal(tmp_path)
+    servicio = ServicioConvenios(db, almacen=almacen)
+
+    # 1. Aseguramos que el convenio esté cargado en el identity map de la sesión principal 'db'
+    convenio_sesion_1 = servicio.obtener(convenio_listo.id)
+    assert convenio_sesion_1.estado == EstadoConvenio.VIGENTE.value
+
+    # Interceptamos el almacenamiento para simular que otra sesión independiente (sesion_2)
+    # modifica el convenio en la base de datos mientras ocurre la subida
+    guardar_original = almacen.guardar
+
+    def subida_con_modificacion_en_segunda_sesion(clave: str, contenido: bytes) -> None:
+        guardar_original(clave, contenido)
+        # Segunda sesión independiente conectada al mismo bind/engine
+        with Session(db.bind) as sesion_2:
+            c2 = sesion_2.get(Convenio, convenio_listo.id)
+            assert c2 is not None
+            c2.estado = EstadoConvenio.FINALIZADO.value
+            sesion_2.commit()
+
+    almacen.guardar = subida_con_modificacion_en_segunda_sesion
+
+    # La sesión 1 debe leer el estado actualizado de la base de datos y rechazar la carga
+    with pytest.raises(ConvenioNoAdmiteSoportes):
+        servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte_concurrente.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
+
+    # Comprobar que el archivo se compensó y no se persistió documento
+    archivos = list(tmp_path.rglob("*.pdf"))
+    assert archivos == []
+    docs = db.query(Documento).filter(Documento.convenio_id == convenio_listo.id).all()
+    assert len(docs) == 0
+
+
+def test_error_post_commit_en_refresh_no_elimina_archivo_referenciado(
+    db, gestor, convenio_listo, tmp_path, monkeypatch, caplog
+) -> None:
+    """Valida que un fallo en db.refresh() tras un commit exitoso no dispare
+    la compensación de almacenamiento, preservando el archivo referenciado en la BD."""
+    import logging
+
+    almacen = AlmacenDocumentosLocal(tmp_path)
+    servicio = ServicioConvenios(db, almacen=almacen)
+
+    def refresh_que_falla(instance):
+        raise RuntimeError("Fallo transitorio de conexión durante db.refresh()")
+
+    monkeypatch.setattr(db, "refresh", refresh_que_falla)
+
+    with caplog.at_level(logging.WARNING):
+        doc = servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte_post_commit.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
+
+    # 1. El registro EXISTE en la base de datos
+    docs = db.query(Documento).filter(Documento.convenio_id == convenio_listo.id).all()
+    assert len(docs) == 1
+    assert docs[0].id == doc.id
+
+    # 2. El archivo físico EXISTE en el almacenamiento (NO se eliminó)
+    archivos = list(tmp_path.rglob("*.pdf"))
+    assert len(archivos) == 1
+    assert almacen.existe(doc.ruta_almacenamiento) is True
+
+
+def test_servicio_falla_guardado_almacenamiento_compensa_para_evitar_huerfanos(
+    db, gestor, convenio_listo
+) -> None:
+    """Si guardar en almacenamiento remoto falla por timeout o error de red,
+    no se asume automáticamente que el archivo no existe: se ejecuta la compensación
+    para asegurar que ningún archivo huérfano quede en almacenamiento remoto."""
+    from backend.services.documentos import ErrorAlmacenDocumentos
+
+    limpiezas = []
+
+    class AlmacenConTimeout:
+        def guardar(self, clave: str, contenido: bytes) -> None:
+            raise ErrorAlmacenDocumentos("Timeout en subida a OneDrive")
+
+        def eliminar(self, clave: str) -> None:
+            limpiezas.append(clave)
+
+    servicio = ServicioConvenios(db, almacen=AlmacenConTimeout())
+    with pytest.raises(ErrorAlmacenDocumentos):
+        servicio.agregar_documento(
+            convenio_id=convenio_listo.id,
+            nombre_archivo="soporte.pdf",
+            tipo_mime="application/pdf",
+            contenido=b"%PDF-1.4 contenido",
+            usuario=gestor,
+        )
+
+    # Se verificó que se intentó eliminar la clave para no dejar huérfanos
+    assert len(limpiezas) == 1
+    docs = db.query(Documento).filter(Documento.convenio_id == convenio_listo.id).all()
+    assert len(docs) == 0
+
 

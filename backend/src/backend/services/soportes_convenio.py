@@ -5,12 +5,10 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
-from backend.models.enums import EstadoConvenio
 from backend.services.convenios import (
     ESTADOS_CARGA_SOPORTES,
     ConvenioNoAdmiteSoportes,
     ConvenioNoEncontrado,
-    ErrorConvenio,
 )
 from backend.services.documentos import AlmacenDocumentos
 
