@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
@@ -23,9 +24,11 @@ from backend.models.observacion_revision import ObservacionRevision
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
+from backend.schemas.convenio import ConvenioCrearManual
 from backend.services import renovaciones
-from backend.services.convenios import ServicioConvenios
+from backend.services.convenios import RevisionNoDisponible, ServicioConvenios
 from backend.services.renovaciones import ServicioRenovaciones
 
 FECHA_REFERENCIA = date(2026, 10, 7)
@@ -47,21 +50,25 @@ def fecha_dominio_fija(monkeypatch):
     monkeypatch.setattr(renovaciones, "fecha_actual_dominio", lambda: FECHA_REFERENCIA)
 
 
-@pytest.fixture
-def origen(db, crear_usuario, crear_convenio, solicitante):
+@pytest.fixture(params=["SOLICITUD", "MANUAL_ORI"])
+def origen(request, db, crear_usuario, crear_convenio, solicitante):
     autor = crear_usuario(CodigoRol.GESTOR_ORI)
-    convenio = crear_convenio(
-        autor,
-        codigo=f"ORIGEN-{autor.id}",
-        fecha_inicio=date(2025, 1, 1),
-        fecha_vencimiento=FECHA_REFERENCIA + timedelta(days=30),
-        implicacion_financiera="Recursos propios",
-        duracion_meses=24,
-    )
-    convenio.solicitud.solicitante_id = solicitante.id
-    convenio.solicitud.contacto_contraparte_nombre = "Contacto vigente"
-    convenio.solicitud.observaciones = "Observación histórica que no debe copiarse"
-    convenio.solicitud.observaciones_devolucion = "Devolución histórica"
+    datos = {
+        "codigo": f"ORIGEN-{autor.id}",
+        "objeto": "Convenio de origen para renovar",
+        "fecha_inicio": date(2025, 1, 1),
+        "fecha_vencimiento": FECHA_REFERENCIA + timedelta(days=30),
+        "implicacion_financiera": "Recursos propios",
+        "duracion_meses": 24,
+    }
+    if request.param == "MANUAL_ORI":
+        convenio = ServicioConvenios(db).crear_manual(ConvenioCrearManual(**datos), autor)
+    else:
+        convenio = crear_convenio(autor, **datos)
+        convenio.solicitud.solicitante_id = solicitante.id
+        convenio.solicitud.contacto_contraparte_nombre = "Contacto vigente"
+        convenio.solicitud.observaciones = "Observación histórica que no debe copiarse"
+        convenio.solicitud.observaciones_devolucion = "Devolución histórica"
     convenio.fecha_firma = date(2025, 1, 1)
     convenio.porcentaje_avance = 100
     ServicioConvenios(db)._crear_version(
@@ -183,14 +190,14 @@ def test_estados_no_permitidos_rechazan_renovacion(db, client, gestor, origen, e
 
 
 @pytest.mark.parametrize("estado", [EstadoConvenio.VIGENTE, EstadoConvenio.FINALIZADO])
-def test_crea_solicitud_elaboracion_version_e_historial_propios(
+def test_crea_elaboracion_version_e_historial_propios_segun_origen(
     db, client, gestor, origen, monkeypatch, estado
 ):
     origen.estado = estado.value
     db.commit()
     antes = snapshot(origen)
+    cantidades = conteos(db)
     solicitud_original = origen.solicitud
-    solicitante_id = solicitud_original.solicitante_id
     version_original = ServicioConvenios(db)._version_actual(origen)
 
     def plantilla_prohibida(*args):
@@ -213,14 +220,24 @@ def test_crea_solicitud_elaboracion_version_e_historial_propios(
         "etapa": "ELABORACION",
     }
     assert hijo.id != origen.id
-    assert hijo.solicitud_id != solicitud_original.id
-    assert hijo.solicitud.solicitante_id == solicitante_id
-    assert hijo.solicitud.estado == EstadoSolicitud.APROBADA.value
-    assert hijo.solicitud.consecutivo == f"SOL-{hijo.solicitud_id:08d}"
-    assert hijo.solicitud.fecha_radicacion is None
-    assert hijo.solicitud.contacto_contraparte_nombre == "Contacto vigente"
-    assert hijo.solicitud.observaciones is None
-    assert hijo.solicitud.observaciones_devolucion is None
+    assert hijo.origen == origen.origen
+    assert hijo.creado_por_id == gestor.id
+    assert hijo.creado_en is not None
+    assert hijo.aliado_id == origen.aliado_id
+    if solicitud_original is None:
+        assert hijo.solicitud_id is None
+        assert hijo.solicitud is None
+        assert conteos(db)["solicitud_convenio"] == cantidades["solicitud_convenio"]
+    else:
+        assert hijo.solicitud_id != solicitud_original.id
+        assert hijo.solicitud.solicitante_id == solicitud_original.solicitante_id
+        assert hijo.solicitud.estado == EstadoSolicitud.APROBADA.value
+        assert hijo.solicitud.consecutivo == f"SOL-{hijo.solicitud_id:08d}"
+        assert hijo.solicitud.fecha_radicacion is None
+        assert hijo.solicitud.contacto_contraparte_nombre == "Contacto vigente"
+        assert hijo.solicitud.observaciones is None
+        assert hijo.solicitud.observaciones_devolucion is None
+        assert conteos(db)["solicitud_convenio"] == cantidades["solicitud_convenio"] + 1
     assert hijo.objeto == origen.objeto
     assert hijo.alcance == origen.alcance
     assert hijo.implicacion_financiera == origen.implicacion_financiera
@@ -235,6 +252,7 @@ def test_crea_solicitud_elaboracion_version_e_historial_propios(
     assert version.contenido == DOCUMENTO_VIGENTE
     assert version.contenido is not version_original.contenido
     assert version.snapshot_metadata["convenio_origen_id"] == origen.id
+    assert version.snapshot_metadata["origen"] == origen.origen
     assert version.autor_id == gestor.id
     assert version.etapa.codigo == "ELABORACION"
     assert version.contexto == ContextoVersionConvenio.INICIALIZACION.value
@@ -258,6 +276,92 @@ def test_crea_solicitud_elaboracion_version_e_historial_propios(
         )
     db.refresh(origen)
     assert snapshot(origen) == antes
+
+    detalle = client.get(f"/api/convenios/{hijo.id}")
+    assert detalle.status_code == 200, detalle.text
+    assert detalle.json()["origen"] == origen.origen
+    assert detalle.json()["convenio_origen_id"] == origen.id
+    elaboracion = client.get(f"/api/convenios/{hijo.id}/elaboracion")
+    assert elaboracion.status_code == 200, elaboracion.text
+    assert elaboracion.json()["contenido"] == DOCUMENTO_VIGENTE
+    versiones = client.get(f"/api/convenios/{hijo.id}/versiones/1")
+    assert versiones.status_code == 200, versiones.text
+    assert versiones.json()["contenido"] == DOCUMENTO_VIGENTE
+    seguimiento = client.get("/api/convenios/renovaciones", params={"estado": "RENOVACION_INICIADA"})
+    assert seguimiento.status_code == 200, seguimiento.text
+    fila = next(f for f in seguimiento.json() if f["convenio_id"] == origen.id)
+    assert fila["convenio_renovacion_id"] == hijo.id
+    assert fila["numero_renovacion"] == 1
+    assert fila["etapa_renovacion"] == "Elaboración"
+
+
+@pytest.mark.parametrize("activo", [True, False])
+def test_renovacion_conserva_aliado_y_su_validacion(db, client, gestor, origen, activo):
+    aliado = Aliado(
+        nombre="Aliado de renovación", tipo="UNIVERSIDAD", tipo_identificacion="NIT",
+        identificacion=f"REN-{origen.id}", activo=activo,
+    )
+    db.add(aliado)
+    db.flush()
+    origen.aliado_id = aliado.id
+    db.commit()
+    antes = conteos(db)
+    respuesta = client.post(url(origen.id))
+    if activo:
+        assert respuesta.status_code == 201, respuesta.text
+        hijo = db.get(Convenio, respuesta.json()["convenio_renovacion_id"])
+        assert hijo.aliado_id == aliado.id
+        assert hijo.origen == origen.origen
+    else:
+        assert respuesta.status_code == 422, respuesta.text
+        assert conteos(db) == antes
+
+
+def test_renovacion_se_edita_y_requiere_sus_dos_avales_propios(
+    db, client, gestor, origen, crear_usuario,
+):
+    creada = client.post(url(origen.id))
+    assert creada.status_code == 201, creada.text
+    hijo = db.get(Convenio, creada.json()["convenio_renovacion_id"])
+    ruta = f"/api/convenios/{hijo.id}/elaboracion"
+    contenido = deepcopy(DOCUMENTO_VIGENTE)
+    contenido["content"].append({
+        "type": "paragraph", "content": [{"type": "text", "text": "Cláusula de la renovación"}],
+    })
+    guardado = client.patch(ruta, json={
+        "expected_version": 1, "contenido": contenido,
+        "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
+        "alcance": "INSTITUCIONAL",
+    })
+    assert guardado.status_code == 200, guardado.text
+    assert guardado.json()["version_actual"] == 2
+    assert client.get(f"/api/convenios/{hijo.id}/versiones/1").json()["contenido"] == DOCUMENTO_VIGENTE
+    assert ServicioConvenios(db)._version_actual(origen).contenido == DOCUMENTO_VIGENTE
+    finalizado = client.post(f"{ruta}/finalizar", json={
+        "expected_version": 2, "contenido": contenido,
+    })
+    assert finalizado.status_code == 200, finalizado.text
+    primera = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == hijo.id, RevisionConvenio.estado == "PENDIENTE",
+    ))
+    assert primera.instancia_juridica == 1
+    assert primera.snapshot_datos["origen"] == origen.origen
+    revisor = crear_usuario(CodigoRol.REVISOR_ORI)
+    servicio = ServicioConvenios(db)
+    servicio.aprobar(hijo.id, primera.id, hijo.version_actual, revisor)
+    segunda = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == hijo.id, RevisionConvenio.estado == "PENDIENTE",
+    ))
+    assert segunda.instancia_juridica == 2
+    with pytest.raises(RevisionNoDisponible, match="El Revisor ORI no puede atender esta revisión jurídica"):
+        servicio.aprobar(hijo.id, segunda.id, hijo.version_actual, revisor)
+    assert segunda.estado == "PENDIENTE"
+    servicio.aprobar(
+        hijo.id, segunda.id, hijo.version_actual, crear_usuario(CodigoRol.REVISOR_ORI),
+    )
+    db.refresh(hijo)
+    assert hijo.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+    assert primera.convenio_id == segunda.convenio_id == hijo.id
 
 
 def test_no_renovar_registra_decision_y_auditoria_sin_cambiar_padre(
@@ -403,8 +507,9 @@ def test_no_renovar_exige_pendiente_real(db, client, gestor, origen, dias, estad
     assert conteos(db) == antes
 
 
+@pytest.mark.parametrize("punto", ["inicializacion", "version", "commit"])
 def test_error_intermedio_revierte_solicitud_convenio_version_e_historial(
-    db, gestor, origen, monkeypatch
+    db, gestor, origen, monkeypatch, punto,
 ):
     antes = conteos(db)
     padre = snapshot(origen)
@@ -414,8 +519,16 @@ def test_error_intermedio_revierte_solicitud_convenio_version_e_historial(
         crear_version(*args, **kwargs)
         raise RuntimeError("Fallo después de crear la versión")
 
-    monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_y_fallar)
-    with pytest.raises(RuntimeError, match="Fallo después"):
+    def fallar(*args, **kwargs):
+        raise SQLAlchemyError("Fallo transaccional simulado")
+
+    if punto == "version":
+        monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_y_fallar)
+    elif punto == "inicializacion":
+        monkeypatch.setattr(ServicioConvenios, "_crear_version", fallar)
+    else:
+        monkeypatch.setattr(db, "commit", fallar)
+    with pytest.raises((RuntimeError, SQLAlchemyError), match="Fallo"):
         ServicioRenovaciones(db).iniciar_renovacion(origen.id, gestor)
 
     assert conteos(db) == antes

@@ -279,5 +279,6 @@ def test_flujo_real_solicitud_hasta_elaboracion(
         (item.valor_anterior, item.valor_nuevo, item.accion)
         for item in auditorias
     ] == [
+        ("BORRADOR", "RADICADA", AccionAuditoria.UPDATE.value),
         ("RADICADA", "APROBADA", AccionAuditoria.UPDATE.value),
     ]

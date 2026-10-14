@@ -36,7 +36,7 @@ function badgeResultado(revision: RevisionConvenioTrazabilidad): { texto: string
 interface Props {
   convenioId: number
   /** Solicitud de origen; sin ella no se muestran sus versiones. */
-  solicitudId?: number
+  solicitudId?: number | null
 }
 
 function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
@@ -64,7 +64,7 @@ function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
     <>
       <ObservacionesJuridicas revisiones={revisiones} />
 
-      {solicitudId !== undefined && <VersionesSolicitud solicitudId={solicitudId} />}
+      {solicitudId != null && <VersionesSolicitud solicitudId={solicitudId} />}
 
       <section className="card">
         <h2>Cambios de etapa</h2>

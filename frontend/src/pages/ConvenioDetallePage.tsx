@@ -239,6 +239,20 @@ export function ConvenioDetallePage() {
       }
     },
   })
+  const reenviarInvitacionManual = useMutation({
+    mutationFn: (revisionId: number) => apiFetch(
+      `/convenios/${id}/revision-contraparte/${revisionId}/reenviar-invitacion`,
+      { method: 'POST' },
+    ),
+    onSuccess: async () => {
+      notify({ type: 'success', message: 'Invitación enviada al correo del aliado.' })
+      await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] })
+    },
+    onError: (error) => notify({
+      type: 'error', message: error instanceof Error ? error.message : 'No se pudo reenviar la invitación.',
+    }),
+  })
+
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
   if (convenio.isError) return <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
   if (!convenio.data) return null
@@ -256,6 +270,8 @@ export function ConvenioDetallePage() {
     && !revisionContrapartePendiente
     && datos.version_actual > 0
   const puedeIrAElaboracion = puede('convenios.editar') && etapaActual === 'ELABORACION'
+  const invitacionesRevision = revisionContrapartePendiente?.invitaciones_contraparte ?? []
+  const esProyecto = datos.estado === 'EN_TRAMITE' || datos.estado === 'CANCELADO' || !datos.fecha_firma
 
   return (
     <>
@@ -264,6 +280,9 @@ export function ConvenioDetallePage() {
           <div>
             <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
             <p><span className="badge">{datos.estado}</span></p>
+            <Link to={esProyecto ? '/convenios/tablero' : '/convenios'}>
+              {esProyecto ? 'Volver al tablero de convenios' : 'Volver a la consulta de convenios'}
+            </Link>
           </div>
           <ExportarConvenioMenu
             convenioId={datos.id}
@@ -314,14 +333,14 @@ export function ConvenioDetallePage() {
               <div className="revision-contraparte-cabecera">
                 <div>
                   <h2>Revisión de contraparte</h2>
-                  <p className="section-help">La versión {datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.</p>
+                  <p className="section-help">{datos.origen === 'MANUAL_ORI' ? 'Se enviará una invitación de revisión al correo del aliado registrado.' : `La versión ${datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.`}</p>
                 </div>
                 <span className="badge badge-neutral">Lista para envío</span>
               </div>
               <dl className="proyecto-datos revision-contraparte-datos">
                 <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
-                <dt>Solicitante responsable</dt><dd>{flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'}</dd>
-                <dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</dd>
+                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}</dt><dd>{datos.origen === 'MANUAL_ORI' ? (datos.aliado?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</dd>
+                {datos.origen !== 'MANUAL_ORI' && <><dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</dd></>}
               </dl>
               <div className="page-toolbar">
                 <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending}>
@@ -335,14 +354,24 @@ export function ConvenioDetallePage() {
               <div className="revision-contraparte-cabecera">
                 <div>
                   <h2>Revisión de contraparte en curso</h2>
-                  <p className="section-help">El Solicitante responsable puede aprobar o devolver la versión desde su sesión en ORI Manager.</p>
+                  <p className="section-help">{datos.origen === 'MANUAL_ORI' ? 'La contraparte puede aprobar o devolver desde su enlace de revisión.' : 'El Solicitante responsable puede aprobar o devolver desde su sesión en ORI Manager.'}</p>
+                  {datos.origen === 'MANUAL_ORI' && (
+                    <p className="section-help">Invitaciones registradas: {invitacionesRevision.length}.</p>
+                  )}
                 </div>
                 <span className="badge badge-pendiente">Pendiente</span>
               </div>
+              {datos.origen === 'MANUAL_ORI' && (
+                <button type="button" className="btn btn-outline" disabled={reenviarInvitacionManual.isPending}
+                  onClick={() => reenviarInvitacionManual.mutate(revisionContrapartePendiente.id)}>
+                  {reenviarInvitacionManual.isPending ? 'Enviando…' : 'Reenviar enlace al aliado'}
+                </button>
+              )}
               <dl className="proyecto-datos revision-contraparte-datos">
                 <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
-                <dt>Solicitante responsable</dt><dd>{revisionContrapartePendiente.responsable?.nombre_completo ?? '—'}</dd>
-                <dt>Correo</dt><dd>{revisionContrapartePendiente.responsable?.correo ?? '—'}</dd>
+                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte externa' : 'Solicitante responsable'}</dt>
+                <dd>{datos.origen === 'MANUAL_ORI' ? (datos.aliado?.nombre ?? 'Por definir') : (revisionContrapartePendiente.responsable?.nombre_completo ?? '—')}</dd>
+                {datos.origen !== 'MANUAL_ORI' && <><dt>Correo</dt><dd>{revisionContrapartePendiente.responsable?.correo ?? '—'}</dd></>}
                 <dt>Enviado por</dt><dd>{revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</dd>
                 <dt>Fecha de envío</dt><dd>{fecha(revisionContrapartePendiente.creado_en)}</dd>
               </dl>
@@ -412,7 +441,7 @@ export function ConvenioDetallePage() {
               <div className="page-toolbar">
                 {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Continuar elaboración</Link>}
               </div>
-              <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
+              <section className="card"><h2>Información base</h2><dl><dt>Origen</dt><dd>{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</dd><dt>Creado el</dt><dd>{fecha(datos.creado_en)}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
               <SoportesConvenio
                 convenioId={id}
                 estadoConvenio={datos.estado}
@@ -435,8 +464,8 @@ export function ConvenioDetallePage() {
           onCerrar={() => setConfirmarEnvio(false)}
         >
           <p>Se enviará la versión {datos.version_actual}, aprobada jurídicamente.</p>
-          <p><strong>Solicitante responsable:</strong> {flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'} · {flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</p>
-          <p className="texto-secundario">La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.</p>
+          <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${datos.aliado?.nombre ?? 'por definir'}.` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
+          <p className="texto-secundario">{datos.origen === 'MANUAL_ORI' ? 'La contraparte recibirá un enlace externo de revisión.' : 'La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.'}</p>
         </ConfirmacionModal>
       )}
     </>

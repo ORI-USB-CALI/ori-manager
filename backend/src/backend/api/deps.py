@@ -8,6 +8,7 @@ from backend.core.permisos import PERMISOS_POR_ROL, Permiso
 from backend.core.roles import CodigoRol
 from backend.db.session import get_db
 from backend.models.usuario import Usuario
+from backend.services.bitacora import asignar_actor
 from backend.services.sesiones import (
     RepositorioSesiones,
     get_repositorio_sesiones,
@@ -54,6 +55,7 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario inactivo",
         )
+    asignar_actor(db, usuario)
     return usuario
 
 

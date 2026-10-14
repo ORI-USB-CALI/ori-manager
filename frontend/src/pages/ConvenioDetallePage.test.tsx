@@ -10,7 +10,7 @@ import { ConvenioDetallePage } from './ConvenioDetallePage'
 import type { Convenio, HistorialConvenio } from './epica02'
 
 const convenio: Convenio = {
-  id: 41, codigo: 'CON-041', solicitud_id: 1, aliado_id: null, aliado: null,
+  id: 41, codigo: 'CON-041', solicitud_id: 1, origen: 'SOLICITUD', aliado_id: null, aliado: null,
   tipo_convenio_id: null, etapa_actual_id: null, plantilla_origen_id: null,
   version_actual: 3, estado: 'VIGENTE', objeto: 'Movilidad académica', alcance: null,
   unidad_organizacional_id: null, implicacion_financiera: null,
@@ -36,11 +36,13 @@ function Ubicacion() {
   return <output data-testid="ubicacion">{search}</output>
 }
 
-function preparar({ ruta = '/convenios/41', lineaTiempoDisponible = true } = {}) {
+function preparar({ ruta = '/convenios/41', lineaTiempoDisponible = true, datos = convenio, historialSolicitudStatus = 200 } = {}) {
   const fetch = vi.fn(async (url: string) => {
     if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
     if (url === '/api/solicitudes/recibidas/1/historial') {
-      return respuesta(200, { solicitud_id: 1, consecutivo: 'SOL-00000001', estado: 'APROBADA', versiones: [{ numero: 1, radicada_en: '2026-10-01T15:00:00Z', devolucion: null }] })
+      return historialSolicitudStatus === 200
+        ? respuesta(200, { solicitud_id: 1, consecutivo: 'SOL-00000001', estado: 'APROBADA', versiones: [{ numero: 1, radicada_en: '2026-10-01T15:00:00Z', devolucion: null }] })
+        : respuesta(historialSolicitudStatus, { detail: 'Acceso denegado' })
     }
     if (url === '/api/convenios/41/linea-tiempo' && lineaTiempoDisponible) {
       return respuesta(200, [{ codigo: 'ACTIVACION', nombre: 'Activación', fecha: null, estado: 'PENDIENTE' }])
@@ -50,7 +52,7 @@ function preparar({ ruta = '/convenios/41', lineaTiempoDisponible = true } = {})
   vi.stubGlobal('fetch', fetch)
   const cliente = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   cliente.setQueryData(CLAVE_SESION, sesion)
-  cliente.setQueryData(['convenio', convenio.id], convenio)
+  cliente.setQueryData(['convenio', datos.id], datos)
   render(
     <QueryClientProvider client={cliente}>
       <NotificationsContext.Provider value={vi.fn()}>
@@ -68,6 +70,30 @@ function preparar({ ruta = '/convenios/41', lineaTiempoDisponible = true } = {})
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('pestañas del detalle del convenio', () => {
+  it('muestra el historial manual sin consultar solicitudes y vuelve al tablero', async () => {
+    const { fetch, usuario } = preparar({
+      ruta: '/convenios/41?pestana=historial',
+      datos: { ...convenio, origen: 'MANUAL_ORI', solicitud_id: null, estado: 'EN_TRAMITE', fecha_firma: null },
+    })
+    expect(await screen.findByRole('region', { name: 'Observaciones jurídicas' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Volver al tablero de convenios' }).getAttribute('href'))
+      .toBe('/convenios/tablero')
+    expect(fetch.mock.calls.some(([url]) => url.includes('/solicitudes/'))).toBe(false)
+    expect(screen.queryByRole('region', { name: 'Versiones de la solicitud' })).toBeNull()
+    await usuario.click(screen.getByRole('tab', { name: 'Resumen' }))
+    expect(screen.getByText('Creado directamente por ORI')).toBeTruthy()
+  })
+
+  it('conserva las observaciones y los hitos cuando no se autoriza el historial de solicitud', async () => {
+    preparar({ ruta: '/convenios/41?pestana=historial', historialSolicitudStatus: 403 })
+    expect(await screen.findByRole('region', { name: 'Observaciones jurídicas' })).toBeTruthy()
+    expect(await screen.findByText('Activación')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('Cargando versiones de la solicitud…')).toBeNull())
+    expect(screen.queryByRole('region', { name: 'Versiones de la solicitud' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Volver a la consulta de convenios' }).getAttribute('href'))
+      .toBe('/convenios')
+  })
+
   it('abre en Resumen sin la línea de tiempo, sin consultar el historial ni mostrar el enlace anterior', () => {
     const { fetch } = preparar()
 

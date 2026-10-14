@@ -44,6 +44,11 @@ class TipoDocumentoSolicitud(StrEnum):
     OTRO_SOPORTE = "OTRO_SOPORTE"
 
 
+class OrigenConvenio(StrEnum):
+    SOLICITUD = "SOLICITUD"
+    MANUAL_ORI = "MANUAL_ORI"
+
+
 class EstadoConvenio(StrEnum):
     EN_TRAMITE = "EN_TRAMITE"
     VIGENTE = "VIGENTE"

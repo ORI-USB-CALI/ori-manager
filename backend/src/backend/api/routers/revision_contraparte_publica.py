@@ -41,7 +41,11 @@ def acceder(datos: TokenRevisionContraparte, db: DatabaseSession):
     return AccesoRevisionContraparteLeer(
         codigo_convenio=contexto.convenio.codigo,
         objeto=contexto.convenio.objeto,
-        contraparte=solicitud.nombre_aliado_propuesto,
+        contraparte=(
+            solicitud.nombre_aliado_propuesto if solicitud is not None
+            else contexto.convenio.aliado.nombre if contexto.convenio.aliado is not None
+            else "Contraparte externa"
+        ),
         version_numero=contexto.version.numero,
         contenido=contexto.version.contenido,
         estado=contexto.revision.estado,

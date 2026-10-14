@@ -4,19 +4,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
-from backend.models.enums import AccionAuditoria, EstadoConvenio
+from backend.models.enums import EstadoConvenio
 from backend.models.evaluacion_convenio import EvaluacionConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.evaluacion import EvaluacionConvenioCrear
+from backend.services.bitacora import describir_accion
 from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEncontrado,
     ErrorConvenio,
 )
-
-ENTIDAD_EVALUACION = "evaluacion_convenio"
 
 # Único punto donde vive la regla de elegibilidad. El ciclo de vida de convenios
 # todavía no define cuándo se finaliza un convenio ni si la evaluación podrá
@@ -80,16 +78,8 @@ class ServicioEvaluaciones:
                 # evita un lazy load al serializar después del commit.
                 evaluado_por=usuario,
             )
+            describir_accion(self.db, usuario, "Registró la evaluación del convenio")
             self.db.add(evaluacion)
-            self.db.flush()
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad=ENTIDAD_EVALUACION,
-                    registro_id=evaluacion.id,
-                    accion=AccionAuditoria.INSERT.value,
-                )
-            )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()

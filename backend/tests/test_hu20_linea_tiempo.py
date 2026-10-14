@@ -1,8 +1,12 @@
 from datetime import UTC, date, datetime, timedelta
 
+from sqlalchemy import select
+
 from backend.core.roles import CodigoRol
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
+from backend.models.revision_convenio import RevisionConvenio
+from backend.services.convenios import ServicioConvenios
 from backend.services.linea_tiempo import construir_linea_tiempo
 
 HOY = date(2026, 10, 8)
@@ -88,3 +92,36 @@ def test_api_revisor_fuera_de_alcance_recibe_404(
     convenio = crear_convenio(gestor)  # en Elaboración: fuera del alcance del Revisor
     entrar_como(crear_usuario(CodigoRol.REVISOR_ORI))
     assert client.get(f"/api/convenios/{convenio.id}/linea-tiempo").status_code == 404
+
+
+def test_api_sin_sesion_no_consulta_la_linea_de_tiempo(client, gestor, crear_convenio):
+    convenio = crear_convenio(gestor)
+    client.cookies.clear()
+    assert client.get(f"/api/convenios/{convenio.id}/linea-tiempo").status_code == 401
+
+
+def test_revisor_participante_conserva_linea_de_tiempo_sin_acceso_operativo(
+    client, db, gestor, revisor, convenio_listo, entrar_como, crear_usuario
+):
+    servicio = ServicioConvenios(db)
+    servicio.finalizar_elaboracion(convenio_listo.id, gestor)
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+        RevisionConvenio.estado == "PENDIENTE",
+    ))
+    servicio.devolver(
+        convenio_listo.id, revision.id, observaciones=["Precisar el objeto"],
+        expected_version=convenio_listo.version_actual, usuario=revisor,
+    )
+    entrar_como(revisor)
+    ruta = f"/api/convenios/{convenio_listo.id}"
+    assert client.get(ruta).status_code == 404
+    assert client.get(f"{ruta}/revisiones").status_code == 200
+    linea = client.get(f"{ruta}/linea-tiempo")
+    assert linea.status_code == 200, linea.text
+    assert linea.json()[0]["codigo"] == "INICIO_ELABORACION"
+    assert linea.json()[1] == {
+        "codigo": "ACTIVACION", "nombre": "Activación", "fecha": None, "estado": "PENDIENTE"
+    }
+    entrar_como(crear_usuario(CodigoRol.REVISOR_ORI))
+    assert client.get(f"{ruta}/linea-tiempo").status_code == 404

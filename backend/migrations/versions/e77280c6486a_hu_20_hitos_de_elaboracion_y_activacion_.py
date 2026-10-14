@@ -22,7 +22,8 @@ def upgrade() -> None:
     )
     # Los convenios existentes toman sus hitos del historial de etapas: el ingreso
     # inicial a Elaboración y la primera llegada a seguimiento, que solo ocurre al
-    # formalizar las firmas.
+    # formalizar las firmas. La fecha de firma confirma la formalización: el
+    # estado o una etapa histórica por sí solos no bastan para inferirla.
     op.execute(
         sa.text(
             """
@@ -53,6 +54,7 @@ def upgrade() -> None:
                   AND e.codigo = 'FIRMA_ARCHIVO_SEGUIMIENTO'
             )
             WHERE convenio.estado <> 'EN_TRAMITE'
+              AND convenio.fecha_firma IS NOT NULL
             """
         )
     )

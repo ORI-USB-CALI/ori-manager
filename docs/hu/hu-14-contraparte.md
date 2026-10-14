@@ -31,6 +31,20 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+- HU-10 (PR #126): el router público se habilita para convenios `MANUAL_ORI`,
+  que carecen de solicitud y de Solicitante. Se conserva el flujo autenticado
+  del FIX de HU-14 (#102) para convenios `SOLICITUD`; incluso sus enlaces
+  históricos se rechazan en el servicio público. El enlace manual reutiliza
+  tokens aleatorios de 48 bytes, almacenados como SHA-256, con vigencia de una
+  hora, revocación y consumo al decidir. Solo sirve mientras la revisión de
+  contraparte está pendiente y su versión sigue vigente. Las decisiones
+  conservan los bloqueos transaccionales existentes y no omiten los dos avales
+  jurídicos. Cobertura: `backend/tests/test_hu14_revision_contraparte_publica.py`.
+- Snapshots de HU-12: `origen` integra el contrato de catorce campos de las
+  nuevas revisiones y versiones. Los JSONB históricos sin esa clave se leen
+  sin completarlos ni reescribirlos; la regresión de compatibilidad está en
+  `backend/tests/test_hu12_editor_versiones.py`.
+
 - [Inventario de estados de HU](../product/estado-hu-2026-10-13.md).
 - [Centro de evidencias QA](https://drive.google.com/drive/folders/12aOj3os-8IVkqfuDmK2E85NWJABSQg8j).
 - Archivo original en export de Historias de Usuario: `HU-14 — Gestionar revisión de la contraparte 3d369ca9cb4080948727f36a8f1679cb.md`.

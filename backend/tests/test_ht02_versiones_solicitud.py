@@ -2,17 +2,24 @@ from io import BytesIO
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import inspect, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, inspect, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.models.auditoria import Auditoria
 from backend.models.documento import Documento
-from backend.models.solicitud_version import SolicitudVersion
+from backend.models.notificacion import Notificacion
+from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.solicitud_version import (
+    SolicitudVersion,
+    solicitud_version_documento,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.schemas.solicitud import SolicitudCampos
 from backend.services.documentos import AlmacenDocumentosLocal
+from backend.services.solicitudes import ServicioSolicitudes
 
 TIPO_SOPORTE = "OTRO_DOCUMENTO_REPRESENTACION"
 
@@ -287,3 +294,138 @@ def test_documento_de_borrador_nunca_radicado_se_elimina_fisicamente(
     db.expire_all()
     assert db.get(Documento, documento_id) is None
     assert not almacen.existe(ruta)
+
+
+def test_radicaciones_y_devolucion_conservan_actor_contexto_y_fecha_sin_duplicados(
+    db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
+) -> None:
+    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+    _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
+    assert client.post(f"/api/solicitudes/{solicitud_id}/radicar").status_code == 200
+
+    primera, segunda = _versiones(db, solicitud_id)
+    cambios = db.scalars(
+        select(Auditoria).where(
+            Auditoria.entidad == "solicitud",
+            Auditoria.registro_id == solicitud_id,
+            Auditoria.campo == "estado",
+        ).order_by(Auditoria.id)
+    ).all()
+    assert [
+        (r.accion, r.valor_anterior, r.valor_nuevo, r.usuario_id, r.rol,
+         r.contexto, r.fecha_hora)
+        for r in cambios
+    ] == [
+        ("UPDATE", "BORRADOR", "RADICADA", solicitante.id,
+         CodigoRol.SOLICITANTE_INTERNO.value, "Radicó la solicitud", primera.radicada_en),
+        ("UPDATE", "RADICADA", "DEVUELTA", gestor_ori.id,
+         CodigoRol.GESTOR_ORI.value, "Devolvió la solicitud al Solicitante para corrección",
+         primera.devuelta_en),
+        ("UPDATE", "DEVUELTA", "RADICADA", solicitante.id,
+         CodigoRol.SOLICITANTE_INTERNO.value, "Volvió a radicar la solicitud corregida",
+         segunda.radicada_en),
+    ]
+    assert primera.devuelta_por_id == gestor_ori.id
+    assert primera.observaciones_devolucion == "Ajustar la vigencia y el soporte"
+    assert segunda.devuelta_en is None
+
+
+def test_retirar_documento_historico_audita_su_retiro_sin_borrarlo(
+    db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
+) -> None:
+    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio)
+    _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
+
+    retirada = client.delete(f"/api/solicitudes/{solicitud_id}/documentos/{documento_id}")
+    assert retirada.status_code == 204
+
+    registros = db.scalars(select(Auditoria).where(
+        Auditoria.entidad == "documento",
+        Auditoria.registro_id == documento_id,
+    ).order_by(Auditoria.id)).all()
+    assert [r.accion for r in registros] == ["INSERT", "UPDATE"]
+    retiro = registros[-1]
+    assert (retiro.campo, retiro.valor_anterior, retiro.valor_nuevo) == (
+        "es_vigente", "True", "False"
+    )
+    assert (retiro.usuario_id, retiro.rol) == (
+        solicitante.id, CodigoRol.SOLICITANTE_INTERNO.value
+    )
+    (version,) = _versiones(db, solicitud_id)
+    assert [d.id for d in version.documentos] == [documento_id]
+    assert db.get(Documento, documento_id).es_vigente is False
+
+
+def _conteos_transaccion(db):
+    return [
+        db.scalar(select(func.count()).select_from(tabla))
+        for tabla in (SolicitudVersion, solicitud_version_documento, Auditoria, Notificacion)
+    ]
+
+
+@pytest.mark.parametrize("re_radicacion", [False, True], ids=["inicial", "re-radicacion"])
+def test_fallo_tras_flush_revierte_version_documentos_estado_y_bitacora(
+    db, client, entrar_como, solicitante, gestor_ori, tipo_convenio,
+    almacen, monkeypatch, re_radicacion,
+) -> None:
+    if re_radicacion:
+        solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+        _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
+    else:
+        creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id))
+        assert creada.status_code == 201
+        solicitud_id = creada.json()["id"]
+        _subir(client, solicitud_id)
+    solicitud = db.get(SolicitudConvenio, solicitud_id)
+    estado_antes = (solicitud.estado, solicitud.fecha_radicacion, solicitud.fecha_decision)
+    conteos_antes = _conteos_transaccion(db)
+    notificaciones_antes = dict(db.execute(select(Notificacion.id, Notificacion.resuelta)).all())
+
+    def fallar_despues_de_flush():
+        db.flush()
+        assert db.scalar(select(func.count()).select_from(SolicitudVersion)) == (
+            conteos_antes[0] + 1
+        )
+        raise SQLAlchemyError("Fallo simulado después de persistir la versión")
+
+    with monkeypatch.context() as parche:
+        parche.setattr(db, "commit", fallar_despues_de_flush)
+        with pytest.raises(SQLAlchemyError, match="Fallo simulado"):
+            ServicioSolicitudes(db, almacen).radicar(solicitud_id, solicitante)
+
+    db.expire_all()
+    solicitud = db.get(SolicitudConvenio, solicitud_id)
+    assert (solicitud.estado, solicitud.fecha_radicacion, solicitud.fecha_decision) == estado_antes
+    assert _conteos_transaccion(db) == conteos_antes
+    assert len(_versiones(db, solicitud_id)) == int(re_radicacion)
+    assert dict(db.execute(select(Notificacion.id, Notificacion.resuelta)).all()) == notificaciones_antes
+
+
+def test_fallo_devolucion_revierte_la_version_la_solicitud_y_la_bitacora(
+    db, client, solicitante, gestor_ori, tipo_convenio, monkeypatch
+) -> None:
+    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+    conteos_antes = _conteos_transaccion(db)
+
+    def fallar_despues_de_flush():
+        db.flush()
+        version = db.scalar(select(SolicitudVersion).where(
+            SolicitudVersion.solicitud_id == solicitud_id
+        ))
+        assert version.devuelta_por_id == gestor_ori.id
+        assert version.observaciones_devolucion == "Ajustar el objeto"
+        raise SQLAlchemyError("Fallo simulado después de persistir la devolución")
+
+    with monkeypatch.context() as parche:
+        parche.setattr(db, "commit", fallar_despues_de_flush)
+        with pytest.raises(SQLAlchemyError, match="Fallo simulado"):
+            ServicioSolicitudes(db).devolver(solicitud_id, "Ajustar el objeto", gestor_ori)
+
+    (version,) = _versiones(db, solicitud_id)
+    assert version.devuelta_por_id is None
+    assert version.devuelta_en is None
+    assert version.observaciones_devolucion is None
+    solicitud = db.get(SolicitudConvenio, solicitud_id)
+    assert solicitud.estado == "RADICADA"
+    assert solicitud.fecha_decision is None
+    assert _conteos_transaccion(db) == conteos_antes

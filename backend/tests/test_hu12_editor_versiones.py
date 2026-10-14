@@ -8,6 +8,7 @@ from backend.models.enums import ContextoVersionConvenio
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.version_convenio import VersionConvenio
+from backend.services.convenios import ServicioConvenios
 
 
 def _texto(nodo: dict[str, object]) -> str:
@@ -21,6 +22,43 @@ def _elaboracion(client, convenio_id: int) -> dict[str, object]:
     respuesta = client.get(f"/api/convenios/{convenio_id}/elaboracion")
     assert respuesta.status_code == 200
     return respuesta.json()
+
+
+def test_snapshots_historicos_sin_origen_se_leen_y_no_se_reescriben(
+    client, db, convenio_listo, revisor,
+) -> None:
+    ruta = f"/api/convenios/{convenio_listo.id}"
+    assert client.post(f"{ruta}/elaboracion/finalizar").status_code == 200
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+    ))
+    version = db.get(VersionConvenio, revision.version_convenio_id)
+    # Simula los JSONB de trece campos guardados antes de HU-10, sin migrarlos.
+    snapshot_revision = {k: v for k, v in revision.snapshot_datos.items() if k != "origen"}
+    snapshot_version = {k: v for k, v in version.snapshot_metadata.items() if k != "origen"}
+    revision.snapshot_datos = deepcopy(snapshot_revision)
+    version.snapshot_metadata = deepcopy(snapshot_version)
+    db.commit()
+
+    detalle = client.get(f"{ruta}/versiones/{version.numero}")
+    assert detalle.status_code == 200, detalle.text
+    assert detalle.json()["snapshot_metadata"] == snapshot_version
+    historial = client.get(f"{ruta}/revisiones")
+    assert historial.status_code == 200, historial.text
+    assert historial.json()["revisiones"][0]["snapshot_datos"] == snapshot_revision
+
+    # Una operación real crea la siguiente revisión con el contrato nuevo.
+    ServicioConvenios(db).aprobar(
+        convenio_listo.id, revision.id, convenio_listo.version_actual, revisor,
+    )
+    nueva = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+        RevisionConvenio.instancia_juridica == 2,
+    ))
+    assert nueva.snapshot_datos == {**snapshot_revision, "origen": "SOLICITUD"}
+    db.expire_all()
+    assert db.get(VersionConvenio, version.id).snapshot_metadata == snapshot_version
+    assert db.get(RevisionConvenio, revision.id).snapshot_datos == snapshot_revision
 
 
 def test_iniciar_crea_plantilla_version_inicial_y_precarga_sin_tocar_solicitud(
@@ -90,17 +128,14 @@ def test_guardar_crea_version_consecutiva_y_sin_cambios_no_duplica(
     assert [version.numero for version in versiones] == [1, 2]
     assert "Nueva cláusula" not in _texto(versiones[0].contenido)
     assert "Nueva cláusula" in _texto(versiones[1].contenido)
-    auditoria = db.scalar(
+    (auditoria,) = db.scalars(
         select(Auditoria).where(
             Auditoria.entidad == "convenio",
             Auditoria.registro_id == convenio_listo.id,
-            Auditoria.campo == "contenido_proyecto",
+            Auditoria.campo == "version_actual",
         )
-    )
-    assert (auditoria.valor_anterior, auditoria.valor_nuevo) == (
-        "versión 1",
-        "versión 2",
-    )
+    ).all()
+    assert (auditoria.valor_anterior, auditoria.valor_nuevo) == ("1", "2")
     assert "Nueva cláusula" not in (auditoria.valor_nuevo or "")
 
 

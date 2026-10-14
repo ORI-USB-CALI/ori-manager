@@ -452,8 +452,10 @@ def test_correccion_y_dos_avales_crean_nuevo_ciclo_sin_sobrescribir_anterior(
 
 
 @pytest.mark.parametrize("accion", ["acceso", "aprobar", "devolver"])
-def test_endpoints_publicos_no_existen(client, accion) -> None:
-    assert client.post(f"/api/public/revision-contraparte/{accion}").status_code == 404
+def test_endpoints_publicos_rechazan_solicitudes_sin_cuerpo(client, accion) -> None:
+    respuesta = client.post(f"/api/public/revision-contraparte/{accion}")
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"][0]["loc"] == ["body"]
 
 
 def test_fallo_commit_revierte_aprobacion_autenticada(

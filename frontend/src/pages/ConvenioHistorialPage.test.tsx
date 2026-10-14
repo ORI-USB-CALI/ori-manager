@@ -104,5 +104,6 @@ describe('ConvenioHistorialPage', () => {
     expect(fetch).not.toHaveBeenCalledWith('/api/convenios/41', expect.anything())
     // Sin solicitudId la página no consulta las versiones de la solicitud.
     expect(fetch.mock.calls.some(([url]) => url.includes('/solicitudes/'))).toBe(false)
+    expect(screen.getByRole('link', { name: 'Tablero de convenios' }).getAttribute('href')).toBe('/convenios/tablero')
   })
 })
