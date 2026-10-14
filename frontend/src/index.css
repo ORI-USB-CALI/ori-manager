@@ -3045,6 +3045,7 @@ a:hover {
   gap: 6px;
   font-weight: 550;
   color: var(--color-texto);
+}
 
 /* Pestañas del detalle del convenio (Resumen / Historial). */
 .pestanas {
