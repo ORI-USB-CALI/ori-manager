@@ -70,7 +70,7 @@ class ServicioEstadisticasConvenios:
         consulta = (
             select(Convenio)
             .join(Convenio.aliado, isouter=True)
-            .join(Convenio.solicitud)
+            .outerjoin(Convenio.solicitud)
             .options(
                 contains_eager(Convenio.aliado).joinedload(Aliado.pais),
                 contains_eager(Convenio.solicitud),
@@ -134,14 +134,14 @@ class ServicioEstadisticasConvenios:
 def _tipo_aliado(convenio: Convenio) -> str | None:
     if convenio.aliado is not None:
         return convenio.aliado.tipo
-    return convenio.solicitud.tipo_aliado_propuesto
+    return convenio.solicitud.tipo_aliado_propuesto if convenio.solicitud else None
 
 
 def _pais_convenio(convenio: Convenio) -> str:
     if convenio.aliado is not None:
         nombre = convenio.aliado.pais.nombre if convenio.aliado.pais else None
     else:
-        nombre = convenio.solicitud.pais_aliado_propuesto
+        nombre = convenio.solicitud.pais_aliado_propuesto if convenio.solicitud else None
     return " ".join((nombre or "").split())
 
 
@@ -149,6 +149,8 @@ def _etiqueta_estado_aliado(convenio: Convenio) -> str:
     if convenio.aliado is not None:
         return "Aliado activo" if convenio.aliado.activo else "Aliado inactivo"
     solicitud = convenio.solicitud
+    if solicitud is None:
+        return SIN_ALIADO
     if any(
         valor and valor.strip()
         for valor in (
