@@ -163,3 +163,23 @@ class CatalogosSolicitud(BaseModel):
     tipos_convenio: list[TipoConvenioOpcion]
     tipos_documento: list[TipoDocumentoOpcion]
     requiere_documento_representacion: bool = True
+
+
+class DevolucionSolicitudLeer(BaseModel):
+    observaciones: str
+    devuelta_por_nombre: str
+    devuelta_en: datetime
+    corregida_en_version: int | None
+
+
+class VersionSolicitudHistorialLeer(BaseModel):
+    numero: int
+    radicada_en: datetime
+    devolucion: DevolucionSolicitudLeer | None
+
+
+class HistorialSolicitudLeer(BaseModel):
+    solicitud_id: int
+    consecutivo: str
+    estado: str
+    versiones: list[VersionSolicitudHistorialLeer]
