@@ -29,6 +29,7 @@ from backend.models.enums import (
     EstadoProcesoFirmasConvenio,
     EstadoRevisionConvenio,
     EstadoSolicitud,
+    OrigenConvenio,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
     TipoAliado,
@@ -55,6 +56,7 @@ from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import (
     CampoFaltante,
     ConvenioCrear,
+    ConvenioCrearManual,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
     ConvenioElaboracionGuardar,
@@ -94,6 +96,7 @@ ENTIDAD_CONVENIO = "convenio"
 CAMPOS_SNAPSHOT = (
     "codigo",
     "solicitud_id",
+    "origen",
     "aliado_id",
     "tipo_convenio_id",
     "objeto",
@@ -485,6 +488,72 @@ class ServicioConvenios:
             auditar=False,
         )
         return convenio
+
+    def crear_manual(self, datos: ConvenioCrearManual, usuario: Usuario) -> Convenio:
+        """HU-10: crea un proyecto vacío sin solicitud ni plantilla precargada."""
+        if usuario.rol.codigo not in (
+            CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value
+        ):
+            raise ReferenciaConvenioInvalida("Solo Gestor ORI o Administrador ORI pueden crear convenios manualmente")
+        valores = datos.model_dump(exclude={"aliado_id"}, exclude_unset=True)
+        self._validar_referencias(valores)
+        if datos.aliado_id is not None:
+            aliado = self.db.get(Aliado, datos.aliado_id)
+            if aliado is None or not aliado.activo:
+                raise ReferenciaConvenioInvalida("El aliado no existe o está inactivo")
+        elaboracion = self.db.scalar(
+            select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_ELABORACION)
+        )
+        if elaboracion is None:
+            raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+        valores = {
+            campo: valor.value if isinstance(valor, AlcanceConvenio) else valor
+            for campo, valor in valores.items()
+        }
+        convenio = Convenio(
+            **valores,
+            solicitud_id=None,
+            origen=OrigenConvenio.MANUAL_ORI.value,
+            aliado_id=datos.aliado_id,
+            etapa_actual_id=elaboracion.id,
+            estado=EstadoConvenio.EN_TRAMITE.value,
+            creado_por_id=usuario.id,
+        )
+        try:
+            self.db.add(convenio)
+            self.db.flush()
+            self.db.add(HistorialEtapa(
+                convenio_id=convenio.id,
+                etapa_origen_id=None,
+                etapa_destino_id=elaboracion.id,
+                usuario_id=usuario.id,
+                responsable_id=usuario.id,
+                observacion="Creación directa del convenio por la ORI",
+            ))
+            self.db.add(Auditoria(
+                usuario_id=usuario.id,
+                entidad=ENTIDAD_CONVENIO,
+                registro_id=convenio.id,
+                accion=AccionAuditoria.INSERT.value,
+                campo="origen",
+                valor_anterior=None,
+                valor_nuevo=OrigenConvenio.MANUAL_ORI.value,
+            ))
+            self._crear_version(
+                convenio,
+                {"type": "doc", "content": [{"type": "paragraph"}]},
+                usuario,
+                ContextoVersionConvenio.INICIALIZACION,
+                auditar=False,
+            )
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ConvenioDuplicado("El código ya está asociado a otro convenio") from exc
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return self.obtener(convenio.id)
 
     def crear(self, datos: ConvenioCrear, usuario: Usuario) -> Convenio:
         solicitud = self.db.get(SolicitudConvenio, datos.solicitud_id)
@@ -1092,8 +1161,19 @@ class ServicioConvenios:
             .options(joinedload(SolicitudConvenio.solicitante))
             .where(SolicitudConvenio.id == convenio.solicitud_id)
         )
-        if solicitud is None or solicitud.solicitante_id is None:
+        if convenio.origen == OrigenConvenio.MANUAL_ORI.value:
+            if convenio.aliado_id is None:
+                raise RevisionNoDisponible("Debe asociar un aliado antes de enviar a contraparte")
+            aliado = self.db.get(Aliado, convenio.aliado_id)
+            if aliado is None or not aliado.activo or not aliado.correo:
+                raise RevisionNoDisponible("El aliado requiere un correo válido y estar activo")
+            try:
+                TypeAdapter(EmailStr).validate_python(aliado.correo)
+            except ValidationError as exc:
+                raise RevisionNoDisponible("El aliado requiere un correo válido") from exc
+        elif solicitud is None or solicitud.solicitante_id is None:
             raise RevisionNoDisponible("El convenio no tiene un Solicitante asociado")
+        responsable_externo_id = solicitud.solicitante_id if solicitud is not None else None
         pendiente = self.db.scalar(
             select(RevisionConvenio.id).where(
                 RevisionConvenio.convenio_id == convenio.id,
@@ -1126,7 +1206,7 @@ class ServicioConvenios:
             historial_etapa_id=historial.id,
             version_convenio_id=version.id,
             version_resultado_id=None,
-            responsable_id=solicitud.solicitante_id,
+            responsable_id=responsable_externo_id,
             creada_por_id=usuario.id,
             estado=EstadoRevisionConvenio.PENDIENTE.value,
             resultado=None,
@@ -1143,14 +1223,15 @@ class ServicioConvenios:
                     accion=AccionAuditoria.INSERT.value,
                 )
             )
-            notificaciones.crear(
-                solicitud.solicitante_id,
-                TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
-                EntidadNotificacion.CONVENIO,
-                convenio.id,
-                f"El convenio {convenio.codigo or convenio.id} está pendiente de "
-                "revisión por la contraparte.",
-            )
+            if responsable_externo_id is not None:
+                notificaciones.crear(
+                    responsable_externo_id,
+                    TipoNotificacion.REVISION_CONTRAPARTE_PENDIENTE,
+                    EntidadNotificacion.CONVENIO,
+                    convenio.id,
+                    f"El convenio {convenio.codigo or convenio.id} está pendiente de "
+                    "revisión por la contraparte.",
+                )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
@@ -1501,9 +1582,19 @@ class ServicioConvenios:
             .options(joinedload(SolicitudConvenio.solicitante))
             .where(SolicitudConvenio.id == convenio.solicitud_id)
         )
-        if solicitud is None:
-            raise RevisionNoDisponible("El convenio no tiene una solicitud asociada")
-        correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
+        if convenio.origen == OrigenConvenio.MANUAL_ORI.value:
+            aliado = self.db.get(Aliado, convenio.aliado_id)
+            if aliado is None or not aliado.activo or not aliado.correo:
+                raise RevisionNoDisponible("El aliado no tiene un correo válido")
+            try:
+                correo_destino = str(TypeAdapter(EmailStr).validate_python(aliado.correo))
+            except ValidationError as exc:
+                raise RevisionNoDisponible("El aliado no tiene un correo válido") from exc
+            correo_cc = None
+        else:
+            if solicitud is None:
+                raise RevisionNoDisponible("El convenio no tiene una solicitud asociada")
+            correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
         ahora = datetime.now(UTC)
         self.db.execute(
             update(InvitacionRevisionContraparte)
@@ -1588,7 +1679,7 @@ class ServicioConvenios:
                 .where(
                     Documento.es_vigente.is_(True),
                     or_(
-                        Documento.solicitud_id == convenio.solicitud_id,
+                        (Documento.solicitud_id == convenio.solicitud_id if convenio.solicitud_id is not None else false()),
                         Documento.convenio_id == convenio.id,
                     ),
                 )
@@ -1619,7 +1710,7 @@ class ServicioConvenios:
                 Documento.id == documento_id,
                 Documento.es_vigente.is_(True),
                 or_(
-                    Documento.solicitud_id == convenio.solicitud_id,
+                    (Documento.solicitud_id == convenio.solicitud_id if convenio.solicitud_id is not None else false()),
                     Documento.convenio_id == convenio.id,
                 ),
             )
@@ -1925,6 +2016,15 @@ class ServicioConvenios:
             **cambios,
         }
         self._validar_referencias(combinados)
+        if "aliado_id" in cambios:
+            if convenio.origen != OrigenConvenio.MANUAL_ORI.value:
+                raise ReferenciaConvenioInvalida(
+                    "El aliado de un convenio con solicitud no se cambia desde elaboración"
+                )
+            if cambios["aliado_id"] is not None:
+                aliado = self.db.get(Aliado, cambios["aliado_id"])
+                if aliado is None or not aliado.activo:
+                    raise ReferenciaConvenioInvalida("El aliado no existe o está inactivo")
         cambio_realizado = False
         for campo, valor in cambios.items():
             nuevo = valor.value if isinstance(valor, AlcanceConvenio) else valor

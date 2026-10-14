@@ -230,6 +230,15 @@ def resolver_aliado_para_convenio(db: Session, convenio: Convenio) -> Aliado | N
     """Asocia la contraparte persistida solo al formalizar el convenio."""
     if convenio.estado != EstadoConvenio.VIGENTE:
         return None
+    if convenio.solicitud is None:
+        aliado_manual = db.get(Aliado, convenio.aliado_id) if convenio.aliado_id else None
+        if aliado_manual is None:
+            raise ReferenciaAliadoInvalida(
+                "Un convenio manual debe asociar un aliado para formalizarse"
+            )
+        if not aliado_manual.activo:
+            raise ReferenciaAliadoInvalida("El aliado del convenio está inactivo")
+        return aliado_manual
     solicitud = convenio.solicitud
     aliado = db.get(Aliado, solicitud.aliado_id) if solicitud.aliado_id else None
     if solicitud.aliado_id and aliado is None:

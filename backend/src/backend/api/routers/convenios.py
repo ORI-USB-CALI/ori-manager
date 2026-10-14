@@ -47,6 +47,7 @@ from backend.schemas.convenio import (
     ConvenioConsultaItem,
     ConvenioConsultaListado,
     ConvenioCrear,
+    ConvenioCrearManual,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
     ConvenioElaboracionGuardar,
@@ -246,6 +247,16 @@ def crear_convenio(
         _lanzar_http(exc)
 
 
+@router.post("/manual", response_model=ConvenioLeer, status_code=status.HTTP_201_CREATED)
+def crear_convenio_manual(
+    datos: ConvenioCrearManual, db: DatabaseSession, usuario: PuedeCrear
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).crear_manual(datos, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
 def _contraparte_de(convenio: Convenio) -> ContraparteConsultaLeer:
     """HU-26 BE-1: del Aliado formal si ya existe; si no (convenio en
     trámite, sin aliado_id todavía), de los *_aliado_propuesto de la
@@ -387,7 +398,10 @@ def listar_revisiones_juridicas_pendientes(
             revision_id=revision.id,
             convenio_id=revision.convenio.id,
             codigo_convenio=revision.convenio.codigo,
-            solicitud_consecutivo=revision.convenio.solicitud.consecutivo,
+            solicitud_consecutivo=(
+                revision.convenio.solicitud.consecutivo
+                if revision.convenio.solicitud is not None else None
+            ),
             objeto=revision.convenio.objeto,
             tipo_convenio=revision.convenio.tipo_convenio,
             responsable=revision.convenio.creado_por,
@@ -511,7 +525,10 @@ def obtener_tablero(db: DatabaseSession, usuario: PuedeVer) -> TableroConveniosL
                 estado=convenio.estado,
                 etapa_actual=convenio.etapa_actual,
                 aliado=convenio.aliado,
-                aliado_propuesto=convenio.solicitud.nombre_aliado_propuesto,
+                aliado_propuesto=(
+                    convenio.solicitud.nombre_aliado_propuesto
+                    if convenio.solicitud is not None else None
+                ),
                 responsable=responsable,
                 puede_ver_detalle=puede_ver_detalle,
             )
@@ -1188,15 +1205,46 @@ def enviar_revision_contraparte(
     datos: EnviarRevisionContraparte,
     db: DatabaseSession,
     usuario: PuedeGestionarContraparte,
+    correo: Correo,
 ) -> RevisionConvenioLeer:
     try:
-        revision = ServicioConvenios(db).enviar_a_contraparte(
+        servicio = ServicioConvenios(
+            db, enviador=correo, frontend_url=settings.public_frontend_url
+        )
+        # No crear una revisión manual que no pueda recibir su enlace público.
+        convenio_previo = servicio.obtener(convenio_id)
+        if convenio_previo.origen == "MANUAL_ORI" and not settings.public_frontend_url:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
+        revision = servicio.enviar_a_contraparte(
             convenio_id, datos.expected_version, usuario
         )
-        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        if convenio_previo.origen == "MANUAL_ORI":
+            servicio.reenviar_invitacion_contraparte(convenio_id, revision.id, usuario)
+        convenio = servicio.obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(
             next(item for item in convenio.revisiones if item.id == revision.id)
         )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post("/{convenio_id}/revision-contraparte/{revision_id}/reenviar-invitacion")
+def reenviar_invitacion_manual(
+    convenio_id: int,
+    revision_id: int,
+    db: DatabaseSession,
+    usuario: PuedeGestionarContraparte,
+    correo: Correo,
+):
+    if not settings.public_frontend_url:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
+    try:
+        servicio = ServicioConvenios(db, enviador=correo, frontend_url=settings.public_frontend_url)
+        convenio = servicio.obtener(convenio_id)
+        if convenio.origen != "MANUAL_ORI":
+            raise ReferenciaConvenioInvalida("Solo para convenios de origen manual")
+        invitacion = servicio.reenviar_invitacion_contraparte(convenio_id, revision_id, usuario)
+        return {"id": invitacion.id, "enviado_en": invitacion.enviado_en}
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 

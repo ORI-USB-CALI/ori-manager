@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -259,7 +259,7 @@ class ServicioFirmas:
                 .where(
                     Documento.es_vigente.is_(True),
                     or_(
-                        Documento.solicitud_id == convenio.solicitud_id,
+                        (Documento.solicitud_id == convenio.solicitud_id if convenio.solicitud_id is not None else false()),
                         Documento.convenio_id == convenio.id,
                     ),
                 )
@@ -411,7 +411,10 @@ class ServicioFirmas:
         self.db.add_all([historial, proceso])
         try:
             self.db.flush()
-            tipo_solicitante = contexto.convenio.solicitud.tipo_solicitante
+            tipo_solicitante = (
+                contexto.convenio.solicitud.tipo_solicitante
+                if contexto.convenio.solicitud is not None else None
+            )
             parte_solicitante = (
                 ParteFirmaConvenio.UNIDAD_SOLICITANTE
                 if tipo_solicitante == TipoSolicitante.INTERNO.value

@@ -19,6 +19,7 @@ from backend.models.enums import (
     EstadoRevisionConvenio,
     EstadoSolicitud,
     ModalidadFirma,
+    OrigenConvenio,
     OrigenObservacionRevision,
     ParteFirmaConvenio,
     ResultadoRevisionConvenio,
@@ -51,12 +52,20 @@ class ConvenioCrear(ConvenioCamposEditables):
     objeto: str = Field(min_length=1)
 
 
+class ConvenioCrearManual(ConvenioCamposEditables):
+    """Creación directa ORI: nunca se acepta solicitud_id del cliente."""
+
+    model_config = ConfigDict(extra="forbid")
+    aliado_id: int | None = Field(default=None, ge=1)
+
+
 class ConvenioElaboracionActualizar(BaseModel):
-    """Campos que HU-12 permite modificar durante Elaboración."""
+    """Campos editables durante elaboración, incluido aliado opcional de HU-10."""
 
     model_config = ConfigDict(extra="forbid")
 
     tipo_convenio_id: int | None = None
+    aliado_id: int | None = Field(default=None, ge=1)
     objeto: str | None = None
     alcance: AlcanceConvenio | None = None
     unidad_organizacional_id: int | None = None
@@ -95,7 +104,8 @@ class ConvenioLeer(ConvenioCamposEditables):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    solicitud_id: int
+    solicitud_id: int | None
+    origen: OrigenConvenio
     aliado_id: int | None
     etapa_actual_id: int | None
     plantilla_origen_id: int | None
@@ -218,7 +228,7 @@ class SolicitudAntecedenteLeer(BaseModel):
 class ConvenioElaboracionLeer(ConvenioLeer):
     """Vista de la etapa de Elaboración: el convenio más su antecedente."""
 
-    solicitud: SolicitudAntecedenteLeer
+    solicitud: SolicitudAntecedenteLeer | None
     etapa_actual: EtapaResumen | None
     tipo_convenio: TipoConvenioResumen | None
     unidad_organizacional: UnidadOrganizacionalResumen | None
@@ -325,7 +335,7 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     revision_id: int
     convenio_id: int
     codigo_convenio: str | None
-    solicitud_consecutivo: str
+    solicitud_consecutivo: str | None
     objeto: str | None
     tipo_convenio: TipoConvenioResumen | None
     responsable: UsuarioResumen
