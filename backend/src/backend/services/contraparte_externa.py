@@ -12,6 +12,7 @@ from backend.models.convenio import Convenio
 from backend.models.enums import (
     EstadoObservacionRevision,
     EstadoRevisionConvenio,
+    OrigenConvenio,
     OrigenObservacionRevision,
     ResultadoRevisionConvenio,
     TipoRevisionConvenio,
@@ -180,7 +181,10 @@ class ServicioContraparteExterna:
         if invitacion.expira_en <= ahora:
             raise EnlaceContraparteError("ENLACE_EXPIRADO")
         if (
-            invitacion.revocado_en is not None
+            # El FIX de HU-14 reserva las solicitudes al Solicitante autenticado;
+            # reactivar el router para HU-10 no debe reactivar enlaces históricos.
+            convenio.origen != OrigenConvenio.MANUAL_ORI.value
+            or invitacion.revocado_en is not None
             or invitacion.utilizado_en is not None
             or revision.tipo != TipoRevisionConvenio.CONTRAPARTE.value
             or revision.estado != EstadoRevisionConvenio.PENDIENTE.value
@@ -190,7 +194,11 @@ class ServicioContraparteExterna:
         ):
             raise EnlaceContraparteError("ENLACE_NO_DISPONIBLE")
         version = self.db.get(VersionConvenio, revision.version_convenio_id)
-        if version is None or version.convenio_id != convenio.id:
+        if (
+            version is None
+            or version.convenio_id != convenio.id
+            or version.numero != convenio.version_actual
+        ):
             raise EnlaceContraparteError("ENLACE_NO_DISPONIBLE")
         return ContextoAccesoContraparte(
             convenio=convenio,

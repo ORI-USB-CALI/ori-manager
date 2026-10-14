@@ -93,6 +93,8 @@ ENTIDAD_CONVENIO = "convenio"
 # Campos del proyecto de convenio que se congelan al entregarlo a Jurídica. No se
 # incluyen datos de etapas posteriores (fecha_firma, porcentaje_avance) ni objetos
 # ORM: el snapshot es el estado exacto de lo presentado, nada más.
+# HU-10 congela también el origen para trazabilidad. Los JSONB históricos sin
+# esta clave conservan su contrato original y no se completan ni reescriben.
 CAMPOS_SNAPSHOT = (
     "codigo",
     "solicitud_id",
