@@ -52,7 +52,8 @@ export interface AliadoPerfil extends Aliado {
 export interface Convenio {
   id: number
   codigo: string | null
-  solicitud_id: number
+  solicitud_id: number | null
+  origen: 'SOLICITUD' | 'MANUAL_ORI'
   aliado_id: number | null
   aliado: Pick<Aliado, 'id' | 'nombre' | 'identificacion' | 'activo'> | null
   tipo_convenio_id: number | null
@@ -193,7 +194,7 @@ export interface UnidadOrganizacionalResumen {
 }
 
 export interface ElaboracionConvenio extends Convenio {
-  solicitud: SolicitudAntecedente
+  solicitud: SolicitudAntecedente | null
   etapa_actual: EtapaResumen | null
   tipo_convenio: TipoConvenioResumen | null
   unidad_organizacional: UnidadOrganizacionalResumen | null

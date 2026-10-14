@@ -11,12 +11,13 @@ import {
   useCatalogosElaboracion,
   useElaboracionConvenio,
   useVersionesConvenio,
+  useAliados,
 } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 
 const ETAPA_ELABORACION = 'ELABORACION'
 const CAMPOS = [
-  'tipo_convenio_id', 'objeto', 'alcance', 'unidad_organizacional_id',
+  'tipo_convenio_id', 'objeto', 'alcance', 'unidad_organizacional_id', 'aliado_id',
   'implicacion_financiera', 'duracion_meses', 'fecha_inicio', 'fecha_vencimiento',
 ] as const
 
@@ -79,9 +80,9 @@ function contextoVersion(contexto: string) {
 
 function valoresMetadata(formulario: HTMLFormElement): Record<string, string | number | null> {
   const form = new FormData(formulario)
-  return Object.fromEntries(CAMPOS.map((campo) => {
+  return Object.fromEntries(CAMPOS.filter((campo) => campo !== 'aliado_id' || form.has('aliado_id')).map((campo) => {
     const bruto = String(form.get(campo) ?? '').trim()
-    const numerico = campo === 'tipo_convenio_id'
+    const numerico = campo === 'aliado_id' || campo === 'tipo_convenio_id'
       || campo === 'unidad_organizacional_id'
       || campo === 'duracion_meses'
     return [campo, numerico ? (bruto ? Number(bruto) : null) : (bruto || null)]
@@ -119,6 +120,7 @@ export function ConvenioElaboracionPage() {
   const id = Number(useParams().convenioId)
   const elaboracion = useElaboracionConvenio(id)
   const catalogos = useCatalogosElaboracion()
+  const aliados = useAliados(true)
   const versiones = useVersionesConvenio(id)
   const historial = useQuery({
     queryKey: ['convenio', id, 'historial'],
@@ -238,7 +240,7 @@ export function ConvenioElaboracionPage() {
         <h1>Proyecto de convenio {datos.codigo ?? `#${datos.id}`}</h1>
         <p>
           <span className="badge">{datos.etapa_actual?.nombre ?? datos.estado}</span>
-          {' · '}Versión {datos.version_actual} · Solicitud {datos.solicitud.consecutivo}
+          {' · '}Versión {datos.version_actual} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
         </p>
       </section>
 
@@ -371,7 +373,22 @@ export function ConvenioElaboracionPage() {
                   </ul>
                 </div>
               )}
+              {datos.origen === 'MANUAL_ORI' && (
+                <p className="section-help">Creado manualmente por {datos.creado_por.nombre_completo} el {fechaHora(datos.creado_en)}.</p>
+              )}
               <div className="datos-clave-campos">
+                {datos.origen === 'MANUAL_ORI' && (
+                  <label className="form-group">Aliado / contraparte (puedes definirlo durante la elaboración)
+                    <select className="form-control select" name="aliado_id" defaultValue={datos.aliado_id ?? ''} disabled={!editable}>
+                      <option value="">Por definir</option>
+                      {aliados.data?.items.map((aliado) => <option key={aliado.id} value={aliado.id}>{aliado.nombre}</option>)}
+                      {datos.aliado && !aliados.data?.items.some((aliado) => aliado.id === datos.aliado_id) && (
+                        <option value={datos.aliado.id}>{datos.aliado.nombre}</option>
+                      )}
+                    </select>
+                    {errores.aliado_id && <span className="form-error">{errores.aliado_id}</span>}
+                  </label>
+                )}
                 <label className="form-group">Tipo de convenio
                   <select className="form-control select" name="tipo_convenio_id" defaultValue={datos.tipo_convenio_id ?? ''} disabled={!editable}>
                     <option value="">Seleccione</option>
