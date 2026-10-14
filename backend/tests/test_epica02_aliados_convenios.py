@@ -2,12 +2,13 @@ from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
+from backend.models.auditoria import Auditoria
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
@@ -22,11 +23,14 @@ from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
+from backend.models.version_convenio import VersionConvenio
 from backend.services.aliados import (
     resolver_aliado_existente_para_solicitud,
     resolver_aliado_para_convenio,
 )
+from backend.services.convenios import ServicioConvenios
 
 
 @pytest.fixture
@@ -518,16 +522,136 @@ def test_hu05_404_403_y_401(client, crear_usuario, entrar_como) -> None:
 
 
 # HU06 CA-01 a CA-08: registro, consulta, edición y permisos.
+RESERVADOS_CREACION = {
+    "convenio_origen_id": 1,
+    "numero_renovacion": 3,
+    "fecha_firma": "2026-10-13",
+    "porcentaje_avance": 100,
+    "origen": "MANUAL_ORI",
+    "estado": "VIGENTE",
+    "etapa_actual_id": 1,
+    "creado_por_id": 1,
+    "responsable_id": 1,
+    "aliado_id": 1,
+    "version_actual": 7,
+}
+CASOS_RESERVADOS_CREACION = [
+    pytest.param({campo: valor}, id=campo) for campo, valor in RESERVADOS_CREACION.items()
+] + [
+    pytest.param({campo: None}, id=f"{campo}-nulo") for campo in RESERVADOS_CREACION
+] + [
+    pytest.param({k: RESERVADOS_CREACION[k] for k in ("convenio_origen_id", "numero_renovacion")}, id="renovacion"),
+    pytest.param({k: RESERVADOS_CREACION[k] for k in ("fecha_firma", "porcentaje_avance")}, id="firma-avance"),
+    pytest.param({k: None for k in ("convenio_origen_id", "numero_renovacion", "fecha_firma", "porcentaje_avance")}, id="renovacion-firma-nulos"),
+    pytest.param(RESERVADOS_CREACION, id="todos"),
+]
+
+
+def _conteos_creacion(db):
+    return {
+        modelo.__tablename__: db.scalar(select(func.count()).select_from(modelo))
+        for modelo in (Convenio, VersionConvenio, HistorialEtapa, Auditoria, SolicitudConvenio, Aliado)
+    }
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI])
+@pytest.mark.parametrize("campos", CASOS_RESERVADOS_CREACION)
+def test_creacion_solicitud_rechaza_reservados_sin_escrituras(
+    db, client, crear_usuario, entrar_como, crear_solicitud, rol, campos,
+):
+    actor = _autenticar(client, crear_usuario, entrar_como, rol)
+    solicitud = crear_solicitud(actor)
+    datos = dict(campos)
+    if datos.get("convenio_origen_id") is not None:
+        # Un origen existente evita confundir rechazo de contrato con un FK inválido.
+        origen = _crear_convenio(db, crear_solicitud(actor), actor)
+        datos["convenio_origen_id"] = origen.id
+    antes = _conteos_creacion(db)
+    estado_solicitud = {c.name: getattr(solicitud, c.name) for c in SolicitudConvenio.__table__.columns}
+    respuesta = client.post("/api/convenios", json={**_payload_convenio(solicitud.id), **datos})
+    assert respuesta.status_code == 422, respuesta.text
+    errores = respuesta.json()["detail"]
+    assert {tuple(e["loc"]) for e in errores} == {("body", campo) for campo in datos}
+    assert all(e["type"] == "extra_forbidden" for e in errores)
+    assert _conteos_creacion(db) == antes
+    db.refresh(solicitud)
+    assert {c.name: getattr(solicitud, c.name) for c in SolicitudConvenio.__table__.columns} == estado_solicitud
+
+
+def test_contrato_http_creacion_solicitud_tiene_lista_publica_explicita(client):
+    respuesta = client.get("/openapi.json")
+    assert respuesta.status_code == 200
+    openapi = respuesta.json()
+    operacion = openapi["paths"]["/api/convenios"]["post"]
+    referencia = operacion["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    esquema = openapi["components"]["schemas"][referencia.rsplit("/", 1)[-1]]
+    assert esquema["additionalProperties"] is False
+    assert set(esquema["required"]) == {"solicitud_id", "objeto"}
+    assert set(esquema["properties"]) == {
+        "solicitud_id", "codigo", "tipo_convenio_id", "objeto", "alcance",
+        "unidad_organizacional_id", "implicacion_financiera", "fecha_inicio",
+        "fecha_vencimiento", "duracion_meses",
+    }
+    lectura_ref = operacion["responses"]["201"]["content"]["application/json"]["schema"]["$ref"]
+    lectura = openapi["components"]["schemas"][lectura_ref.rsplit("/", 1)[-1]]
+    assert {"fecha_firma", "porcentaje_avance", "convenio_origen_id", "numero_renovacion"} <= set(lectura["properties"])
+
+
+@pytest.mark.parametrize("ruta", ["crear", "iniciar"])
+@pytest.mark.parametrize("punto", ["version", "commit"])
+def test_creacion_solicitud_revierte_escrituras_si_falla_version_o_commit(
+    db, client, crear_usuario, entrar_como, crear_solicitud, monkeypatch, ruta, punto,
+):
+    actor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    solicitud = crear_solicitud(actor)
+    antes = _conteos_creacion(db)
+    crear_version = ServicioConvenios._crear_version
+
+    def fallar_commit():
+        raise SQLAlchemyError("Fallo transaccional simulado")
+
+    def crear_version_y_fallar(*args, **kwargs):
+        crear_version(*args, **kwargs)
+        raise SQLAlchemyError("Fallo transaccional simulado")
+
+    if punto == "version":
+        monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_version_y_fallar)
+    else:
+        monkeypatch.setattr(db, "commit", fallar_commit)
+    with pytest.raises(SQLAlchemyError, match="Fallo transaccional simulado"):
+        if ruta == "crear":
+            client.post("/api/convenios", json=_payload_convenio(solicitud.id))
+        else:
+            client.post(f"/api/solicitudes/recibidas/{solicitud.id}/iniciar-elaboracion")
+    assert _conteos_creacion(db) == antes
+    db.refresh(solicitud)
+    assert solicitud.estado == EstadoSolicitud.APROBADA.value
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI])
 def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
-    db, client, crear_usuario, entrar_como, crear_solicitud
+    db, client, crear_usuario, entrar_como, crear_solicitud, rol,
 ) -> None:
-    gestor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
+    gestor = _autenticar(client, crear_usuario, entrar_como, rol)
     solicitud = crear_solicitud(gestor)
-    respuesta = client.post("/api/convenios", json=_payload_convenio(solicitud.id))
+    datos = {
+        **_payload_convenio(solicitud.id),
+        "codigo": f"CONV-PUBLICO-{gestor.id}",
+        "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
+        "unidad_organizacional_id": None,
+        "implicacion_financiera": "Sin costo",
+        "fecha_inicio": "2026-01-01", "fecha_vencimiento": "2028-01-01",
+        "duracion_meses": 24,
+    }
+    respuesta = client.post("/api/convenios", json=datos)
     assert respuesta.status_code == 201
     cuerpo = respuesta.json()
+    assert {campo: cuerpo[campo] for campo in datos} == datos
     assert cuerpo["id"] > 0
     assert cuerpo["aliado_id"] is None
+    assert cuerpo["origen"] == "SOLICITUD"
+    assert cuerpo["solicitud_id"] == solicitud.id
+    assert all(cuerpo[c] is None for c in ("fecha_firma", "porcentaje_avance", "convenio_origen_id", "numero_renovacion"))
     assert cuerpo["estado"] == EstadoConvenio.EN_TRAMITE
     assert cuerpo["creado_por_id"] == gestor.id
     assert cuerpo["creado_por"]["id"] == gestor.id
@@ -553,6 +677,15 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
     assert historial.usuario_id == gestor.id
     assert historial.responsable_id == gestor.id
     assert historial.observacion is None
+    version = db.scalar(select(VersionConvenio).where(VersionConvenio.convenio_id == convenio.id))
+    assert version.numero == convenio.version_actual == 1
+    assert version.autor_id == gestor.id
+    assert version.etapa_id == elaboracion.id
+    assert version.contexto == "INICIALIZACION"
+    assert version.contenido["type"] == "doc"
+    assert version.snapshot_metadata["origen"] == "SOLICITUD"
+    assert version.snapshot_metadata["convenio_origen_id"] is None
+    assert version.snapshot_metadata["numero_renovacion"] is None
     assert (
         db.scalar(
             select(ObservacionRevision).where(

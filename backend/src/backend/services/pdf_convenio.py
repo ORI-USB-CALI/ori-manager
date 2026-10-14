@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.models.convenio import Convenio
-from backend.models.enums import RolFirmanteConvenio
+from backend.models.enums import OrigenConvenio, RolFirmanteConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.version_convenio import VersionConvenio
@@ -42,6 +42,10 @@ from backend.services.validador_exportacion_convenio import (
     proceso_firmas_de_version,
     version_contractual,
 )
+
+# Los antecedentes exclusivos de solicitudes no están pendientes de completar
+# cuando el convenio fue creado directamente por ORI.
+NO_APLICA_CREACION_MANUAL = "No aplica (creación directa ORI)"
 
 # Nombres amigables para los roles institucionales
 ETIQUETAS_ROL: dict[str, str] = {
@@ -164,6 +168,11 @@ class ServicioPdfConvenio:
         solicitud = convenio.solicitud
         aliado = convenio.aliado
         solicitante = solicitud.solicitante if solicitud else None
+        sin_antecedente = (
+            NO_APLICA_CREACION_MANUAL
+            if convenio.origen == OrigenConvenio.MANUAL_ORI.value
+            else INFORMACION_NO_DISPONIBLE
+        )
 
         # Solo la versión que indica el convenio y los firmantes del proceso de
         # esa versión: lo mismo que validó ConvenioExportValidator.
@@ -203,18 +212,18 @@ class ServicioPdfConvenio:
             }
         else:
             aliado_datos = {
-                "aliado_nombre": solicitud.nombre_aliado_propuesto,
-                "aliado_tipo": solicitud.tipo_aliado_propuesto,
-                "aliado_identificacion": solicitud.identificacion_aliado_propuesto,
-                "aliado_pais": solicitud.pais_aliado_propuesto,
-                "aliado_ciudad": solicitud.ciudad_aliado_propuesto,
+                "aliado_nombre": solicitud.nombre_aliado_propuesto if solicitud else None,
+                "aliado_tipo": solicitud.tipo_aliado_propuesto if solicitud else None,
+                "aliado_identificacion": solicitud.identificacion_aliado_propuesto if solicitud else None,
+                "aliado_pais": solicitud.pais_aliado_propuesto if solicitud else None,
+                "aliado_ciudad": solicitud.ciudad_aliado_propuesto if solicitud else None,
             }
 
         return ConvenioPdfDTO(
             convenio_id=convenio.id,
             modo_emision=modo,
             codigo=convenio.codigo,
-            solicitud_consecutivo=solicitud.consecutivo,
+            solicitud_consecutivo=solicitud.consecutivo if solicitud else sin_antecedente,
             tipo_convenio=_o_no_disponible(
                 convenio.tipo_convenio.nombre if convenio.tipo_convenio else None
             ),
@@ -224,7 +233,7 @@ class ServicioPdfConvenio:
             ),
             alcance=_o_no_disponible(convenio.alcance),
             objeto=_o_no_disponible(convenio.objeto),
-            justificacion=_o_no_disponible(solicitud.justificacion),
+            justificacion=_o_no_disponible(solicitud.justificacion) if solicitud else sin_antecedente,
             implicacion_financiera=_o_no_disponible(convenio.implicacion_financiera),
             fecha_inicio=convenio.fecha_inicio,
             fecha_vencimiento=convenio.fecha_vencimiento,
@@ -233,20 +242,25 @@ class ServicioPdfConvenio:
             version_actual=convenio.version_actual,
             fecha_emision=datetime.now(UTC),
             solicitante_nombre=_o_no_disponible(
-                solicitante.nombre_completo if solicitante else None
+                solicitante.nombre_completo if solicitante else sin_antecedente
             ),
             solicitante_correo=_o_no_disponible(
-                solicitante.correo if solicitante else None
+                solicitante.correo if solicitante else sin_antecedente
             ),
             solicitante_unidad=_o_no_disponible(
                 convenio.unidad_organizacional.nombre
                 if convenio.unidad_organizacional
                 else None
             ),
-            solicitante_tipo=solicitud.tipo_solicitante,
+            solicitante_tipo=solicitud.tipo_solicitante if solicitud else sin_antecedente,
             **{campo: _o_no_disponible(valor) for campo, valor in aliado_datos.items()},
-            aliado_contacto_nombre=_o_no_disponible(solicitud.contacto_contraparte_nombre),
-            aliado_contacto_correo=_o_no_disponible(solicitud.contacto_contraparte_correo),
+            aliado_contacto_nombre=_o_no_disponible(
+                solicitud.contacto_contraparte_nombre if solicitud else None
+            ),
+            aliado_contacto_correo=_o_no_disponible(
+                solicitud.contacto_contraparte_correo
+                if solicitud else (aliado.correo if aliado else None)
+            ),
             secciones_contenido=secciones,
             firmantes=firmantes_dto,
         )

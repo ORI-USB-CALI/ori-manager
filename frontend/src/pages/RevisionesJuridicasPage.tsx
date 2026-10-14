@@ -17,7 +17,7 @@ interface RevisionJuridicaPendiente {
   revision_id: number
   convenio_id: number
   codigo_convenio: string | null
-  solicitud_consecutivo: string
+  solicitud_consecutivo: string | null
   objeto: string | null
   tipo_convenio: { id: number; nombre: string } | null
   responsable: { id: number; nombre_completo: string; correo: string }
@@ -69,7 +69,7 @@ export function RevisionesJuridicasPage() {
 
   const columns: DataTableColumn<RevisionJuridicaPendiente>[] = [
     { id: 'convenio', header: 'Convenio', render: (item) => <strong>{item.codigo_convenio ?? `#${item.convenio_id}`}</strong> },
-    { id: 'solicitud', header: 'Solicitud origen', render: (item) => item.solicitud_consecutivo },
+    { id: 'solicitud', header: 'Solicitud origen', render: (item) => item.solicitud_consecutivo ?? 'Creación directa ORI' },
     { id: 'objeto', header: 'Objeto', className: 'table-cell-wide', render: (item) => item.objeto ?? '—' },
     { id: 'tipo', header: 'Tipo convenio', render: (item) => item.tipo_convenio?.nombre ?? '—' },
     { id: 'revision', header: 'Revisión', render: (item) => item.instancia_juridica ? `${item.instancia_juridica} de 2` : 'Legacy' },

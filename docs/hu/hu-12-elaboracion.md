@@ -31,6 +31,27 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+### HU-10, bloque 4A: exportación sin solicitud de origen
+
+`GET /api/convenios/{id}/exportar?formato=pdf|excel` admite convenios
+`MANUAL_ORI` con `solicitud_id=NULL`. Sus antecedentes exclusivos de solicitud
+se muestran como «No aplica (creación directa ORI)». Se conservan los datos
+reales del convenio y del aliado; el correo del aliado se utiliza cuando no
+existe una solicitud y no se supone el nombre de una persona de contacto.
+
+El borrador exige objeto, entidad y contenido documental válido. La exportación
+oficial mantiene además sus requisitos de código, vigencia, tipo y representantes
+de la versión contractual. Un manual sin aliado devuelve HTTP 422 con
+`CONVENIO_INCOMPLETO` y `entidad_participante`; la ausencia legítima de solicitud
+no es un campo pendiente. Para `SOLICITUD` se conservan los antecedentes y la
+contraparte propuesta cuando corresponda. Los permisos y el modo de emisión
+permanecen sin cambios.
+
+Regresión automática: `backend/tests/test_hu10_exportacion.py`, con archivos PDF
+y Excel reales, ambos orígenes, borrador/oficial, validación de faltantes y
+protección frente a fórmulas en Excel. Reutiliza los fixtures del diagnóstico
+`backend/tests/diagnostico_hu10_ciclo_vida.py`, que se conserva como evidencia.
+
 - [Inventario de estados de HU](../product/estado-hu-2026-10-13.md).
 - [Centro de evidencias QA](https://drive.google.com/drive/folders/12aOj3os-8IVkqfuDmK2E85NWJABSQg8j).
 - Archivo original en export de Historias de Usuario: `HU-12 — Elaborar el proyecto de convenio 3d369ca9cb408024ada5e9584a467c87.md`.

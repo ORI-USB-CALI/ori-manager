@@ -44,7 +44,8 @@ def formalizar(db: Session, crear_convenio) -> Callable[..., Convenio]:
         estado: EstadoConvenio = EstadoConvenio.VIGENTE,
         **cambios,
     ) -> Convenio:
-        convenio = crear_convenio(autor, fecha_firma=fecha_firma, **cambios)
+        convenio = crear_convenio(autor, **cambios)
+        convenio.fecha_firma = fecha_firma
         convenio.estado = estado.value
         db.commit()
         db.refresh(convenio)

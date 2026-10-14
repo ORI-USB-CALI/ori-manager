@@ -723,14 +723,16 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     assert revision.historial_etapa_id == transicion.id
 
 
-def test_ca08_snapshot_congela_los_trece_campos(client, db, convenio_listo) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+def test_ca08_snapshot_congela_los_catorce_campos(client, db, convenio_listo) -> None:
+    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    assert respuesta.status_code == 200, respuesta.text
 
     snapshot = _revisiones_de(db, convenio_listo.id)[0].snapshot_datos
 
     assert set(snapshot) == {
         "codigo",
         "solicitud_id",
+        "origen",
         "aliado_id",
         "tipo_convenio_id",
         "objeto",
@@ -744,6 +746,7 @@ def test_ca08_snapshot_congela_los_trece_campos(client, db, convenio_listo) -> N
         "numero_renovacion",
     }
     assert snapshot["objeto"] == convenio_listo.objeto
+    assert snapshot["origen"] == "SOLICITUD"
     assert snapshot["duracion_meses"] == 24
     assert snapshot["fecha_inicio"] == "2026-01-01"
     # Los nulos se conservan como nulos, no se omiten ni se rellenan.

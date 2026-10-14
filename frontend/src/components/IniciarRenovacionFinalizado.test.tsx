@@ -11,6 +11,7 @@ import { type Convenio } from '../pages/epica02'
 import { IniciarRenovacionFinalizado } from './IniciarRenovacionFinalizado'
 
 const convenio: Convenio = {
+  origen: 'SOLICITUD',
   id: 41, codigo: 'CON-FINALIZADO', solicitud_id: 1, aliado_id: null, aliado: null,
   tipo_convenio_id: null, etapa_actual_id: null, plantilla_origen_id: null,
   version_actual: 3, estado: 'FINALIZADO', objeto: 'Movilidad académica', alcance: null,
