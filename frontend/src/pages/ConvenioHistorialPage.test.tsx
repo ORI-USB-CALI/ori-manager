@@ -71,6 +71,9 @@ describe('ConvenioHistorialPage', () => {
   it('muestra el historial a un Revisor con acceso histórico aunque no tenga acceso operativo', async () => {
     const fetch = vi.fn(async (url: string) => {
       if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
+      if (url === '/api/convenios/41/linea-tiempo') {
+        return respuesta(200, [{ codigo: 'INICIO_ELABORACION', nombre: 'Inicio de elaboración', fecha: '2026-09-30T13:00:00Z', estado: 'COMPLETADO' }])
+      }
       return respuesta(404, { detail: 'Convenio no encontrado' })
     })
     vi.stubGlobal('fetch', fetch)
@@ -89,12 +92,17 @@ describe('ConvenioHistorialPage', () => {
       </QueryClientProvider>,
     )
 
+    const lineaTiempo = screen.getByRole('region', { name: 'Línea de tiempo' })
+    expect(await within(lineaTiempo).findByText('Inicio de elaboración')).toBeTruthy()
     const seccion = await screen.findByRole('region', { name: 'Observaciones jurídicas' })
+    expect(lineaTiempo.compareDocumentPosition(seccion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(seccion).getByText('Precisar el objeto del convenio')).toBeTruthy()
     expect(within(seccion).getByText('Objeto precisado con las actividades')).toBeTruthy()
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/convenios/41/evaluacion', expect.anything()))
     await waitFor(() => expect(screen.queryByText('Cargando evaluación del convenio…')).toBeNull())
     expect(screen.queryByRole('alert')).toBeNull()
     expect(fetch).not.toHaveBeenCalledWith('/api/convenios/41', expect.anything())
+    // Sin solicitudId la página no consulta las versiones de la solicitud.
+    expect(fetch.mock.calls.some(([url]) => url.includes('/solicitudes/'))).toBe(false)
   })
 })

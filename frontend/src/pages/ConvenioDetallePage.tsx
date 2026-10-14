@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { type KeyboardEvent, useRef, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
@@ -10,8 +10,8 @@ import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
 import { ExportarConvenioMenu } from '../components/ExportarConvenioMenu'
+import { HistorialConvenioContenido } from '../components/HistorialConvenioContenido'
 import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFinalizado'
-import { LineaTiempoConvenio } from '../components/LineaTiempoConvenio'
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import { SoportesConvenio } from '../components/SoportesConvenio'
@@ -66,8 +66,45 @@ function esConflictoVersion(error: unknown): error is ApiError {
   return 'expected_version' in error.detail && 'current_version' in error.detail
 }
 
+type Pestana = 'resumen' | 'historial'
+
+const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
+  { id: 'resumen', etiqueta: 'Resumen' },
+  { id: 'historial', etiqueta: 'Historial' },
+]
+
 export function ConvenioDetallePage() {
   const id = Number(useParams().convenioId)
+  const [parametros, setParametros] = useSearchParams()
+  const pestana: Pestana = parametros.get('pestana') === 'historial' ? 'historial' : 'resumen'
+  const botonesPestana = useRef<Partial<Record<Pestana, HTMLButtonElement | null>>>({})
+
+  function cambiarPestana(nueva: Pestana) {
+    setParametros((actuales) => {
+      const siguientes = new URLSearchParams(actuales)
+      if (nueva === 'historial') siguientes.set('pestana', 'historial')
+      else siguientes.delete('pestana')
+      return siguientes
+    }, { replace: true })
+  }
+
+  // Patrón de pestañas WAI-ARIA con activación automática: las flechas, Inicio y Fin
+  // mueven el foco y seleccionan la pestaña.
+  function navegarPestanas(event: KeyboardEvent<HTMLDivElement>) {
+    const actual = PESTANAS.findIndex((item) => item.id === pestana)
+    const destinos: Record<string, number> = {
+      ArrowRight: (actual + 1) % PESTANAS.length,
+      ArrowLeft: (actual - 1 + PESTANAS.length) % PESTANAS.length,
+      Home: 0,
+      End: PESTANAS.length - 1,
+    }
+    if (!Object.hasOwn(destinos, event.key)) return
+    event.preventDefault()
+    const nueva = PESTANAS[destinos[event.key]].id
+    cambiarPestana(nueva)
+    botonesPestana.current[nueva]?.focus()
+  }
+
   const cliente = useQueryClient()
   const notify = useNotifications()
   const { puede } = useSesion()
@@ -235,131 +272,158 @@ export function ConvenioDetallePage() {
         </div>
       </section>
 
-      <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
+      <div className="pestanas" role="tablist" aria-label="Secciones del convenio" onKeyDown={navegarPestanas}>
+        {PESTANAS.map((item) => (
+          <button
+            key={item.id}
+            ref={(nodo) => { botonesPestana.current[item.id] = nodo }}
+            className="pestana"
+            type="button"
+            role="tab"
+            id={`pestana-${item.id}`}
+            aria-selected={pestana === item.id}
+            aria-controls={`panel-${item.id}`}
+            tabIndex={pestana === item.id ? 0 : -1}
+            onClick={() => cambiarPestana(item.id)}
+          >
+            {item.etiqueta}
+          </button>
+        ))}
+      </div>
 
-      {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isPending || historialContraparte.isPending) && (
-        <p className="estado-pagina">Verificando disponibilidad para envío a contraparte…</p>
-      )}
-      {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isError || historialContraparte.isError) && (
-        <p className="alert-error" role="alert">
-          No fue posible verificar si la elaboración de convenio puede enviarse a contraparte.
-        </p>
-      )}
-      {puedeEnviarContraparte && (
-        <section className="card revision-contraparte-gestion">
-          <div className="revision-contraparte-cabecera">
-            <div>
-              <h2>Revisión de contraparte</h2>
-              <p className="section-help">La versión {datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.</p>
-            </div>
-            <span className="badge badge-neutral">Lista para envío</span>
-          </div>
-          <dl className="proyecto-datos revision-contraparte-datos">
-            <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
-            <dt>Solicitante responsable</dt><dd>{flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'}</dd>
-            <dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</dd>
-          </dl>
-          <div className="page-toolbar">
-            <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending}>
-              Enviar a revisión de contraparte
-            </button>
-          </div>
-        </section>
-      )}
-      {puede('convenios.gestionar_revision_contraparte') && habilitadoParaContraparte && revisionContrapartePendiente && (
-        <section className="card revision-contraparte-gestion">
-          <div className="revision-contraparte-cabecera">
-            <div>
-              <h2>Revisión de contraparte en curso</h2>
-              <p className="section-help">El Solicitante responsable puede aprobar o devolver la versión desde su sesión en ORI Manager.</p>
-            </div>
-            <span className="badge badge-pendiente">Pendiente</span>
-          </div>
-          <dl className="proyecto-datos revision-contraparte-datos">
-            <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
-            <dt>Solicitante responsable</dt><dd>{revisionContrapartePendiente.responsable?.nombre_completo ?? '—'}</dd>
-            <dt>Correo</dt><dd>{revisionContrapartePendiente.responsable?.correo ?? '—'}</dd>
-            <dt>Enviado por</dt><dd>{revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</dd>
-            <dt>Fecha de envío</dt><dd>{fecha(revisionContrapartePendiente.creado_en)}</dd>
-          </dl>
-        </section>
-      )}
-
-      {puede('convenios.gestionar_firmas') && etapaActual === 'REVISION_FINAL' && (
-        <RevisionFinalConvenio convenioId={id} />
-      )}
-      {puede('convenios.gestionar_firmas')
-        && (etapaActual === 'APROBACION_FIRMAS' || etapaActual === 'FIRMA_ARCHIVO_SEGUIMIENTO') && (
-        <SeguimientoFirmasConvenio convenioId={id} />
-      )}
-
-      {puede('convenios.revisar') && consultaRevision.isPending && <p className="estado-pagina">Cargando revisión jurídica…</p>}
-      {puede('convenios.revisar') && etapaActual === 'REVISION_AVAL_JURIDICO' && consultaRevision.data && revision && contenido ? (
-        <div className="revision-workspace">
-          <main className="card revision-documento">
-            <div className="editor-cabecera">
-              <div><h2>Documento jurídico</h2><p className="section-help">Edita directamente el proyecto que estás revisando.</p></div>
-              {borrador && <span className="badge badge-pendiente">Cambios sin guardar</span>}
-            </div>
-            <ConvenioEditor key={versionActual} contenido={contenido} editable onChange={(nuevo) => setBorrador({ version: versionActual!, contenido: nuevo })} />
-          </main>
-
-          <aside className="revision-panel">
-            <section className="card proyecto-resumen">
-              <h2>Revisión jurídica {revision.instancia_juridica} de 2</h2>
-              <p className="revision-ronda">Ronda {revision.numero_ronda}</p>
-              <dl className="proyecto-datos">
-                <dt>Versión recibida</dt><dd>{consultaRevision.data.version_recibida.numero}</dd>
-                <dt>Versión actual</dt><dd>{versionActual}</dd>
-                <dt>Recibida el</dt><dd>{fecha(revision.creado_en)}</dd>
-              </dl>
-              <button className="btn btn-outline btn-block" type="button" disabled={!borrador || guardar.isPending} onClick={() => guardar.mutate()}>{guardar.isPending ? 'Guardando…' : 'Guardar cambios'}</button>
-            </section>
-
-            <section className="card">
-              <h2>Observaciones de la revisión</h2>
-              {revision.observaciones.length === 0 && <p className="section-help">Aún no se han registrado observaciones.</p>}
-              <div className="revision-observaciones">
-                {revision.observaciones.map((item) => <article key={item.id}><p>{item.descripcion}</p><small>{item.registrada_por.nombre_completo} · {fecha(item.creado_en)}</small></article>)}
-              </div>
-              <label className="form-group" htmlFor="nueva-observacion"><span className="form-label">Nueva observación</span><textarea id="nueva-observacion" className="form-control" value={observacion} onChange={(event) => setObservacion(event.target.value)} /></label>
-              <button className="btn btn-outline btn-block" type="button" disabled={Boolean(borrador) || !observacionSinRegistrar || agregarObservacion.isPending} onClick={() => agregarObservacion.mutate()}>+ Agregar observación</button>
-              {borrador && <small>Guarda los cambios del documento antes de registrar una observación.</small>}
-            </section>
-
-            <section className="card">
-              <h2>Documentos asociados</h2>
-              {consultaRevision.data.documentos.length === 0 && <p className="section-help">No hay documentos vigentes asociados.</p>}
-              {consultaRevision.data.documentos.map((doc) => <div className="document-row" key={doc.id}><span><strong>{doc.tipo}</strong><br />{doc.nombre_archivo} · {tamanoLegible(doc.tamano_bytes)}</span><a className="btn btn-outline btn-small" href={`/api/convenios/${id}/documentos/${doc.id}/contenido`} target="_blank" rel="noreferrer">Ver</a></div>)}
-            </section>
-
-            <section className="card revision-decision">
-              <h2>Decisión</h2>
-              <button className="btn btn-primary btn-block" type="button" disabled={Boolean(borrador) || observacionSinRegistrar || agregarObservacion.isPending || observacionesPendientes.length > 0 || resolver.isPending} onClick={() => resolver.mutate('aprobar')}>Aprobar revisión</button>
-              <button className="btn btn-outline btn-block" type="button" disabled={Boolean(borrador) || observacionSinRegistrar || agregarObservacion.isPending || observacionesPendientes.length === 0 || resolver.isPending} onClick={() => resolver.mutate('devolver')}>Devolver a Elaboración</button>
-              {borrador && <small>Guarda los cambios antes de registrar la decisión.</small>}
-              {observacionSinRegistrar && <small>Registra o elimina la observación escrita antes de tomar una decisión.</small>}
-              {observacionesPendientes.length > 0 && <small>Las observaciones pendientes impiden aprobar y permiten devolver el proyecto.</small>}
-            </section>
-          </aside>
+      {pestana === 'historial' && (
+        <div className="panel-pestana" role="tabpanel" id="panel-historial" aria-labelledby="pestana-historial">
+          <HistorialConvenioContenido convenioId={id} solicitudId={datos.solicitud_id} />
         </div>
-      ) : (
-        <>
-          <div className="page-toolbar">
-            {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Continuar elaboración</Link>}
-          </div>
-          <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
-          <SoportesConvenio
-            convenioId={id}
-            estadoConvenio={datos.estado}
-            puedeGestionarSoportes={puede('convenios.gestionar_soportes')}
-          />
-        </>
       )}
-      <LineaTiempoConvenio convenioId={id} />
-      <EvaluacionConvenio convenioId={id} permitirRegistro />
-      <ActividadesUtilizacionConvenio convenioId={datos.id} estado={datos.estado} />
-      <div className="page-toolbar"><Link className="btn btn-outline" to={`/convenios/${datos.id}/historial`}>Ver historial y trazabilidad</Link></div>
+
+      {pestana === 'resumen' && (
+        <div className="panel-pestana" role="tabpanel" id="panel-resumen" aria-labelledby="pestana-resumen">
+          <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
+
+          {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isPending || historialContraparte.isPending) && (
+            <p className="estado-pagina">Verificando disponibilidad para envío a contraparte…</p>
+          )}
+          {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isError || historialContraparte.isError) && (
+            <p className="alert-error" role="alert">
+              No fue posible verificar si la elaboración de convenio puede enviarse a contraparte.
+            </p>
+          )}
+          {puedeEnviarContraparte && (
+            <section className="card revision-contraparte-gestion">
+              <div className="revision-contraparte-cabecera">
+                <div>
+                  <h2>Revisión de contraparte</h2>
+                  <p className="section-help">La versión {datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.</p>
+                </div>
+                <span className="badge badge-neutral">Lista para envío</span>
+              </div>
+              <dl className="proyecto-datos revision-contraparte-datos">
+                <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
+                <dt>Solicitante responsable</dt><dd>{flujoContraparte.data?.solicitud.solicitante_nombre ?? '—'}</dd>
+                <dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud.solicitante_correo ?? '—'}</dd>
+              </dl>
+              <div className="page-toolbar">
+                <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending}>
+                  Enviar a revisión de contraparte
+                </button>
+              </div>
+            </section>
+          )}
+          {puede('convenios.gestionar_revision_contraparte') && habilitadoParaContraparte && revisionContrapartePendiente && (
+            <section className="card revision-contraparte-gestion">
+              <div className="revision-contraparte-cabecera">
+                <div>
+                  <h2>Revisión de contraparte en curso</h2>
+                  <p className="section-help">El Solicitante responsable puede aprobar o devolver la versión desde su sesión en ORI Manager.</p>
+                </div>
+                <span className="badge badge-pendiente">Pendiente</span>
+              </div>
+              <dl className="proyecto-datos revision-contraparte-datos">
+                <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
+                <dt>Solicitante responsable</dt><dd>{revisionContrapartePendiente.responsable?.nombre_completo ?? '—'}</dd>
+                <dt>Correo</dt><dd>{revisionContrapartePendiente.responsable?.correo ?? '—'}</dd>
+                <dt>Enviado por</dt><dd>{revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</dd>
+                <dt>Fecha de envío</dt><dd>{fecha(revisionContrapartePendiente.creado_en)}</dd>
+              </dl>
+            </section>
+          )}
+
+          {puede('convenios.gestionar_firmas') && etapaActual === 'REVISION_FINAL' && (
+            <RevisionFinalConvenio convenioId={id} />
+          )}
+          {puede('convenios.gestionar_firmas')
+            && (etapaActual === 'APROBACION_FIRMAS' || etapaActual === 'FIRMA_ARCHIVO_SEGUIMIENTO') && (
+            <SeguimientoFirmasConvenio convenioId={id} />
+          )}
+
+          {puede('convenios.revisar') && consultaRevision.isPending && <p className="estado-pagina">Cargando revisión jurídica…</p>}
+          {puede('convenios.revisar') && etapaActual === 'REVISION_AVAL_JURIDICO' && consultaRevision.data && revision && contenido ? (
+            <div className="revision-workspace">
+              <main className="card revision-documento">
+                <div className="editor-cabecera">
+                  <div><h2>Documento jurídico</h2><p className="section-help">Edita directamente el proyecto que estás revisando.</p></div>
+                  {borrador && <span className="badge badge-pendiente">Cambios sin guardar</span>}
+                </div>
+                <ConvenioEditor key={versionActual} contenido={contenido} editable onChange={(nuevo) => setBorrador({ version: versionActual!, contenido: nuevo })} />
+              </main>
+
+              <aside className="revision-panel">
+                <section className="card proyecto-resumen">
+                  <h2>Revisión jurídica {revision.instancia_juridica} de 2</h2>
+                  <p className="revision-ronda">Ronda {revision.numero_ronda}</p>
+                  <dl className="proyecto-datos">
+                    <dt>Versión recibida</dt><dd>{consultaRevision.data.version_recibida.numero}</dd>
+                    <dt>Versión actual</dt><dd>{versionActual}</dd>
+                    <dt>Recibida el</dt><dd>{fecha(revision.creado_en)}</dd>
+                  </dl>
+                  <button className="btn btn-outline btn-block" type="button" disabled={!borrador || guardar.isPending} onClick={() => guardar.mutate()}>{guardar.isPending ? 'Guardando…' : 'Guardar cambios'}</button>
+                </section>
+
+                <section className="card">
+                  <h2>Observaciones de la revisión</h2>
+                  {revision.observaciones.length === 0 && <p className="section-help">Aún no se han registrado observaciones.</p>}
+                  <div className="revision-observaciones">
+                    {revision.observaciones.map((item) => <article key={item.id}><p>{item.descripcion}</p><small>{item.registrada_por.nombre_completo} · {fecha(item.creado_en)}</small></article>)}
+                  </div>
+                  <label className="form-group" htmlFor="nueva-observacion"><span className="form-label">Nueva observación</span><textarea id="nueva-observacion" className="form-control" value={observacion} onChange={(event) => setObservacion(event.target.value)} /></label>
+                  <button className="btn btn-outline btn-block" type="button" disabled={Boolean(borrador) || !observacionSinRegistrar || agregarObservacion.isPending} onClick={() => agregarObservacion.mutate()}>+ Agregar observación</button>
+                  {borrador && <small>Guarda los cambios del documento antes de registrar una observación.</small>}
+                </section>
+
+                <section className="card">
+                  <h2>Documentos asociados</h2>
+                  {consultaRevision.data.documentos.length === 0 && <p className="section-help">No hay documentos vigentes asociados.</p>}
+                  {consultaRevision.data.documentos.map((doc) => <div className="document-row" key={doc.id}><span><strong>{doc.tipo}</strong><br />{doc.nombre_archivo} · {tamanoLegible(doc.tamano_bytes)}</span><a className="btn btn-outline btn-small" href={`/api/convenios/${id}/documentos/${doc.id}/contenido`} target="_blank" rel="noreferrer">Ver</a></div>)}
+                </section>
+
+                <section className="card revision-decision">
+                  <h2>Decisión</h2>
+                  <button className="btn btn-primary btn-block" type="button" disabled={Boolean(borrador) || observacionSinRegistrar || agregarObservacion.isPending || observacionesPendientes.length > 0 || resolver.isPending} onClick={() => resolver.mutate('aprobar')}>Aprobar revisión</button>
+                  <button className="btn btn-outline btn-block" type="button" disabled={Boolean(borrador) || observacionSinRegistrar || agregarObservacion.isPending || observacionesPendientes.length === 0 || resolver.isPending} onClick={() => resolver.mutate('devolver')}>Devolver a Elaboración</button>
+                  {borrador && <small>Guarda los cambios antes de registrar la decisión.</small>}
+                  {observacionSinRegistrar && <small>Registra o elimina la observación escrita antes de tomar una decisión.</small>}
+                  {observacionesPendientes.length > 0 && <small>Las observaciones pendientes impiden aprobar y permiten devolver el proyecto.</small>}
+                </section>
+              </aside>
+            </div>
+          ) : (
+            <>
+              <div className="page-toolbar">
+                {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Continuar elaboración</Link>}
+              </div>
+              <section className="card"><h2>Información base</h2><dl><dt>Solicitud</dt><dd>#{datos.solicitud_id}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
+              <SoportesConvenio
+                convenioId={id}
+                estadoConvenio={datos.estado}
+                puedeGestionarSoportes={puede('convenios.gestionar_soportes')}
+              />
+            </>
+          )}
+          <EvaluacionConvenio convenioId={id} permitirRegistro />
+          <ActividadesUtilizacionConvenio convenioId={datos.id} estado={datos.estado} />
+        </div>
+      )}
 
       {confirmarEnvio && (
         <ConfirmacionModal
