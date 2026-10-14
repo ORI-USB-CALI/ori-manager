@@ -4,12 +4,13 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from io import BytesIO
+from itertools import product
 from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
 from reportlab.lib.rl_accel import escapePDF
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -34,8 +35,15 @@ URL_EXCEL = "/api/convenios/reportes/estadisticas/excel"
 
 @pytest.fixture
 def crear_pais(db: Session) -> Callable[[str], Pais]:
+    codigos = ("".join(letras) for letras in product("ABCDEFGHIJKLMNOPQRSTUVWXYZ", repeat=2))
+
     def _crear(nombre: str) -> Pais:
-        pais = Pais(codigo_iso=uuid4().hex[:2].upper(), nombre=nombre)
+        for codigo in codigos:
+            if db.scalar(select(Pais.id).where(Pais.codigo_iso == codigo)) is None:
+                break
+        else:
+            raise RuntimeError("No hay códigos de país de dos letras disponibles")
+        pais = Pais(codigo_iso=codigo, nombre=nombre)
         db.add(pais)
         db.commit()
         db.refresh(pais)

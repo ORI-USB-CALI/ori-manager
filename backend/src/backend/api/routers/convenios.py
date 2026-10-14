@@ -96,6 +96,7 @@ from backend.schemas.soporte_convenio import SoporteConvenioLeer
 from backend.services.actividades_utilizacion import ServicioActividadesUtilizacion
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
+    ESTADOS_SIN_FORMALIZAR,
     ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
@@ -321,6 +322,7 @@ def consultar_convenios(
     tipo_contraparte: Annotated[list[TipoAliado] | None, Query()] = None,
     programa_id: Annotated[int | None, Query(ge=1)] = None,
     alcance: Annotated[AlcanceConvenio | None, Query()] = None,
+    solo_formalizados: Annotated[bool, Query()] = False,
 ) -> ConvenioConsultaListado:
     filtros = FiltrosConsultaConvenio(
         buscar=buscar,
@@ -334,6 +336,7 @@ def consultar_convenios(
         tipos_contraparte=tuple(tipo_contraparte) if tipo_contraparte else None,
         programa_id=programa_id,
         alcance=alcance,
+        solo_formalizados=solo_formalizados,
     )
     try:
         items, total = ServicioConvenios(db).consultar(usuario, filtros)
@@ -369,7 +372,11 @@ def obtener_catalogos_elaboracion(
 
 
 @router.get("/catalogos/consulta", response_model=CatalogosConsultaLeer)
-def obtener_catalogos_consulta(db: DatabaseSession, _: PuedeVer) -> CatalogosConsultaLeer:
+def obtener_catalogos_consulta(
+    db: DatabaseSession,
+    _: PuedeVer,
+    solo_formalizados: Annotated[bool, Query()] = False,
+) -> CatalogosConsultaLeer:
     programas = db.scalars(
         select(UnidadOrganizacional)
         .where(
@@ -379,7 +386,10 @@ def obtener_catalogos_consulta(db: DatabaseSession, _: PuedeVer) -> CatalogosCon
         .order_by(UnidadOrganizacional.nombre)
     ).all()
     return CatalogosConsultaLeer(
-        estados=list(EstadoConvenio),
+        estados=[
+            estado for estado in EstadoConvenio
+            if not solo_formalizados or estado.value not in ESTADOS_SIN_FORMALIZAR
+        ],
         tipos_contraparte=list(TipoAliado),
         programas=programas,
     )

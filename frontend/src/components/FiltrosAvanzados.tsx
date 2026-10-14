@@ -59,7 +59,7 @@ export function FiltrosAvanzados({
           ))}
         </div>
         <p className="form-help">
-          Incluye convenios en trámite cuya contraparte todavía no es aliado formal.
+          Filtra los convenios formalizados por el tipo de su contraparte.
         </p>
       </div>
 
