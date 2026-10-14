@@ -258,6 +258,14 @@ class FiltroConsultaInvalido(ErrorConvenio):
     fecha_hasta). _lanzar_http() la traduce a 422."""
 
 
+@dataclass(frozen=True, slots=True)
+class DatosRenovacionManual:
+    """Contexto interno calculado por HU-31; no forma parte del contrato HTTP."""
+
+    convenio_origen_id: int
+    numero_renovacion: int
+    version_base: VersionConvenio
+
 
 class TipoFiltroFecha(StrEnum):
     """HU-27: a qué fecha del convenio aplica el rango fecha_desde/fecha_hasta.
@@ -496,7 +504,7 @@ class ServicioConvenios:
         datos: ConvenioCrearManual,
         usuario: Usuario,
         *,
-        version_base: VersionConvenio | None = None,
+        renovacion: DatosRenovacionManual | None = None,
     ) -> Convenio:
         """Construye el manual y su versión inicial sin confirmar la transacción."""
         if usuario.rol.codigo not in (
@@ -504,6 +512,11 @@ class ServicioConvenios:
         ):
             raise ReferenciaConvenioInvalida("Solo Gestor ORI o Administrador ORI pueden crear convenios manualmente")
         valores = datos.model_dump(exclude={"aliado_id"}, exclude_unset=True)
+        if renovacion is not None:
+            valores.update(
+                convenio_origen_id=renovacion.convenio_origen_id,
+                numero_renovacion=renovacion.numero_renovacion,
+            )
         self._validar_referencias(valores)
         if datos.aliado_id is not None:
             aliado = self.db.get(Aliado, datos.aliado_id)
@@ -547,9 +560,9 @@ class ServicioConvenios:
             valor_nuevo=OrigenConvenio.MANUAL_ORI.value,
         ))
         contenido = {"type": "doc", "content": [{"type": "paragraph"}]}
-        if version_base is not None:
-            contenido = deepcopy(version_base.contenido)
-            convenio.plantilla_origen_id = version_base.plantilla_id
+        if renovacion is not None:
+            contenido = deepcopy(renovacion.version_base.contenido)
+            convenio.plantilla_origen_id = renovacion.version_base.plantilla_id
         self._crear_version(
             convenio,
             contenido,

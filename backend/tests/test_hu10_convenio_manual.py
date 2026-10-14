@@ -1,12 +1,16 @@
 """HU-10 — creación desde la ORI sin solicitud; integración sobre rama HT-03."""
 from copy import deepcopy
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import func, select
 
-from backend.core.roles import CodigoRol
+from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import ContextoVersionConvenio, TipoRevisionConvenio
+from backend.models.historial_etapa import HistorialEtapa
 from backend.models.revision_convenio import RevisionConvenio
+from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
 
@@ -15,9 +19,98 @@ def _crear(client, **datos):
     return client.post("/api/convenios/manual", json=datos)
 
 
-def test_creacion_sin_solicitud_con_origen_responsable_y_trazabilidad(
-    client, db, gestor,
+RESERVADOS = {
+    "convenio_origen_id": 1,
+    "numero_renovacion": 3,
+    "fecha_firma": "2026-10-13",
+    "porcentaje_avance": 100,
+}
+CASOS_RESERVADOS = [
+    pytest.param({campo: valor}, id=campo) for campo, valor in RESERVADOS.items()
+] + [
+    pytest.param({campo: None}, id=f"{campo}-nulo") for campo in RESERVADOS
+] + [
+    pytest.param({k: RESERVADOS[k] for k in ("convenio_origen_id", "numero_renovacion")}, id="renovacion"),
+    pytest.param({k: RESERVADOS[k] for k in ("fecha_firma", "porcentaje_avance")}, id="firma-avance"),
+    pytest.param(RESERVADOS, id="todos"),
+]
+
+
+def _conteos(db):
+    return {
+        modelo.__tablename__: db.scalar(select(func.count()).select_from(modelo))
+        for modelo in (Convenio, VersionConvenio, HistorialEtapa, Auditoria, SolicitudConvenio)
+    }
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI])
+@pytest.mark.parametrize("campos", CASOS_RESERVADOS)
+def test_creacion_rechaza_campos_reservados_sin_crear_registros(
+    client, db, crear_usuario, entrar_como, rol, campos,
 ):
+    entrar_como(crear_usuario(rol))
+    original = _crear(client, objeto="Convenio que no es elegible para renovar")
+    assert original.status_code == 201, original.text
+    datos = dict(campos)
+    if datos.get("convenio_origen_id") is not None:
+        datos["convenio_origen_id"] = original.json()["id"]
+    antes = _conteos(db)
+    respuesta = _crear(client, objeto="Intento de asignación de campos reservados", **datos)
+    assert respuesta.status_code == 422, respuesta.text
+    errores = respuesta.json()["detail"]
+    assert {tuple(e["loc"]) for e in errores} == {("body", campo) for campo in datos}
+    assert all(e["type"] == "extra_forbidden" for e in errores)
+    assert _conteos(db) == antes
+
+
+@pytest.mark.parametrize("metodo,sufijo", [
+    ("PATCH", ""), ("PATCH", "/elaboracion"), ("POST", "/elaboracion/finalizar"),
+])
+@pytest.mark.parametrize("campos", [
+    pytest.param({k: v}, id=k) for k, v in RESERVADOS.items()
+] + [pytest.param(RESERVADOS, id="todos")])
+def test_actualizacion_y_elaboracion_ya_rechazan_campos_reservados(
+    client, db, gestor, metodo, sufijo, campos,
+):
+    creada = _crear(client, objeto="Objeto original")
+    assert creada.status_code == 201, creada.text
+    convenio_id = creada.json()["id"]
+    datos = dict(campos)
+    if "convenio_origen_id" in datos:
+        datos["convenio_origen_id"] = convenio_id
+    if sufijo:
+        datos.update(expected_version=1, contenido={"type": "doc", "content": [{"type": "paragraph"}]})
+    datos["objeto"] = "No debe guardarse"
+    antes = _conteos(db)
+    respuesta = client.request(metodo, f"/api/convenios/{convenio_id}{sufijo}", json=datos)
+    assert respuesta.status_code == 422, respuesta.text
+    assert {tuple(e["loc"]) for e in respuesta.json()["detail"]} == {("body", campo) for campo in campos}
+    assert all(e["type"] == "extra_forbidden" for e in respuesta.json()["detail"])
+    assert _conteos(db) == antes
+    db.expire_all()
+    convenio = db.get(Convenio, convenio_id)
+    assert convenio.objeto == "Objeto original"
+    assert convenio.version_actual == 1
+    assert convenio.etapa_actual.codigo == "ELABORACION"
+    assert all(getattr(convenio, campo) is None for campo in RESERVADOS)
+
+
+def test_contrato_http_manual_no_expone_campos_reservados(client):
+    respuesta = client.get("/openapi.json")
+    assert respuesta.status_code == 200
+    openapi = respuesta.json()
+    referencia = openapi["paths"]["/api/convenios/manual"]["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    esquema = openapi["components"]["schemas"][referencia.rsplit("/", 1)[-1]]
+    assert esquema["additionalProperties"] is False
+    assert not set(RESERVADOS) & set(esquema["properties"])
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI])
+def test_creacion_sin_solicitud_con_origen_responsable_y_trazabilidad(
+    client, db, crear_usuario, entrar_como, rol,
+):
+    gestor = crear_usuario(rol)
+    entrar_como(gestor)
     respuesta = _crear(client, objeto="Acuerdo de investigación")
     assert respuesta.status_code == 201, respuesta.text
     creado = respuesta.json()
@@ -27,6 +120,7 @@ def test_creacion_sin_solicitud_con_origen_responsable_y_trazabilidad(
     assert creado["creado_por_id"] == gestor.id
     assert creado["creado_en"]
     assert creado["version_actual"] == 1
+    assert all(creado[campo] is None for campo in RESERVADOS)
     convenio = db.get(Convenio, creado["id"])
     assert convenio.etapa_actual.codigo == "ELABORACION"
     assert convenio.solicitud is None
@@ -48,16 +142,23 @@ def test_no_admite_solicitud_ficticia_ni_aliado_inexistente(client, db, gestor):
     assert antes == despues
 
 
-def test_revisor_y_solicitante_no_pueden_crear_registros(
-    client, db, crear_usuario, entrar_como,
+@pytest.mark.parametrize("rol", [
+    r for r in CodigoRol if r not in {CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI}
+])
+def test_roles_no_autorizados_no_pueden_crear_registros(
+    client, db, crear_usuario, entrar_como, rol,
 ):
-    antes = db.scalar(select(Convenio.id).order_by(Convenio.id.desc()).limit(1))
-    for rol in (CodigoRol.REVISOR_ORI, CodigoRol.SOLICITANTE_INTERNO):
-        usuario = crear_usuario(rol)
-        entrar_como(usuario)
-        assert _crear(client, objeto="Sin acceso").status_code == 403
-    despues = db.scalar(select(Convenio.id).order_by(Convenio.id.desc()).limit(1))
-    assert antes == despues
+    tipo = TipoUsuario.EXTERNO if rol == CodigoRol.SOLICITANTE_EXTERNO else TipoUsuario.INTERNO
+    entrar_como(crear_usuario(rol, tipo))
+    antes = _conteos(db)
+    assert _crear(client, objeto="Sin acceso").status_code == 403
+    assert _conteos(db) == antes
+
+
+def test_creacion_manual_requiere_sesion_sin_crear_registros(client, db):
+    antes = _conteos(db)
+    assert _crear(client, objeto="Sin sesión").status_code == 401
+    assert _conteos(db) == antes
 
 
 def test_administrador_ori_autorizado(client, db, crear_usuario, entrar_como):

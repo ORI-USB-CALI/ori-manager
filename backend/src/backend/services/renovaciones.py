@@ -29,6 +29,7 @@ from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
+    DatosRenovacionManual,
     ServicioConvenios,
 )
 
@@ -292,16 +293,19 @@ class ServicioRenovaciones:
                 "unidad_organizacional_id": origen.unidad_organizacional_id,
                 "implicacion_financiera": origen.implicacion_financiera,
                 "duracion_meses": origen.duracion_meses,
-                "convenio_origen_id": origen.id,
-                "numero_renovacion": (origen.numero_renovacion or 0) + 1,
             }
+            numero_renovacion = (origen.numero_renovacion or 0) + 1
             if origen.origen == OrigenConvenio.MANUAL_ORI.value:
                 hijo = servicio._crear_manual_en_transaccion(
                     ConvenioCrearManual(
                         **antecedentes, objeto=origen.objeto, aliado_id=origen.aliado_id,
                     ),
                     usuario,
-                    version_base=version,
+                    renovacion=DatosRenovacionManual(
+                        convenio_origen_id=origen.id,
+                        numero_renovacion=numero_renovacion,
+                        version_base=version,
+                    ),
                 )
             else:
                 anterior = origen.solicitud
@@ -321,6 +325,8 @@ class ServicioRenovaciones:
                 solicitud.consecutivo = f"SOL-{solicitud.id:08d}"
                 datos = ConvenioCrear(
                     **antecedentes,
+                    convenio_origen_id=origen.id,
+                    numero_renovacion=numero_renovacion,
                     solicitud_id=solicitud.id,
                     objeto=origen.objeto or anterior.objeto or "",
                 )

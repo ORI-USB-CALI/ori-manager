@@ -52,11 +52,21 @@ class ConvenioCrear(ConvenioCamposEditables):
     objeto: str = Field(min_length=1)
 
 
-class ConvenioCrearManual(ConvenioCamposEditables):
-    """Creación directa ORI: nunca se acepta solicitud_id del cliente."""
+class ConvenioCrearManual(BaseModel):
+    """Datos públicos de creación en Elaboración, sin metadatos de renovación o firma."""
 
     model_config = ConfigDict(extra="forbid")
+
+    codigo: str | None = Field(default=None, max_length=40)
+    tipo_convenio_id: int | None = None
     aliado_id: int | None = Field(default=None, ge=1)
+    objeto: str | None = None
+    alcance: AlcanceConvenio | None = None
+    unidad_organizacional_id: int | None = None
+    implicacion_financiera: str | None = None
+    fecha_inicio: date | None = None
+    fecha_vencimiento: date | None = None
+    duracion_meses: int | None = Field(default=None, ge=0)
 
 
 class ConvenioElaboracionActualizar(BaseModel):
