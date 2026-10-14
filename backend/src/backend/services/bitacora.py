@@ -6,6 +6,7 @@ from sqlalchemy import event, insert, inspect
 from sqlalchemy.orm import Session, SessionTransaction, UOWTransaction
 from sqlalchemy.sql.elements import ClauseElement
 
+from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.contacto_aliado import ContactoAliado
@@ -48,6 +49,7 @@ ENTIDADES_AUDITADAS: dict[type, str] = {
             FirmaConvenio,
             DecisionNoRenovacion,
             EvaluacionConvenio,
+            ActividadConvenio,
         )
     },
     # Nombre con el que la bitácora registró las solicitudes desde HU-07.
