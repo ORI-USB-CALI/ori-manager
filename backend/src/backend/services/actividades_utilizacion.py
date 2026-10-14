@@ -12,6 +12,7 @@ from backend.models.convenio import Convenio
 from backend.models.enums import EstadoActividadConvenio, EstadoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.actividad_utilizacion import ActividadUtilizacionCrear
+from backend.services.bitacora import describir_accion
 from backend.services.convenios import (
     ConvenioNoEditable,
     ConvenioNoEncontrado,
@@ -59,6 +60,9 @@ class ServicioActividadesUtilizacion:
             )
         _validar_fecha_ejecucion(convenio, datos)
 
+        describir_accion(
+            self.db, usuario, "Registró una actividad de utilización del convenio"
+        )
         actividad = ActividadConvenio(
             convenio_id=convenio.id,
             estado=EstadoActividadConvenio.REALIZADA.value,

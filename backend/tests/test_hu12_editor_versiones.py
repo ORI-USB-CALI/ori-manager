@@ -128,17 +128,14 @@ def test_guardar_crea_version_consecutiva_y_sin_cambios_no_duplica(
     assert [version.numero for version in versiones] == [1, 2]
     assert "Nueva cláusula" not in _texto(versiones[0].contenido)
     assert "Nueva cláusula" in _texto(versiones[1].contenido)
-    auditoria = db.scalar(
+    (auditoria,) = db.scalars(
         select(Auditoria).where(
             Auditoria.entidad == "convenio",
             Auditoria.registro_id == convenio_listo.id,
-            Auditoria.campo == "contenido_proyecto",
+            Auditoria.campo == "version_actual",
         )
-    )
-    assert (auditoria.valor_anterior, auditoria.valor_nuevo) == (
-        "versión 1",
-        "versión 2",
-    )
+    ).all()
+    assert (auditoria.valor_anterior, auditoria.valor_nuevo) == ("1", "2")
     assert "Nueva cláusula" not in (auditoria.valor_nuevo or "")
 
 

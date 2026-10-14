@@ -158,18 +158,23 @@ def test_devolver_registra_decision_observaciones_auditoria_y_no_crea_convenio(
             )
         )
     )
-    assert {
-        (item.campo, item.valor_anterior, item.valor_nuevo, item.usuario_id)
+    por_campo = {
+        item.campo: (item.valor_anterior, item.valor_nuevo, item.usuario_id)
         for item in auditorias
-    } == {
-        ("estado", "EN_ESTUDIO", "DEVUELTA", gestor.id),
-        (
-            "observaciones_devolucion",
-            None,
-            "Corregir la vigencia y los soportes",
-            gestor.id,
-        ),
     }
+    assert set(por_campo) == {
+        "estado",
+        "observaciones_devolucion",
+        "decidida_por_id",
+        "fecha_decision",
+    }
+    assert por_campo["estado"] == ("EN_ESTUDIO", "DEVUELTA", gestor.id)
+    assert por_campo["observaciones_devolucion"] == (
+        None,
+        "Corregir la vigencia y los soportes",
+        gestor.id,
+    )
+    assert por_campo["decidida_por_id"] == (None, str(gestor.id), gestor.id)
     assert (
         db.scalar(select(Convenio).where(Convenio.solicitud_id == solicitud.id)) is None
     )
@@ -343,6 +348,7 @@ def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
     )
     estados = [a for a in historial if a.campo == "estado"]
     assert [(a.valor_anterior, a.valor_nuevo, a.usuario_id) for a in estados] == [
+        ("BORRADOR", "RADICADA", solicitante.id),
         ("RADICADA", "DEVUELTA", gestor.id),
         ("DEVUELTA", "RADICADA", solicitante.id),
         ("RADICADA", "DEVUELTA", gestor.id),
@@ -351,7 +357,7 @@ def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
     ]
     assert all(a.fecha_hora.tzinfo is not None for a in historial)
     assert [a.fecha_hora for a in estados] == sorted(a.fecha_hora for a in estados)
-    assert estados[0].fecha_hora == datetime.fromisoformat(fecha_decision)
+    assert estados[1].fecha_hora == datetime.fromisoformat(fecha_decision)
     assert estados[-1].fecha_hora == datetime.fromisoformat(
         aprobada.json()["fecha_decision"]
     )
@@ -365,8 +371,8 @@ def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
         ),
     ]
     assert [a.fecha_hora for a in motivos] == [
-        estados[0].fecha_hora,
-        estados[2].fecha_hora,
+        estados[1].fecha_hora,
+        estados[3].fecha_hora,
     ]
 
 
@@ -610,7 +616,12 @@ def test_ht01_decision_persistida_consistente_entre_portales_y_aislada(
             )
         )
     )
-    assert len(auditorias) == (2 if campo else 1)
+    assert {a.campo for a in auditorias} == {
+        "estado",
+        "decidida_por_id",
+        "fecha_decision",
+        *([campo] if campo else []),
+    }
     auditoria_estado = next(a for a in auditorias if a.campo == "estado")
     assert (auditoria_estado.valor_anterior, auditoria_estado.valor_nuevo) == (
         estado_inicial,

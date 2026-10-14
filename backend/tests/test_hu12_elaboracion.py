@@ -95,6 +95,7 @@ def _auditoria_de(db: Session, convenio_id: int) -> list[Auditoria]:
             .where(
                 Auditoria.entidad == "convenio",
                 Auditoria.registro_id == convenio_id,
+                Auditoria.accion == AccionAuditoria.UPDATE.value,
             )
             .order_by(Auditoria.campo)
         )

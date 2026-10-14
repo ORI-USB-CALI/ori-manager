@@ -7,11 +7,9 @@ from sqlalchemy import false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
-    AccionAuditoria,
     EstadoConvenio,
     EstadoFirmaConvenio,
     EstadoObservacionRevision,
@@ -35,6 +33,7 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.services.aliados import ErrorAliado, resolver_aliado_para_convenio
+from backend.services.bitacora import describir_accion
 from backend.services.convenios import (
     ConfiguracionConvenioInvalida,
     ConflictoVersionConvenio,
@@ -611,7 +610,6 @@ class ServicioFirmas:
                 "Debe existir exactamente un proceso de firmas activo"
             )
         proceso = procesos[0]
-        estado_anterior = proceso.estado
 
         version = self.db.scalar(
             select(VersionConvenio)
@@ -639,6 +637,9 @@ class ServicioFirmas:
         if elaboracion is None:
             raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
 
+        describir_accion(
+            self.db, usuario, "Canceló el proceso de firmas por un cambio sustancial"
+        )
         ahora = datetime.now(UTC)
         historial = HistorialEtapa(
             convenio_id=convenio.id,
@@ -683,17 +684,6 @@ class ServicioFirmas:
             proceso.cancelado_en = ahora
             convenio.etapa_actual = elaboracion
             convenio.estado = EstadoConvenio.EN_TRAMITE.value
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="proceso_firmas_convenio",
-                    registro_id=proceso.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="estado",
-                    valor_anterior=estado_anterior,
-                    valor_nuevo=EstadoProcesoFirmasConvenio.CANCELADO.value,
-                )
-            )
             self.db.commit()
         except SQLAlchemyError:
             self.db.rollback()

@@ -10,11 +10,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
-    AccionAuditoria,
     EntidadNotificacion,
     EstadoSolicitud,
     TipoAliado,
@@ -26,6 +24,7 @@ from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
+from backend.services.bitacora import describir_accion
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -69,6 +68,12 @@ class SolicitudNoRevisable(ErrorSolicitud):
 ESTADOS_PENDIENTES_REVISION = frozenset(
     {EstadoSolicitud.RADICADA.value, EstadoSolicitud.EN_ESTUDIO.value}
 )
+
+ACCION_POR_DECISION = {
+    EstadoSolicitud.APROBADA: "Aceptó la solicitud",
+    EstadoSolicitud.RECHAZADA: "Rechazó la solicitud",
+    EstadoSolicitud.DEVUELTA: "Devolvió la solicitud al Solicitante para corrección",
+}
 
 
 class ServicioSolicitudes:
@@ -250,17 +255,8 @@ class ServicioSolicitudes:
                 f"La solicitud está {solicitud.estado} y ya no admite decisión"
             )
         instante = datetime.now(UTC)
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="estado",
-                valor_anterior=solicitud.estado,
-                valor_nuevo=estado.value,
-                fecha_hora=instante,
-            )
+        describir_accion(
+            self.db, actor, ACCION_POR_DECISION[estado], instante=instante
         )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
@@ -276,18 +272,6 @@ class ServicioSolicitudes:
         self, solicitud_id: int, motivo: str, actor: Usuario
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.RECHAZADA)
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="motivo_rechazo",
-                valor_anterior=solicitud.motivo_rechazo,
-                valor_nuevo=motivo,
-                fecha_hora=solicitud.fecha_decision,
-            )
-        )
         solicitud.motivo_rechazo = motivo
         self.db.commit()
         return self.obtener_recibida(solicitud_id)
@@ -298,18 +282,6 @@ class ServicioSolicitudes:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.DEVUELTA)
         notificaciones = ServicioNotificaciones(self.db)
         try:
-            self.db.add(
-                Auditoria(
-                    usuario_id=actor.id,
-                    entidad="solicitud",
-                    registro_id=solicitud.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="observaciones_devolucion",
-                    valor_anterior=solicitud.observaciones_devolucion,
-                    valor_nuevo=observaciones,
-                    fecha_hora=solicitud.fecha_decision,
-                )
-            )
             solicitud.observaciones_devolucion = observaciones
             notificaciones.crear(
                 solicitud.solicitante_id,
@@ -486,19 +458,14 @@ class ServicioSolicitudes:
         if errores:
             raise SolicitudIncompleta(errores)
         instante = datetime.now(UTC)
-        if solicitud.estado == EstadoSolicitud.DEVUELTA.value:
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="solicitud",
-                    registro_id=solicitud.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="estado",
-                    valor_anterior=solicitud.estado,
-                    valor_nuevo=EstadoSolicitud.RADICADA.value,
-                    fecha_hora=instante,
-                )
-            )
+        describir_accion(
+            self.db,
+            usuario,
+            "Volvió a radicar la solicitud corregida"
+            if solicitud.estado == EstadoSolicitud.DEVUELTA.value
+            else "Radicó la solicitud",
+            instante=instante,
+        )
         solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante
         solicitud.fecha_recibido_ori = instante

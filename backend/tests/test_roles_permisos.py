@@ -67,6 +67,9 @@ PERMISOS_GESTION_RENOVACIONES = {
 PERMISOS_EVALUACION_CONVENIOS = {
     "convenios.evaluar",
 }
+PERMISOS_AUDITORIA = {
+    "auditoria.ver",
+}
 PERMISOS_GESTION_SOPORTES = {
     "convenios.gestionar_soportes",
 }
@@ -105,6 +108,7 @@ def test_permisos_coinciden_con_los_alcances_integrados() -> None:
         | PERMISOS_ALERTAS_VENCIMIENTO
         | PERMISOS_GESTION_RENOVACIONES
         | PERMISOS_EVALUACION_CONVENIOS
+        | PERMISOS_AUDITORIA
         | PERMISOS_GESTION_SOPORTES
         | PERMISOS_REPORTES_CONVENIOS
     )
@@ -140,6 +144,7 @@ def test_administrador_ori_conserva_permisos_sin_revision_juridica() -> None:
         | PERMISOS_ALERTAS_VENCIMIENTO
         | PERMISOS_GESTION_RENOVACIONES
         | PERMISOS_EVALUACION_CONVENIOS
+        | PERMISOS_AUDITORIA
         | PERMISOS_GESTION_SOPORTES
         | PERMISOS_REPORTES_CONVENIOS
     )
