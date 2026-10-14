@@ -235,7 +235,10 @@ def test_filtro_de_decisiones_y_renovaciones_usa_una_sola_consulta(
 ) -> None:
     pendientes = [crear_alertable(dias=dias) for dias in (30, 60, 90, 120)]
     con_hijo = crear_alertable(dias=30)
-    crear_convenio(gestor, convenio_origen_id=con_hijo.id, numero_renovacion=1)
+    hijo = crear_convenio(gestor)
+    hijo.convenio_origen_id = con_hijo.id
+    hijo.numero_renovacion = 1
+    db.commit()
     sentencias = []
 
     def registrar_consulta(conn, cursor, statement, parameters, context, executemany):

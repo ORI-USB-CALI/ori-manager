@@ -29,7 +29,7 @@ from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
-    DatosRenovacionManual,
+    DatosRenovacion,
     ServicioConvenios,
 )
 
@@ -301,7 +301,7 @@ class ServicioRenovaciones:
                         **antecedentes, objeto=origen.objeto, aliado_id=origen.aliado_id,
                     ),
                     usuario,
-                    renovacion=DatosRenovacionManual(
+                    renovacion=DatosRenovacion(
                         convenio_origen_id=origen.id,
                         numero_renovacion=numero_renovacion,
                         version_base=version,
@@ -325,13 +325,16 @@ class ServicioRenovaciones:
                 solicitud.consecutivo = f"SOL-{solicitud.id:08d}"
                 datos = ConvenioCrear(
                     **antecedentes,
-                    convenio_origen_id=origen.id,
-                    numero_renovacion=numero_renovacion,
                     solicitud_id=solicitud.id,
                     objeto=origen.objeto or anterior.objeto or "",
                 )
                 hijo = servicio._crear_en_transaccion(
-                    datos, usuario, solicitud, version_base=version
+                    datos, usuario, solicitud,
+                    renovacion=DatosRenovacion(
+                        convenio_origen_id=origen.id,
+                        numero_renovacion=numero_renovacion,
+                        version_base=version,
+                    ),
                 )
             self.db.commit()
         except IntegrityError as exc:

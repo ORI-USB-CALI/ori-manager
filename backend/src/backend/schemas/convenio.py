@@ -46,10 +46,21 @@ class ConvenioCamposEditables(BaseModel):
     numero_renovacion: int | None = Field(default=None, ge=0)
 
 
-class ConvenioCrear(ConvenioCamposEditables):
+class ConvenioCrear(BaseModel):
+    """Datos públicos de creación desde solicitud; los metadatos los fija el servidor."""
+
     model_config = ConfigDict(extra="forbid")
+
     solicitud_id: int
+    codigo: str | None = Field(default=None, max_length=40)
+    tipo_convenio_id: int | None = None
     objeto: str = Field(min_length=1)
+    alcance: AlcanceConvenio | None = None
+    unidad_organizacional_id: int | None = None
+    implicacion_financiera: str | None = None
+    fecha_inicio: date | None = None
+    fecha_vencimiento: date | None = None
+    duracion_meses: int | None = Field(default=None, ge=0)
 
 
 class ConvenioCrearManual(BaseModel):

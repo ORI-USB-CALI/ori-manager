@@ -259,7 +259,7 @@ class FiltroConsultaInvalido(ErrorConvenio):
 
 
 @dataclass(frozen=True, slots=True)
-class DatosRenovacionManual:
+class DatosRenovacion:
     """Contexto interno calculado por HU-31; no forma parte del contrato HTTP."""
 
     convenio_origen_id: int
@@ -415,7 +415,7 @@ class ServicioConvenios:
         usuario: Usuario,
         solicitud: SolicitudConvenio,
         *,
-        version_base: VersionConvenio | None = None,
+        renovacion: DatosRenovacion | None = None,
     ) -> Convenio:
         """Construye el convenio y su historial inicial sin hacer commit."""
         if solicitud.estado != EstadoSolicitud.APROBADA:
@@ -445,6 +445,11 @@ class ServicioConvenios:
                 "No existe la etapa obligatoria ELABORACION"
             )
         valores = datos.model_dump()
+        if renovacion is not None:
+            valores.update(
+                convenio_origen_id=renovacion.convenio_origen_id,
+                numero_renovacion=renovacion.numero_renovacion,
+            )
         self._validar_referencias(valores)
         valores = {
             campo: valor.value if isinstance(valor, AlcanceConvenio) else valor
@@ -453,6 +458,7 @@ class ServicioConvenios:
         convenio = Convenio(
             **valores,
             solicitud=solicitud,
+            origen=OrigenConvenio.SOLICITUD.value,
             aliado_id=aliado_id,
             etapa_actual_id=elaboracion.id,
             estado=EstadoConvenio.EN_TRAMITE.value,
@@ -473,9 +479,9 @@ class ServicioConvenios:
                 observacion=None,
             )
         )
-        if version_base is not None:
-            contenido_inicial = deepcopy(version_base.contenido)
-            convenio.plantilla_origen_id = version_base.plantilla_id
+        if renovacion is not None:
+            contenido_inicial = deepcopy(renovacion.version_base.contenido)
+            convenio.plantilla_origen_id = renovacion.version_base.plantilla_id
         else:
             plantilla = self._plantilla_base_activa()
             tipo_nombre = self.db.scalar(
@@ -504,7 +510,7 @@ class ServicioConvenios:
         datos: ConvenioCrearManual,
         usuario: Usuario,
         *,
-        renovacion: DatosRenovacionManual | None = None,
+        renovacion: DatosRenovacion | None = None,
     ) -> Convenio:
         """Construye el manual y su versión inicial sin confirmar la transacción."""
         if usuario.rol.codigo not in (
