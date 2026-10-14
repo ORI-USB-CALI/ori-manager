@@ -26,5 +26,9 @@ export function useAlertasVencimiento(habilitada: boolean) {
     enabled: habilitada,
     retry: false,
     refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
+    // El cálculo pertenece al servidor; consultar también al avanzar el tiempo.
+    refetchInterval: 60_000,
   })
 }

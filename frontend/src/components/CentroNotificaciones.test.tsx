@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComponentProps } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { type Notificacion, contarPendientes } from '../pages/notificaciones'
 import { CentroNotificaciones } from './CentroNotificaciones'
+import { adaptarNotificacion } from './notificaciones/avisos'
 
 afterEach(() => {
   cleanup()
@@ -52,16 +52,18 @@ const notifSolicitudResuelta: Notificacion = {
   creado_en: '2026-10-07T10:00:00Z',
 }
 
-function renderizar(props: Partial<ComponentProps<typeof CentroNotificaciones>> = {}) {
+function renderizar(props: { notificaciones?: Notificacion[]; cargando?: boolean; error?: boolean } = {}) {
   const cliente = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={cliente}>
       <MemoryRouter>
         <CentroNotificaciones
-          notificaciones={undefined}
-          cargando={false}
-          error={false}
-          {...props}
+          fuentes={[{
+            categoria: 'acciones',
+            avisos: (props.notificaciones ?? []).map(adaptarNotificacion),
+            cargando: props.cargando ?? false,
+            error: props.error ?? false,
+          }]}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -96,7 +98,7 @@ describe('CentroNotificaciones', () => {
 
   it('muestra el estado vacío cuando no hay notificaciones', () => {
     renderizar({ notificaciones: [] })
-    expect(screen.getByText('No tiene notificaciones.')).toBeTruthy()
+    expect(screen.getByText('No tienes notificaciones pendientes')).toBeTruthy()
   })
 
   it('lista las notificaciones con su etiqueta y mensaje', () => {

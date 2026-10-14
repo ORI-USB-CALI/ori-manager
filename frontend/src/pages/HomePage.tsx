@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { type Permiso, useSesion } from '../auth/sesion'
+import { AlertasVencimiento } from '../components/AlertasVencimiento'
+import { useAlertasVencimiento } from './alertasVencimiento'
 import { CLAVE_REVISIONES_CONTRAPARTE, obtenerRevisionesContraparte } from './revisionContraparte'
 
 type IconoAcceso =
@@ -130,6 +132,8 @@ function IconoTarjeta({ tipo }: { tipo: IconoAcceso }) {
 
 export function HomePage() {
   const { puede } = useSesion()
+  const puedeVerVencimientos = puede('convenios.ver_alertas_vencimiento')
+  const vencimientos = useAlertasVencimiento(puedeVerVencimientos)
   const puedeRevisarContraparte = puede('convenios.revisar_contraparte_propia')
   const pendientesContraparte = useQuery({
     queryKey: CLAVE_REVISIONES_CONTRAPARTE,
@@ -152,6 +156,14 @@ export function HomePage() {
           <strong>Tienes {cantidadPendiente} {cantidadPendiente === 1 ? 'elaboración de convenio pendiente' : 'elaboraciones de convenio pendientes'} de revisión.</strong>
           <span>Abrir bandeja</span>
         </Link>
+      )}
+
+      {puedeVerVencimientos && (
+        <AlertasVencimiento
+          alertas={vencimientos.data}
+          cargando={vencimientos.isPending}
+          error={vencimientos.isError}
+        />
       )}
 
       <section className="accesos-rapidos" aria-labelledby="accesos-rapidos-titulo">

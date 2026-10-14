@@ -908,6 +908,7 @@ a:hover {
 .centro-notificacion-danger { border-left-color: #dc2626; }
 .centro-notificacion-warning { border-left-color: #d97706; }
 .centro-notificacion-info { border-left-color: #0284c7; }
+.centro-notificacion-neutral { border-left-color: #64748b; }
 
 .centro-notificacion-no-leida {
   background: rgb(243 108 33 / 5%);
@@ -924,6 +925,7 @@ a:hover {
 
 .centro-notificacion-nivel {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -939,6 +941,7 @@ a:hover {
 
 .centro-notificacion-acciones {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
 }
@@ -3127,3 +3130,73 @@ a:hover {
   border-radius: 4px;
 }
 .historial-respuesta p { margin-top: 6px; }
+
+/* Centro unificado HU-30 / HU-33 y resumen de Inicio. */
+.centro-notificaciones {
+  display: grid;
+  gap: 12px;
+}
+
+.centro-notificaciones-resumen,
+.centro-notificacion-fecha {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.centro-notificaciones-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.centro-notificaciones-filtros button {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.centro-notificaciones-filtros button[aria-pressed='true'] {
+  border-color: var(--color-naranja);
+  background: rgb(243 108 33 / 10%);
+}
+
+.centro-notificaciones button:focus-visible,
+.centro-notificaciones a:focus-visible {
+  outline: 2px solid var(--color-naranja);
+  outline-offset: 3px;
+}
+
+.resumen-vencimientos {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.resumen-vencimientos header p,
+.resumen-vencimientos-lista p {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.resumen-vencimientos-lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 16px;
+  list-style: none;
+}
+
+.resumen-vencimientos-lista li {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  overflow-wrap: anywhere;
+}

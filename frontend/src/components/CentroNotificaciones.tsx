@@ -1,133 +1,55 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
 
+import { AvisoNotificacion } from './notificaciones/AvisoNotificacion'
 import {
-  type Notificacion,
-  type TipoNotificacion,
-  useMarcarNotificacionLeida,
-} from '../pages/notificaciones'
-
-interface ConfiguracionTipo {
-  etiqueta: string
-  variante: 'danger' | 'warning' | 'info'
-}
-
-const CONFIGURACION_TIPOS: Record<TipoNotificacion, ConfiguracionTipo> = {
-  REVISION_JURIDICA_PENDIENTE: { etiqueta: 'Revisión jurídica', variante: 'info' },
-  DEVOLUCION_REVISION: { etiqueta: 'Devolución', variante: 'warning' },
-  SOLICITUD_DEVUELTA: { etiqueta: 'Solicitud devuelta', variante: 'warning' },
-  REVISION_CONTRAPARTE_PENDIENTE: { etiqueta: 'Revisión de contraparte', variante: 'info' },
-}
-
-function enlaceDestino(notificacion: Notificacion): string {
-  switch (notificacion.tipo) {
-    case 'REVISION_JURIDICA_PENDIENTE':
-    case 'DEVOLUCION_REVISION':
-      // Destinatarios: Revisor ORI o el Gestor que creó el convenio, ambos
-      // con permiso convenios.ver.
-      return `/convenios/${notificacion.entidad_id}`
-    case 'REVISION_CONTRAPARTE_PENDIENTE':
-      // Destinatario: el Solicitante, que no tiene convenios.ver. Se envía
-      // a su listado de revisiones de contraparte pendientes.
-      return '/revisiones-contraparte'
-    case 'SOLICITUD_DEVUELTA':
-      return `/solicitudes/${notificacion.entidad_id}`
-  }
-}
-
-function formatearFecha(fecha: string): string {
-  return new Date(fecha).toLocaleString('es-CO', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+  CATEGORIAS_AVISOS, contarAsuntosPendientes, unificarAvisos,
+  type CategoriaAviso, type FuenteAvisos,
+} from './notificaciones/avisos'
 
 interface CentroNotificacionesProps {
-  notificaciones: Notificacion[] | undefined
-  cargando: boolean
-  error: boolean
+  fuentes: FuenteAvisos[]
+  onActualizar?: () => void
+  actualizando?: boolean
 }
 
-export function CentroNotificaciones({
-  notificaciones,
-  cargando,
-  error,
-}: CentroNotificacionesProps) {
-  const marcarLeida = useMarcarNotificacionLeida()
+export function CentroNotificaciones({ fuentes, onActualizar, actualizando }: CentroNotificacionesProps) {
+  const [filtro, setFiltro] = useState<CategoriaAviso | 'todos'>('todos')
+  const filtroActual = fuentes.some((fuente) => fuente.categoria === filtro) ? filtro : 'todos'
+  const visibles = fuentes.filter((fuente) => filtroActual === 'todos' || fuente.categoria === filtroActual)
+  const avisos = unificarAvisos(visibles.flatMap((fuente) => fuente.avisos))
+  const pendientes = contarAsuntosPendientes(fuentes.flatMap((fuente) => fuente.avisos))
+  const cargando = visibles.some((fuente) => fuente.cargando)
+  const error = visibles.some((fuente) => fuente.error)
 
   return (
-    <section className="centro-notificaciones" aria-labelledby="centro-notificaciones-titulo">
-      <header className="avisos-vencimiento-cabecera">
-        <h3 id="centro-notificaciones-titulo">Notificaciones</h3>
-        <p>Acciones pendientes que requieren su atención.</p>
-      </header>
-
-      {cargando && (
-        <p className="bandeja-notificaciones-estado">Consultando notificaciones…</p>
-      )}
-
-      {error && (
-        <p className="bandeja-notificaciones-error" role="alert">
-          No fue posible consultar sus notificaciones.
+    <div className="centro-notificaciones">
+      <p className="centro-notificaciones-resumen" role="status">
+        {pendientes} {pendientes === 1 ? 'asunto pendiente' : 'asuntos pendientes'} de atención
+      </p>
+      <div className="centro-notificaciones-filtros" role="group" aria-label="Categorías de notificaciones">
+        <button type="button" aria-pressed={filtroActual === 'todos'} onClick={() => setFiltro('todos')}>Todos</button>
+        {fuentes.map(({ categoria }) => (
+          <button key={categoria} type="button" aria-pressed={filtroActual === categoria}
+            onClick={() => setFiltro(categoria)}>{CATEGORIAS_AVISOS[categoria].etiqueta}</button>
+        ))}
+      </div>
+      {onActualizar && <button className="btn-link" type="button" disabled={actualizando} onClick={onActualizar}>
+        {actualizando ? 'Actualizando…' : 'Actualizar avisos'}
+      </button>}
+      {cargando && <p className="bandeja-notificaciones-estado" role="status">Consultando notificaciones…</p>}
+      {visibles.filter((fuente) => fuente.error).map(({ categoria }) => (
+        <p key={categoria} className="bandeja-notificaciones-error" role="alert">{CATEGORIAS_AVISOS[categoria].error}</p>
+      ))}
+      {!cargando && !error && avisos.length === 0 && (
+        <p className="bandeja-notificaciones-estado">
+          {filtroActual === 'todos' ? 'No tienes notificaciones pendientes' : CATEGORIAS_AVISOS[filtroActual].vacio}
         </p>
       )}
-
-      {!cargando && !error && notificaciones?.length === 0 && (
-        <p className="bandeja-notificaciones-estado">No tiene notificaciones.</p>
-      )}
-
-      {notificaciones && notificaciones.length > 0 && (
+      {avisos.length > 0 && (
         <ul className="centro-notificaciones-lista" aria-label="Notificaciones">
-          {notificaciones.map((notificacion) => {
-            const configuracion = CONFIGURACION_TIPOS[notificacion.tipo]
-
-            return (
-              <li key={notificacion.id}>
-                <article
-                  className={`centro-notificacion centro-notificacion-${configuracion.variante}${
-                    notificacion.leida ? '' : ' centro-notificacion-no-leida'
-                  }${notificacion.resuelta ? ' centro-notificacion-atendida' : ''}`}
-                >
-                  <div className="centro-notificacion-nivel">
-                    <span className={`badge badge-${configuracion.variante}`}>
-                      {configuracion.etiqueta}
-                    </span>
-                    {notificacion.resuelta && (
-                      <span className="badge badge-neutral">Atendida</span>
-                    )}
-                    <time dateTime={notificacion.creado_en}>
-                      {formatearFecha(notificacion.creado_en)}
-                    </time>
-                  </div>
-                  <p className="centro-notificacion-mensaje">{notificacion.mensaje}</p>
-                  <div className="centro-notificacion-acciones">
-                    <Link
-                      className="aviso-vencimiento-enlace"
-                      to={enlaceDestino(notificacion)}
-                      onClick={() => {
-                        if (!notificacion.leida) marcarLeida.mutate(notificacion.id)
-                      }}
-                    >
-                      Ver
-                    </Link>
-                    {!notificacion.leida && (
-                      <button
-                        type="button"
-                        className="btn-link"
-                        onClick={() => marcarLeida.mutate(notificacion.id)}
-                        disabled={marcarLeida.isPending}
-                      >
-                        Marcar como leída
-                      </button>
-                    )}
-                  </div>
-                </article>
-              </li>
-            )
-          })}
+          {avisos.map((aviso) => <li key={aviso.id}><AvisoNotificacion aviso={aviso} /></li>)}
         </ul>
       )}
-    </section>
+    </div>
   )
 }
