@@ -4,26 +4,104 @@ import re
 import zlib
 from base64 import a85decode
 from io import BytesIO
+from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
 from sqlalchemy import func, select
 
+from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.etapa import Etapa
+from backend.models.firma_convenio import FirmaConvenio
 from backend.models.historial_etapa import HistorialEtapa
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.services.pdf_convenio import ServicioPdfConvenio
 from backend.services.validador_exportacion_convenio import ConvenioExportValidator
 
-# Se conservan intactos los diagnósticos del bloque 4; reutilizamos únicamente
-# sus fixtures HTTP de creación y formalización, sin recoger sus otros tests.
-pytest_plugins = ("diagnostico_hu10_ciclo_vida",)
-
 NO_APLICA = "No aplica (creación directa ORI)"
 NO_DISPONIBLE = "Información no disponible"
+
+
+@pytest.fixture
+def manual_documentado(client, db, gestor):
+    aliado = Aliado(
+        nombre="Universidad aliada del convenio manual",
+        tipo="UNIVERSIDAD",
+        tipo_identificacion="NIT",
+        identificacion=f"9{uuid4().int % 10**8:08d}",
+        correo="convenios-manual@example.com",
+        ciudad="Bogotá",
+    )
+    db.add(aliado)
+    db.flush()
+    respuesta = client.post("/api/convenios/manual", json={
+        "aliado_id": aliado.id,
+        "codigo": f"MAN-{uuid4().hex[:8].upper()}",
+        "objeto": "Cooperación académica desde la ORI",
+        "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
+        "alcance": "INSTITUCIONAL",
+        "implicacion_financiera": "Sin compromiso financiero",
+        "duracion_meses": 24,
+        "fecha_inicio": "2026-01-01",
+        "fecha_vencimiento": "2028-01-01",
+    })
+    assert respuesta.status_code == 201, respuesta.text
+    convenio_id = respuesta.json()["id"]
+    guardado = client.patch(f"/api/convenios/{convenio_id}/elaboracion", json={
+        "expected_version": respuesta.json()["version_actual"],
+        "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": "Cláusula documental de auditoría"},
+        ]}]},
+    })
+    assert guardado.status_code == 200, guardado.text
+    db.expire_all()
+    return db.get(Convenio, convenio_id)
+
+
+@pytest.fixture
+def manual_formalizado(db, gestor, manual_documentado):
+    """Estado persistido de exportación oficial, sin crear una solicitud."""
+    convenio = manual_documentado
+    version = db.scalar(select(VersionConvenio).where(
+        VersionConvenio.convenio_id == convenio.id,
+        VersionConvenio.numero == convenio.version_actual,
+    ))
+    revision = RevisionConvenio(
+        convenio_id=convenio.id, tipo="FINAL", version_convenio_id=version.id,
+        estado="RESUELTA", resultado="APROBADA",
+    )
+    db.add(revision)
+    db.flush()
+    proceso = ProcesoFirmasConvenio(
+        convenio_id=convenio.id, version_convenio_id=version.id,
+        revision_final_id=revision.id, creado_por_id=gestor.id, estado="COMPLETADO",
+    )
+    db.add(proceso)
+    db.flush()
+    db.add_all([
+        FirmaConvenio(
+            proceso_firmas_id=proceso.id, orden=6, rol_firmante="RECTOR",
+            parte="UNIVERSIDAD", nombre_firmante="Rector de prueba",
+            cargo_firmante="Rector", estado="FIRMADA",
+        ),
+        FirmaConvenio(
+            proceso_firmas_id=proceso.id, orden=7, rol_firmante="PARTE_SOLICITANTE",
+            parte="REPRESENTANTE_LEGAL_ENTIDAD", nombre_firmante="Representante legal de prueba",
+            cargo_firmante="Representante legal", estado="FIRMADA",
+        ),
+    ])
+    convenio.estado = "VIGENTE"
+    convenio.fecha_firma = convenio.fecha_inicio
+    convenio.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO"))
+    db.commit()
+    db.expire_all()
+    return convenio
 
 
 def _texto_pdf(contenido):

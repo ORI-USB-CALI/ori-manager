@@ -6,8 +6,6 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import and_, exists, false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -75,6 +73,8 @@ from backend.services.contraparte_externa import (
 from backend.services.correo import EnviadorCorreo
 from backend.services.documentos import AlmacenDocumentos
 from backend.services.notificaciones import ServicioNotificaciones
+
+logger = logging.getLogger(__name__)
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_JURIDICA = "REVISION_AVAL_JURIDICO"
@@ -2155,6 +2155,8 @@ class ServicioConvenios:
         except IntegrityError as exc:
             self.db.rollback()
             raise ConvenioDuplicado("El código ya pertenece a otro convenio") from exc
+        # El FK puede cambiar con la relación cargada y expire_on_commit=False.
+        self.db.expire(convenio, ["aliado"])
         return self.obtener(convenio.id)
 
     def finalizar_elaboracion(
