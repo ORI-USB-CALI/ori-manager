@@ -18,7 +18,7 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
-from backend.schemas.convenio import ConvenioCrear
+from backend.schemas.convenio import ConvenioCrear, ConvenioCrearManual
 from backend.services.ciclo_vida_convenios import conciliar_estados
 from backend.services.convenios import (
     ConvenioDuplicado,
@@ -30,8 +30,8 @@ from backend.services.renovaciones import ServicioRenovaciones
 HOY = date(2026, 10, 8)
 
 
-@pytest.fixture
-def origen_confirmado(db_engine):
+@pytest.fixture(params=["SOLICITUD", "MANUAL_ORI"])
+def origen_confirmado(request, db_engine):
     with Session(db_engine, expire_on_commit=False) as db:
         rol = db.scalar(select(Rol).where(Rol.codigo == CodigoRol.GESTOR_ORI.value))
         usuario = Usuario(
@@ -43,22 +43,31 @@ def origen_confirmado(db_engine):
         )
         db.add(usuario)
         db.flush()
-        solicitud = SolicitudConvenio(
-            consecutivo=f"SOL-{uuid4().hex}",
-            solicitante_id=usuario.id,
-            tipo_solicitante=TipoSolicitante.INTERNO.value,
-            estado=EstadoSolicitud.APROBADA.value,
-        )
-        db.add(solicitud)
-        db.commit()
-        convenio = ServicioConvenios(db).crear(
-            ConvenioCrear(
-                solicitud_id=solicitud.id,
-                objeto="Convenio para renovación concurrente",
-                fecha_vencimiento=HOY - timedelta(days=1),
-            ),
-            usuario,
-        )
+        if request.param == "MANUAL_ORI":
+            convenio = ServicioConvenios(db).crear_manual(
+                ConvenioCrearManual(
+                    objeto="Convenio para renovación concurrente",
+                    fecha_vencimiento=HOY - timedelta(days=1),
+                ),
+                usuario,
+            )
+        else:
+            solicitud = SolicitudConvenio(
+                consecutivo=f"SOL-{uuid4().hex}",
+                solicitante_id=usuario.id,
+                tipo_solicitante=TipoSolicitante.INTERNO.value,
+                estado=EstadoSolicitud.APROBADA.value,
+            )
+            db.add(solicitud)
+            db.commit()
+            convenio = ServicioConvenios(db).crear(
+                ConvenioCrear(
+                    solicitud_id=solicitud.id,
+                    objeto="Convenio para renovación concurrente",
+                    fecha_vencimiento=HOY - timedelta(days=1),
+                ),
+                usuario,
+            )
         convenio.estado = "FINALIZADO"
         db.commit()
         ids = convenio.id, usuario.id
@@ -118,7 +127,7 @@ def test_dos_renovaciones_tardias_solo_crean_un_hijo(db_engine, origen_confirmad
                 .select_from(SolicitudConvenio)
                 .where(SolicitudConvenio.solicitante_id == usuario_id)
             )
-            == 2
+            == (0 if db.get(Convenio, origen_id).origen == "MANUAL_ORI" else 2)
         )
 
 
@@ -149,7 +158,11 @@ def test_conciliar_y_renovar_concurrentemente_conserva_padre_e_hijo(
         ).all()
         assert len(hijos) == 1
         assert hijos[0].estado == "EN_TRAMITE"
-        assert hijos[0].solicitud.solicitante_id == usuario_id
+        assert hijos[0].origen == db.get(Convenio, origen_id).origen
+        if hijos[0].origen == "MANUAL_ORI":
+            assert hijos[0].solicitud_id is None
+        else:
+            assert hijos[0].solicitud.solicitante_id == usuario_id
         assert (
             db.scalar(
                 select(func.count())

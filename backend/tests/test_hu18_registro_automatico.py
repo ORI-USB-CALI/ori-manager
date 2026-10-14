@@ -15,6 +15,7 @@ from backend.models.enums import (
     AccionAuditoria,
     EstadoConvenio,
     EstadoSolicitud,
+    OrigenConvenio,
     TipoAliado,
     TipoIdentificacion,
     TipoSolicitante,
@@ -23,6 +24,7 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
+from backend.schemas.convenio import ConvenioCrearManual
 from backend.services import actividades_utilizacion, bitacora
 from backend.services.bitacora import (
     ENTIDADES_AUDITADAS,
@@ -30,6 +32,7 @@ from backend.services.bitacora import (
     describir_accion,
 )
 from backend.services.convenios import ServicioConvenios
+from backend.services.renovaciones import ServicioRenovaciones
 
 
 def _nuevo_aliado() -> Aliado:
@@ -102,6 +105,99 @@ def test_ningun_modulo_escribe_la_bitacora_a_mano() -> None:
     ]
 
     assert escrituras == []
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI])
+def test_creacion_manual_audita_una_sola_insercion_incluso_fuera_de_la_api(
+    db, crear_usuario, rol
+) -> None:
+    usuario = crear_usuario(rol)
+
+    convenio = ServicioConvenios(db).crear_manual(
+        ConvenioCrearManual(objeto="Cooperación académica"), usuario
+    )
+
+    (registro,) = _bitacora(db, "convenio", convenio.id)
+    assert registro.accion == AccionAuditoria.INSERT
+    assert (registro.usuario_id, registro.rol) == (usuario.id, rol.value)
+    assert registro.contexto == "Creó el convenio manualmente"
+    assert registro.fecha_hora is not None
+    assert registro.campo is None
+    assert convenio.origen == OrigenConvenio.MANUAL_ORI.value
+    assert convenio.solicitud_id is None
+    assert convenio.version_actual == 1
+
+
+def test_guardar_version_manual_audita_el_incremento_sin_duplicar_ni_copiar_contenido(
+    db, client, gestor
+) -> None:
+    creada = client.post("/api/convenios/manual", json={})
+    assert creada.status_code == 201
+    convenio_id = creada.json()["id"]
+    ruta = f"/api/convenios/{convenio_id}/elaboracion"
+    contenido = {
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "content": [{"type": "text", "text": "Contenido reservado del acuerdo"}],
+        }],
+    }
+
+    guardado = client.patch(ruta, json={"expected_version": 1, "contenido": contenido})
+    assert guardado.status_code == 200
+    assert guardado.json()["version_actual"] == 2
+    registros = _bitacora(db, "convenio", convenio_id)
+    assert len(registros) == 2
+    assert registros[0].accion == AccionAuditoria.INSERT
+    cambio = registros[1]
+    assert (cambio.accion, cambio.campo) == (AccionAuditoria.UPDATE, "version_actual")
+    assert (cambio.valor_anterior, cambio.valor_nuevo) == ("1", "2")
+    assert (cambio.usuario_id, cambio.rol) == (gestor.id, CodigoRol.GESTOR_ORI.value)
+    assert cambio.contexto == "Guardó cambios en la elaboración del convenio"
+    assert cambio.fecha_hora is not None
+
+    repetido = client.patch(ruta, json={"expected_version": 2, "contenido": contenido})
+    assert repetido.status_code == 200
+    assert repetido.json()["version_actual"] == 2
+    assert [r.id for r in _bitacora(db, "convenio", convenio_id)] == [
+        r.id for r in registros
+    ]
+
+
+@pytest.mark.parametrize("origen", list(OrigenConvenio))
+def test_renovar_ambos_origenes_atribuye_toda_la_creacion_al_nuevo_responsable(
+    db, crear_usuario, crear_convenio, origen
+) -> None:
+    autor = crear_usuario(CodigoRol.GESTOR_ORI)
+    responsable = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
+    if origen == OrigenConvenio.MANUAL_ORI:
+        padre = ServicioConvenios(db).crear_manual(ConvenioCrearManual(), autor)
+    else:
+        padre = crear_convenio(autor)
+    padre.estado = EstadoConvenio.FINALIZADO.value
+    padre.fecha_vencimiento = date(2025, 12, 31)
+    db.commit()
+    registros_padre = [r.id for r in _bitacora(db, "convenio", padre.id)]
+
+    hijo = ServicioRenovaciones(db).iniciar_renovacion(padre.id, responsable)
+
+    (registro,) = _bitacora(db, "convenio", hijo.id)
+    registros = [registro]
+    assert hijo.origen == origen.value
+    assert hijo.convenio_origen_id == padre.id
+    assert hijo.version_actual == 1
+    if origen == OrigenConvenio.SOLICITUD:
+        assert hijo.solicitud_id != padre.solicitud_id
+        (solicitud,) = _bitacora(db, "solicitud", hijo.solicitud_id)
+        registros.append(solicitud)
+    else:
+        assert hijo.solicitud_id is None
+    assert {r.accion for r in registros} == {AccionAuditoria.INSERT}
+    assert {r.usuario_id for r in registros} == {responsable.id}
+    assert {r.rol for r in registros} == {CodigoRol.ADMINISTRADOR_ORI.value}
+    assert {r.contexto for r in registros} == {"Inició la renovación del convenio"}
+    assert all(r.fecha_hora is not None for r in registros)
+    assert [r.id for r in _bitacora(db, "convenio", padre.id)] == registros_padre
 
 
 def test_crear_registra_la_insercion_con_el_usuario_responsable(

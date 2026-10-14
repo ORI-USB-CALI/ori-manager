@@ -18,6 +18,7 @@ from backend.models.convenio import Convenio
 from backend.models.enums import (
     EstadoConvenio,
     EstadoProcesoFirmasConvenio,
+    OrigenConvenio,
     ParteFirmaConvenio,
     RolFirmanteConvenio,
 )
@@ -50,6 +51,24 @@ _PARTES_ENTIDAD = frozenset(
 
 def _vacio(valor: str | None) -> bool:
     return valor is None or not valor.strip()
+
+
+def _falta_solicitud(convenio: Convenio) -> bool:
+    return (
+        convenio.origen != OrigenConvenio.MANUAL_ORI.value
+        and convenio.solicitud is None
+    )
+
+
+def _falta_entidad(convenio: Convenio) -> bool:
+    if convenio.aliado is not None:
+        return False
+    # La contraparte propuesta solo es un antecedente del origen SOLICITUD.
+    return (
+        convenio.origen == OrigenConvenio.MANUAL_ORI.value
+        or convenio.solicitud is None
+        or _vacio(convenio.solicitud.nombre_aliado_propuesto)
+    )
 
 
 def version_contractual(convenio: Convenio) -> VersionConvenio | None:
@@ -120,14 +139,11 @@ class ConvenioExportValidator:
         datos ausentes se presentan como "Información no disponible".
         """
         faltantes: list[str] = []
-        if convenio.solicitud is None:
+        if _falta_solicitud(convenio):
             faltantes.append("solicitud_origen")
         if _vacio(convenio.objeto):
             faltantes.append("objeto")
-        if convenio.aliado is None and (
-            convenio.solicitud is None
-            or _vacio(convenio.solicitud.nombre_aliado_propuesto)
-        ):
+        if _falta_entidad(convenio):
             faltantes.append("entidad_participante")
         version = version_contractual(convenio)
         if version is None:
@@ -140,7 +156,9 @@ class ConvenioExportValidator:
         faltantes: list[str] = []
         if _vacio(convenio.codigo):
             faltantes.append("codigo_convenio")
-        if convenio.aliado is None and _vacio(convenio.solicitud.nombre_aliado_propuesto):
+        if _falta_solicitud(convenio):
+            faltantes.append("solicitud_origen")
+        if _falta_entidad(convenio):
             faltantes.append("entidad_participante")
         if convenio.fecha_inicio is None:
             faltantes.append("fecha_inicio_vigencia")

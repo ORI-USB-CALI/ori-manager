@@ -16,17 +16,19 @@ from backend.models.enums import (
     EstadoConvenio,
     EstadoSeguimientoRenovacion,
     EstadoSolicitud,
+    OrigenConvenio,
 )
 from backend.models.etapa import Etapa
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.convenio import ConvenioCrear
+from backend.schemas.convenio import ConvenioCrear, ConvenioCrearManual
 from backend.services.bitacora import describir_accion
 from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
+    DatosRenovacion,
     ServicioConvenios,
 )
 
@@ -282,35 +284,58 @@ class ServicioRenovaciones:
             version = servicio._version_actual(origen)
             if version is None:
                 raise ConvenioNoEditable("El convenio origen no tiene una versión vigente")
-            anterior = origen.solicitud
-            solicitud = SolicitudConvenio(
-                **{campo: getattr(anterior, campo) for campo in CAMPOS_SOLICITUD_RENOVACION},
-                consecutivo=f"TEMP-{token_hex(12)}",
-                estado=EstadoSolicitud.APROBADA.value,
-                aliado_id=origen.aliado_id,
-                tipo_convenio_id=origen.tipo_convenio_id,
-                objeto=origen.objeto,
-                implicacion_financiera=origen.implicacion_financiera,
-                decidida_por_id=usuario.id,
-                fecha_decision=datetime.now(UTC),
-            )
-            self.db.add(solicitud)
-            self.db.flush()
-            solicitud.consecutivo = f"SOL-{solicitud.id:08d}"
-            datos = ConvenioCrear(
-                solicitud_id=solicitud.id,
-                tipo_convenio_id=origen.tipo_convenio_id,
-                objeto=origen.objeto or anterior.objeto or "",
-                alcance=origen.alcance,
-                unidad_organizacional_id=origen.unidad_organizacional_id,
-                implicacion_financiera=origen.implicacion_financiera,
-                duracion_meses=origen.duracion_meses,
-                convenio_origen_id=origen.id,
-                numero_renovacion=(origen.numero_renovacion or 0) + 1,
-            )
-            hijo = servicio._crear_en_transaccion(
-                datos, usuario, solicitud, version_base=version
-            )
+            # Igual que en la renovación desde solicitud, las fechas del nuevo
+            # periodo se definen en Elaboración y no se heredan del convenio padre.
+            antecedentes = {
+                "tipo_convenio_id": origen.tipo_convenio_id,
+                "alcance": origen.alcance,
+                "unidad_organizacional_id": origen.unidad_organizacional_id,
+                "implicacion_financiera": origen.implicacion_financiera,
+                "duracion_meses": origen.duracion_meses,
+            }
+            numero_renovacion = (origen.numero_renovacion or 0) + 1
+            describir_accion(self.db, usuario, "Inició la renovación del convenio")
+            if origen.origen == OrigenConvenio.MANUAL_ORI.value:
+                hijo = servicio._crear_manual_en_transaccion(
+                    ConvenioCrearManual(
+                        **antecedentes, objeto=origen.objeto, aliado_id=origen.aliado_id,
+                    ),
+                    usuario,
+                    renovacion=DatosRenovacion(
+                        convenio_origen_id=origen.id,
+                        numero_renovacion=numero_renovacion,
+                        version_base=version,
+                    ),
+                )
+            else:
+                anterior = origen.solicitud
+                solicitud = SolicitudConvenio(
+                    **{campo: getattr(anterior, campo) for campo in CAMPOS_SOLICITUD_RENOVACION},
+                    consecutivo=f"TEMP-{token_hex(12)}",
+                    estado=EstadoSolicitud.APROBADA.value,
+                    aliado_id=origen.aliado_id,
+                    tipo_convenio_id=origen.tipo_convenio_id,
+                    objeto=origen.objeto,
+                    implicacion_financiera=origen.implicacion_financiera,
+                    decidida_por_id=usuario.id,
+                    fecha_decision=datetime.now(UTC),
+                )
+                self.db.add(solicitud)
+                self.db.flush()
+                solicitud.consecutivo = f"SOL-{solicitud.id:08d}"
+                datos = ConvenioCrear(
+                    **antecedentes,
+                    solicitud_id=solicitud.id,
+                    objeto=origen.objeto or anterior.objeto or "",
+                )
+                hijo = servicio._crear_en_transaccion(
+                    datos, usuario, solicitud,
+                    renovacion=DatosRenovacion(
+                        convenio_origen_id=origen.id,
+                        numero_renovacion=numero_renovacion,
+                        version_base=version,
+                    ),
+                )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()

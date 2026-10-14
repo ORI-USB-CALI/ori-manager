@@ -63,6 +63,7 @@ export interface FiltrosConsultaConvenio {
   // valida los parámetros y un valor inválido nunca significa sin filtro.
   programa_id?: number | string
   alcance?: string
+  solo_formalizados?: boolean
 }
 
 export function construirQuery(filtros: FiltrosConsultaConvenio): string {
@@ -88,13 +89,17 @@ export function construirQuery(filtros: FiltrosConsultaConvenio): string {
     parametros.set('programa_id', String(filtros.programa_id))
   }
   if (filtros.alcance !== undefined) parametros.set('alcance', filtros.alcance)
+  if (filtros.solo_formalizados !== undefined) {
+    parametros.set('solo_formalizados', String(filtros.solo_formalizados))
+  }
   return parametros.toString()
 }
 
 export function useConsultaConvenios(filtros: FiltrosConsultaConvenio) {
+  const filtrosConsulta = { ...filtros, solo_formalizados: true }
   return useQuery({
-    queryKey: ['convenios', 'consulta', filtros],
-    queryFn: () => apiFetch<ConvenioConsultaListado>(`/convenios?${construirQuery(filtros)}`),
+    queryKey: ['convenios', 'consulta', filtrosConsulta],
+    queryFn: () => apiFetch<ConvenioConsultaListado>(`/convenios?${construirQuery(filtrosConsulta)}`),
     placeholderData: keepPreviousData,
   })
 }
@@ -118,8 +123,8 @@ const DIEZ_MINUTOS_MS = 10 * 60 * 1000
 
 export function useCatalogosConsulta() {
   return useQuery({
-    queryKey: ['convenios', 'catalogos', 'consulta'],
-    queryFn: () => apiFetch<CatalogosConsulta>('/convenios/catalogos/consulta'),
+    queryKey: ['convenios', 'catalogos', 'consulta', { solo_formalizados: true }],
+    queryFn: () => apiFetch<CatalogosConsulta>('/convenios/catalogos/consulta?solo_formalizados=true'),
     // HU-28 FE-1: el catálogo casi no cambia, no hace falta revalidarlo en
     // cada render de la página.
     staleTime: DIEZ_MINUTOS_MS,

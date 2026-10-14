@@ -57,6 +57,7 @@ export function AppLayout() {
           {puede('aliados.ver') && <NavLink to="/aliados">Aliados</NavLink>}
           {puede('solicitudes.ver_recibidas') && <NavLink to="/ori/solicitudes">Solicitudes recibidas</NavLink>}
           {puede('convenios.ver') && <NavLink to="/convenios">Consulta de convenios</NavLink>}
+          {puede('convenios.crear') && <NavLink to="/convenios/nuevo">Crear convenio manual</NavLink>}
           {puede('convenios.ver') && <NavLink to="/convenios/tablero">Tablero de convenios</NavLink>}
           {puede('convenios.gestionar_renovaciones') && <NavLink to="/renovaciones">Renovaciones</NavLink>}
           {puede('convenios.ver_reportes') && <NavLink to="/reportes/convenios-activos">Reportes</NavLink>}

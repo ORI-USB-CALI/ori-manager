@@ -1,13 +1,16 @@
 """HU-36: reporte estadístico de convenios (JSON, PDF y Excel)."""
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from io import BytesIO
+from itertools import product
 from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
-from sqlalchemy import event
+from reportlab.lib.rl_accel import escapePDF
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -16,6 +19,8 @@ from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio, TipoAliado
 from backend.models.pais import Pais
 from backend.models.usuario import Usuario
+from backend.schemas.convenio import ConvenioCrearManual
+from backend.services.convenios import ServicioConvenios
 from backend.services.estadisticas_convenios import (
     Conteo,
     ReporteEstadisticoConvenios,
@@ -30,8 +35,15 @@ URL_EXCEL = "/api/convenios/reportes/estadisticas/excel"
 
 @pytest.fixture
 def crear_pais(db: Session) -> Callable[[str], Pais]:
+    codigos = ("".join(letras) for letras in product("ABCDEFGHIJKLMNOPQRSTUVWXYZ", repeat=2))
+
     def _crear(nombre: str) -> Pais:
-        pais = Pais(codigo_iso=uuid4().hex[:2].upper(), nombre=nombre)
+        for codigo in codigos:
+            if db.scalar(select(Pais.id).where(Pais.codigo_iso == codigo)) is None:
+                break
+        else:
+            raise RuntimeError("No hay códigos de país de dos letras disponibles")
+        pais = Pais(codigo_iso=codigo, nombre=nombre)
         db.add(pais)
         db.commit()
         db.refresh(pais)
@@ -76,18 +88,103 @@ def crear_convenio_estadistica(
         nombre_propuesto: str | None = None,
         tipo_propuesto: TipoAliado | None = None,
         pais_propuesto: str | None = None,
+        origen: str = "SOLICITUD",
     ) -> Convenio:
-        convenio = crear_convenio(gestor)
+        if origen == "MANUAL_ORI":
+            convenio = ServicioConvenios(db).crear_manual(
+                ConvenioCrearManual(aliado_id=aliado.id if aliado else None), gestor,
+            )
+        else:
+            convenio = crear_convenio(gestor)
         convenio.estado = estado.value
         convenio.aliado_id = aliado.id if aliado else None
-        convenio.solicitud.nombre_aliado_propuesto = nombre_propuesto
-        convenio.solicitud.tipo_aliado_propuesto = tipo_propuesto.value if tipo_propuesto else None
-        convenio.solicitud.pais_aliado_propuesto = pais_propuesto
+        if convenio.solicitud is not None:
+            convenio.solicitud.nombre_aliado_propuesto = nombre_propuesto
+            convenio.solicitud.tipo_aliado_propuesto = tipo_propuesto.value if tipo_propuesto else None
+            convenio.solicitud.pais_aliado_propuesto = pais_propuesto
         db.commit()
         db.refresh(convenio)
         return convenio
 
     return _crear
+
+
+AGRUPACIONES = (
+    "por_estado_contractual", "por_vigencia_activa", "por_estado_aliado",
+    "por_tipo_aliado", "por_pais",
+)
+
+
+@pytest.fixture
+def crear_lote_origenes(db, crear_convenio_estadistica, crear_aliado, crear_pais):
+    def _crear(origenes):
+        activo = crear_aliado(pais=crear_pais("Colombia"))
+        inactivo = crear_aliado(tipo=TipoAliado.EMPRESA, pais=crear_pais("México"))
+        for origen in origenes:
+            for _ in range(2):
+                crear_convenio_estadistica(origen=origen, estado=EstadoConvenio.VIGENTE, aliado=activo)
+            crear_convenio_estadistica(origen=origen, estado=EstadoConvenio.FINALIZADO, aliado=inactivo)
+            crear_convenio_estadistica(origen=origen, estado=EstadoConvenio.EN_TRAMITE)
+        # Un aliado existente puede desactivarse después de asociar los convenios.
+        inactivo.activo = False
+        db.commit()
+    return _crear
+
+
+@pytest.mark.parametrize("origenes", [("SOLICITUD",), ("MANUAL_ORI",), ("SOLICITUD", "MANUAL_ORI")])
+def test_cuenta_ambos_origenes_sin_duplicar_ni_inventar_contrapartes(
+    client, gestor, crear_lote_origenes, origenes,
+):
+    crear_lote_origenes(origenes)
+    respuesta = client.get(URL_JSON)
+    assert respuesta.status_code == 200, respuesta.text
+    datos = respuesta.json()
+    n = len(origenes)
+    assert datos["total_convenios"] == 4 * n
+    esperados = {
+        "por_estado_contractual": {"VIGENTE": 2 * n, "FINALIZADO": n, "EN_TRAMITE": n},
+        "por_vigencia_activa": {"Vigencia activa": 2 * n, "Vigencia no activa": 2 * n},
+        "por_estado_aliado": {"Aliado activo": 2 * n, "Aliado inactivo": n, "Sin aliado registrado": n},
+        "por_tipo_aliado": {"Universidad": 2 * n, "Empresa": n, "Sin tipo registrado": n},
+        "por_pais": {"Colombia": 2 * n, "México": n, "Sin país registrado": n},
+    }
+    for campo in AGRUPACIONES:
+        assert {c["etiqueta"]: c["cantidad"] for c in datos[campo]} == esperados[campo]
+        assert sum(c["cantidad"] for c in datos[campo]) == datos["total_convenios"]
+
+
+@pytest.mark.parametrize("filtros,total", [
+    ({}, 8), ({"estado": "VIGENTE"}, 4),
+    ({"aliado_activo": "true"}, 4), ({"aliado_activo": "false"}, 2),
+    ({"tipo_aliado": "EMPRESA"}, 2), ({"pais": " COLOMBIA "}, 4),
+    ({"estado": "FINALIZADO", "tipo_aliado": "EMPRESA", "pais": "MéX"}, 2),
+])
+def test_filtros_y_exportaciones_incluyen_manuales_y_coinciden_con_api(
+    client, gestor, crear_lote_origenes, filtros, total,
+):
+    crear_lote_origenes(("SOLICITUD", "MANUAL_ORI"))
+    respuesta = client.get(URL_JSON, params=filtros)
+    assert respuesta.status_code == 200, respuesta.text
+    datos = respuesta.json()
+    assert datos["total_convenios"] == total
+    excel = client.get(URL_EXCEL, params=filtros)
+    assert excel.status_code == 200, excel.text
+    libro = load_workbook(BytesIO(excel.content))
+    assert len(libro.sheetnames) == len(AGRUPACIONES)
+    pdf = client.get(URL_PDF, params=filtros)
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.content.startswith(b"%PDF")
+    assert f"{total} convenio".encode() in pdf.content
+    conteos_pdf = Counter(int(c) for c in re.findall(rb"\((\d+)\) Tj", pdf.content))
+    conteos_api = Counter(c["cantidad"] for campo in AGRUPACIONES for c in datos[campo])
+    assert conteos_pdf == conteos_api
+    for hoja, campo in zip(libro, AGRUPACIONES, strict=True):
+        assert list(hoja.iter_rows(min_row=2, values_only=True)) == [
+            (c["etiqueta"], c["cantidad"]) for c in datos[campo]
+        ]
+        assert sum(c["cantidad"] for c in datos[campo]) == total
+        for categoria in datos[campo]:
+            assert escapePDF(categoria["etiqueta"].encode("cp1252")).encode() in pdf.content
 
 
 # ---- CA-01/CA-02: agrupaciones con datos reales ----------------------------
@@ -382,15 +479,17 @@ def test_excel_fuerza_texto_literal_en_las_cinco_agrupaciones(prefijo) -> None:
         assert hoja["B2"].value == 2
 
 
-@pytest.mark.parametrize("formal", [True, False])
+@pytest.mark.parametrize("origen,formal", [
+    ("SOLICITUD", True), ("SOLICITUD", False), ("MANUAL_ORI", True),
+])
 @pytest.mark.parametrize("prefijo", ["=", "+", "-", "@"])
 def test_excel_api_protege_paises_formales_y_propuestos(
-    client, gestor, crear_convenio_estadistica, crear_aliado, crear_pais, formal, prefijo
+    client, gestor, crear_convenio_estadistica, crear_aliado, crear_pais, origen, formal, prefijo,
 ) -> None:
     nombre = f"{prefijo}SUM(1,2)"
     aliado = crear_aliado(pais=crear_pais(nombre)) if formal else None
     crear_convenio_estadistica(
-        estado=EstadoConvenio.VIGENTE, aliado=aliado, pais_propuesto=nombre
+        estado=EstadoConvenio.VIGENTE, aliado=aliado, pais_propuesto=nombre, origen=origen,
     )
 
     assert client.get(URL_JSON).json()["por_pais"] == [{"etiqueta": nombre, "cantidad": 1}]
@@ -399,11 +498,14 @@ def test_excel_api_protege_paises_formales_y_propuestos(
     assert libro["País"]["A2"].data_type == "s"
 
 
+@pytest.mark.parametrize("origen", ["SOLICITUD", "MANUAL_ORI"])
 def test_pdf_conserva_el_pais_como_texto_sin_interpretar_markup(
-    client, gestor, crear_convenio_estadistica
+    client, gestor, crear_convenio_estadistica, crear_aliado, crear_pais, origen,
 ) -> None:
+    nombre = "<b>Colombia</b> & Perú"
+    aliado = crear_aliado(pais=crear_pais(nombre)) if origen == "MANUAL_ORI" else None
     crear_convenio_estadistica(
-        estado=EstadoConvenio.EN_TRAMITE, pais_propuesto="<b>Colombia</b> & Perú"
+        estado=EstadoConvenio.EN_TRAMITE, pais_propuesto=nombre, aliado=aliado, origen=origen,
     )
     respuesta = client.get(URL_PDF)
     assert respuesta.status_code == 200

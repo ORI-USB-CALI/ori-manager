@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.enums import AlcanceConvenio, EstadoConvenio
+from backend.models.enums import AlcanceConvenio, EstadoConvenio, OrigenConvenio
 
 if TYPE_CHECKING:
     from backend.models.actividad_convenio import ActividadConvenio
@@ -41,12 +41,15 @@ if TYPE_CHECKING:
 
 _ESTADOS = ", ".join(f"'{valor.value}'" for valor in EstadoConvenio)
 _ALCANCES = ", ".join(f"'{valor.value}'" for valor in AlcanceConvenio)
+_ORIGENES = ", ".join(f"'{valor.value}'" for valor in OrigenConvenio)
 
 
 class Convenio(Base):
     __tablename__ = "convenio"
     __table_args__ = (
         CheckConstraint(f"estado IN ({_ESTADOS})", name="ck_convenio_estado"),
+        CheckConstraint(f"origen IN ({_ORIGENES})", name="ck_convenio_origen"),
+        CheckConstraint("(origen = 'SOLICITUD' AND solicitud_id IS NOT NULL) OR (origen = 'MANUAL_ORI' AND solicitud_id IS NULL)", name="ck_convenio_origen_solicitud"),
         CheckConstraint(f"alcance IS NULL OR alcance IN ({_ALCANCES})", name="ck_convenio_alcance"),
         CheckConstraint("porcentaje_avance IS NULL OR porcentaje_avance BETWEEN 0 AND 100", name="ck_convenio_porcentaje_avance"),
         CheckConstraint("version_actual >= 0", name="ck_convenio_version_actual_no_negativa"),
@@ -65,7 +68,8 @@ class Convenio(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     codigo: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
-    solicitud_id: Mapped[int] = mapped_column(ForeignKey("solicitud_convenio.id"), unique=True, nullable=False)
+    solicitud_id: Mapped[int | None] = mapped_column(ForeignKey("solicitud_convenio.id"), unique=True, nullable=True)
+    origen: Mapped[str] = mapped_column(String(20), default=OrigenConvenio.SOLICITUD.value, server_default=OrigenConvenio.SOLICITUD.value, nullable=False)
     plantilla_origen_id: Mapped[int | None] = mapped_column(
         ForeignKey("plantilla_convenio.id", ondelete="RESTRICT"), nullable=True
     )
@@ -91,7 +95,7 @@ class Convenio(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    solicitud: Mapped[SolicitudConvenio] = relationship(back_populates="convenio")
+    solicitud: Mapped[SolicitudConvenio | None] = relationship(back_populates="convenio")
     plantilla_origen: Mapped[PlantillaConvenio | None] = relationship(
         back_populates="convenios"
     )

@@ -98,8 +98,8 @@ def crear_hijo(
         hijo = crear_convenio(
             autor_convenios,
             codigo=f"REN-{uuid4().hex[:12]}",
-            numero_renovacion=1,
         )
+        hijo.numero_renovacion = 1
         hijo.convenio_origen_id = origen.id
         hijo.estado = estado.value
         db.commit()
