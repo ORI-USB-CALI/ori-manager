@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,6 +13,7 @@ from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.enums import (
     AccionAuditoria,
+    EstadoConvenio,
     EstadoSolicitud,
     TipoAliado,
     TipoIdentificacion,
@@ -22,7 +23,7 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
-from backend.services import bitacora
+from backend.services import actividades_utilizacion, bitacora
 from backend.services.bitacora import (
     ENTIDADES_AUDITADAS,
     asignar_actor,
@@ -87,6 +88,7 @@ def test_entidades_auditadas_son_las_acordadas() -> None:
         "firma_convenio",
         "decision_no_renovacion",
         "evaluacion_convenio",
+        "actividad_convenio",
     }
 
 
@@ -457,6 +459,34 @@ def test_editar_un_convenio_queda_registrado_con_su_accion(
     )
     assert registro.contexto == "Editó los datos del convenio"
     assert registro.usuario_id == gestor.id
+
+
+def test_registrar_una_actividad_de_utilizacion_queda_registrado_con_su_accion(
+    db, client, gestor, convenio_listo, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        actividades_utilizacion, "fecha_actual_dominio", lambda: date(2026, 10, 13)
+    )
+    convenio_listo.estado = EstadoConvenio.VIGENTE.value
+    convenio_listo.fecha_inicio = date(2026, 1, 1)
+    convenio_listo.fecha_vencimiento = date(2027, 1, 1)
+    db.commit()
+
+    respuesta = client.post(
+        f"/api/convenios/{convenio_listo.id}/actividades-utilizacion",
+        json={
+            "fecha_ejecucion": "2026-09-15",
+            "titulo": "Movilidad académica de dos estudiantes",
+            "descripcion": "Intercambio académico durante el semestre 2026-2",
+            "responsable_nombre": "Facultad de Ingeniería",
+        },
+    )
+
+    assert respuesta.status_code == 201
+    (registro,) = _bitacora(db, "actividad_convenio", respuesta.json()["id"])
+    assert registro.accion == AccionAuditoria.INSERT
+    assert registro.usuario_id == gestor.id
+    assert registro.contexto == "Registró una actividad de utilización del convenio"
 
 
 def test_aprobar_la_revision_juridica_queda_registrado_con_la_revision(
