@@ -491,8 +491,14 @@ class ServicioConvenios:
         )
         return convenio
 
-    def crear_manual(self, datos: ConvenioCrearManual, usuario: Usuario) -> Convenio:
-        """HU-10: crea un proyecto vacío sin solicitud ni plantilla precargada."""
+    def _crear_manual_en_transaccion(
+        self,
+        datos: ConvenioCrearManual,
+        usuario: Usuario,
+        *,
+        version_base: VersionConvenio | None = None,
+    ) -> Convenio:
+        """Construye el manual y su versión inicial sin confirmar la transacción."""
         if usuario.rol.codigo not in (
             CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value
         ):
@@ -521,33 +527,42 @@ class ServicioConvenios:
             estado=EstadoConvenio.EN_TRAMITE.value,
             creado_por_id=usuario.id,
         )
+        self.db.add(convenio)
+        self.db.flush()
+        self.db.add(HistorialEtapa(
+            convenio_id=convenio.id,
+            etapa_origen_id=None,
+            etapa_destino_id=elaboracion.id,
+            usuario_id=usuario.id,
+            responsable_id=usuario.id,
+            observacion="Creación directa del convenio por la ORI",
+        ))
+        self.db.add(Auditoria(
+            usuario_id=usuario.id,
+            entidad=ENTIDAD_CONVENIO,
+            registro_id=convenio.id,
+            accion=AccionAuditoria.INSERT.value,
+            campo="origen",
+            valor_anterior=None,
+            valor_nuevo=OrigenConvenio.MANUAL_ORI.value,
+        ))
+        contenido = {"type": "doc", "content": [{"type": "paragraph"}]}
+        if version_base is not None:
+            contenido = deepcopy(version_base.contenido)
+            convenio.plantilla_origen_id = version_base.plantilla_id
+        self._crear_version(
+            convenio,
+            contenido,
+            usuario,
+            ContextoVersionConvenio.INICIALIZACION,
+            auditar=False,
+        )
+        return convenio
+
+    def crear_manual(self, datos: ConvenioCrearManual, usuario: Usuario) -> Convenio:
+        """HU-10: crea un proyecto vacío sin solicitud ni plantilla precargada."""
         try:
-            self.db.add(convenio)
-            self.db.flush()
-            self.db.add(HistorialEtapa(
-                convenio_id=convenio.id,
-                etapa_origen_id=None,
-                etapa_destino_id=elaboracion.id,
-                usuario_id=usuario.id,
-                responsable_id=usuario.id,
-                observacion="Creación directa del convenio por la ORI",
-            ))
-            self.db.add(Auditoria(
-                usuario_id=usuario.id,
-                entidad=ENTIDAD_CONVENIO,
-                registro_id=convenio.id,
-                accion=AccionAuditoria.INSERT.value,
-                campo="origen",
-                valor_anterior=None,
-                valor_nuevo=OrigenConvenio.MANUAL_ORI.value,
-            ))
-            self._crear_version(
-                convenio,
-                {"type": "doc", "content": [{"type": "paragraph"}]},
-                usuario,
-                ContextoVersionConvenio.INICIALIZACION,
-                auditar=False,
-            )
+            convenio = self._crear_manual_en_transaccion(datos, usuario)
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
