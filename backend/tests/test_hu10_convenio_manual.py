@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import ContextoVersionConvenio, TipoRevisionConvenio
@@ -275,3 +276,34 @@ def test_aliado_opcional_hasta_envio_contraparte(client, db, gestor):
     assert final.json()["etapa_actual_id"] == convenio.etapa_actual_id
     assert convenio.etapa_actual is not None
     assert convenio.etapa_actual.codigo == "REVISION_AVAL_JURIDICO"
+
+
+@pytest.mark.parametrize("retirar", [False, True], ids=["cambiar", "retirar"])
+def test_patch_sincroniza_aliado_en_respuesta_y_persistencia(client, db, gestor, retirar):
+    aliados = [Aliado(
+        nombre=f"Universidad de prueba {numero}", tipo="UNIVERSIDAD",
+        tipo_identificacion="NIT", identificacion=f"HU10-PATCH-{gestor.id}-{numero}",
+        ciudad="Bogotá",
+    ) for numero in (1, 2)]
+    db.add_all(aliados)
+    db.flush()
+    original_id, nuevo_id = [aliado.id for aliado in aliados]
+    creado = _crear(client, objeto="Convenio para actualizar aliado", aliado_id=original_id)
+    assert creado.status_code == 201, creado.text
+    convenio_id = creado.json()["id"]
+    assert creado.json()["aliado"]["id"] == original_id
+    esperado = None if retirar else nuevo_id
+
+    respuesta = client.patch(f"/api/convenios/{convenio_id}", json={"aliado_id": esperado})
+
+    assert respuesta.status_code == 200, respuesta.text
+    datos = respuesta.json()
+    assert datos["aliado_id"] == esperado
+    if retirar:
+        assert datos["aliado"] is None
+    else:
+        assert datos["aliado"]["id"] == datos["aliado_id"]
+    db.expire_all()
+    persistido = db.get(Convenio, convenio_id)
+    assert persistido.aliado_id == esperado
+    assert (persistido.aliado.id if persistido.aliado else None) == esperado
