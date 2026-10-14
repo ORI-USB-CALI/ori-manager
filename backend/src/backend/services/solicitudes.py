@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -23,9 +23,20 @@ from backend.models.enums import (
 )
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
+from backend.models.solicitud_version import (
+    SolicitudVersion,
+    solicitud_version_documento,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
+from backend.schemas.solicitud import (
+    DevolucionSolicitudLeer,
+    HistorialSolicitudLeer,
+    SolicitudActualizar,
+    SolicitudCampos,
+    SolicitudCrear,
+    VersionSolicitudHistorialLeer,
+)
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -241,6 +252,40 @@ class ServicioSolicitudes:
             raise SolicitudNoEncontrada("Solicitud recibida no encontrada")
         return solicitud
 
+    def historial(self, solicitud: SolicitudConvenio) -> HistorialSolicitudLeer:
+        """HT-02 CA-05: cada radicación con su devolución y la versión que la corrigió."""
+        versiones = self.db.scalars(
+            select(SolicitudVersion)
+            .where(SolicitudVersion.solicitud_id == solicitud.id)
+            .options(selectinload(SolicitudVersion.devuelta_por))
+            .order_by(SolicitudVersion.numero)
+        ).all()
+        numeros = {version.numero for version in versiones}
+        return HistorialSolicitudLeer(
+            solicitud_id=solicitud.id,
+            consecutivo=solicitud.consecutivo,
+            estado=solicitud.estado,
+            versiones=[
+                VersionSolicitudHistorialLeer(
+                    numero=version.numero,
+                    radicada_en=version.radicada_en,
+                    devolucion=None
+                    if version.devuelta_en is None
+                    else DevolucionSolicitudLeer(
+                        observaciones=version.observaciones_devolucion,
+                        devuelta_por_nombre=version.devuelta_por.nombre_completo,
+                        devuelta_en=version.devuelta_en,
+                        corregida_en_version=(
+                            version.numero + 1
+                            if version.numero + 1 in numeros
+                            else None
+                        ),
+                    ),
+                )
+                for version in versiones
+            ],
+        )
+
     def _decidir(
         self, solicitud_id: int, actor: Usuario, estado: EstadoSolicitud
     ) -> SolicitudConvenio:
@@ -311,6 +356,17 @@ class ServicioSolicitudes:
                 )
             )
             solicitud.observaciones_devolucion = observaciones
+            version = self.db.scalar(
+                select(SolicitudVersion)
+                .where(SolicitudVersion.solicitud_id == solicitud.id)
+                .order_by(SolicitudVersion.numero.desc())
+                .limit(1)
+            )
+            # Las solicitudes radicadas antes de HT-02 no tienen versión que marcar.
+            if version is not None:
+                version.observaciones_devolucion = observaciones
+                version.devuelta_por_id = actor.id
+                version.devuelta_en = solicitud.fecha_decision
             notificaciones.crear(
                 solicitud.solicitante_id,
                 TipoNotificacion.SOLICITUD_DEVUELTA,
@@ -391,10 +447,54 @@ class ServicioSolicitudes:
         )
         if documento is None:
             raise SolicitudNoEncontrada("Documento no encontrado")
+        if self._pertenece_a_version(documento):
+            documento.es_vigente = False
+            self.db.commit()
+            self.db.expire(solicitud, ["documentos"])
+            return
         clave = documento.ruta_almacenamiento
         self.db.delete(documento)
         self.db.commit()
+        self.db.expire(solicitud, ["documentos"])
         self._almacen_requerido().eliminar(clave)
+
+    def _pertenece_a_version(self, documento: Documento) -> bool:
+        return bool(
+            self.db.scalar(
+                select(
+                    exists().where(
+                        solicitud_version_documento.c.documento_id == documento.id
+                    )
+                )
+            )
+        )
+
+    @staticmethod
+    def _datos_version(solicitud: SolicitudConvenio) -> dict[str, object]:
+        datos: dict[str, object] = {}
+        for campo in SolicitudCampos.model_fields:
+            valor = getattr(solicitud, campo)
+            datos[campo] = valor.isoformat() if isinstance(valor, date) else valor
+        return datos
+
+    def _registrar_version(
+        self, solicitud: SolicitudConvenio, usuario: Usuario, instante: datetime
+    ) -> None:
+        ultimo = self.db.scalar(
+            select(func.max(SolicitudVersion.numero)).where(
+                SolicitudVersion.solicitud_id == solicitud.id
+            )
+        )
+        self.db.add(
+            SolicitudVersion(
+                solicitud_id=solicitud.id,
+                numero=(ultimo or 0) + 1,
+                datos=self._datos_version(solicitud),
+                radicada_por_id=usuario.id,
+                radicada_en=instante,
+                documentos=list(solicitud.documentos),
+            )
+        )
 
     def _errores_radicacion(
         self, solicitud: SolicitudConvenio, usuario: Usuario
@@ -506,6 +606,7 @@ class ServicioSolicitudes:
         solicitud.fecha_decision = None
         notificaciones = ServicioNotificaciones(self.db)
         try:
+            self._registrar_version(solicitud, usuario, instante)
             notificaciones.resolver(
                 TipoNotificacion.SOLICITUD_DEVUELTA,
                 EntidadNotificacion.SOLICITUD,

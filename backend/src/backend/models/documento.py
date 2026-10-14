@@ -90,9 +90,7 @@ class Documento(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    solicitud: Mapped[SolicitudConvenio | None] = relationship(
-        back_populates="documentos"
-    )
+    solicitud: Mapped[SolicitudConvenio | None] = relationship()
     convenio: Mapped[Convenio | None] = relationship(back_populates="documentos")
     cargado_por: Mapped[Usuario | None] = relationship(foreign_keys=[cargado_por_id])
     revisiones: Mapped[list[RevisionConvenio]] = relationship(

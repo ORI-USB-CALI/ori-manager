@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from backend.models.aliado import Aliado
     from backend.models.convenio import Convenio
     from backend.models.documento import Documento
+    from backend.models.solicitud_version import SolicitudVersion
     from backend.models.tipo_convenio import TipoConvenio
     from backend.models.usuario import Usuario
 
@@ -188,4 +189,15 @@ class SolicitudConvenio(Base):
     tipo_convenio: Mapped[TipoConvenio | None] = relationship()
     solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitante_id])
     decidida_por: Mapped[Usuario | None] = relationship(foreign_keys=[decidida_por_id])
-    documentos: Mapped[list[Documento]] = relationship(back_populates="solicitud")
+    # Solo los documentos vigentes; los retirados se conservan en sus versiones.
+    documentos: Mapped[list[Documento]] = relationship(
+        primaryjoin=(
+            "and_(SolicitudConvenio.id == Documento.solicitud_id, "
+            "Documento.es_vigente.is_(True))"
+        ),
+        order_by="Documento.id",
+        viewonly=True,
+    )
+    versiones: Mapped[list[SolicitudVersion]] = relationship(
+        back_populates="solicitud", order_by="SolicitudVersion.numero"
+    )
