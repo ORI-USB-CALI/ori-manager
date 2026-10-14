@@ -294,6 +294,7 @@ class FiltrosConsultaConvenio:
     tipos_contraparte: tuple[TipoAliado, ...] | None = None
     programa_id: int | None = None
     alcance: AlcanceConvenio | None = None
+    solo_formalizados: bool = False
 
 
 # HU-27 BE-2: un convenio cuenta como formalizado cuando tiene fecha_firma Y
@@ -305,6 +306,14 @@ ESTADOS_SIN_FORMALIZAR = (EstadoConvenio.EN_TRAMITE.value, EstadoConvenio.CANCEL
 
 def convenio_esta_formalizado(convenio: Convenio) -> bool:
     return convenio.fecha_firma is not None and convenio.estado not in ESTADOS_SIN_FORMALIZAR
+
+
+def filtro_convenio_formalizado():
+    """Equivalente SQL de convenio_esta_formalizado para filtrar antes de paginar."""
+    return and_(
+        Convenio.fecha_firma.is_not(None),
+        Convenio.estado.not_in(ESTADOS_SIN_FORMALIZAR),
+    )
 
 
 # Traduce %, _ y \ a su forma escapada para ilike(..., escape="\\"), de modo
@@ -997,10 +1006,7 @@ class ServicioConvenios:
             # BE-2: Convenio.fecha_firma es la fuente de verdad (RN-03),
             # pero solo cuenta como formalizado fuera de EN_TRAMITE/CANCELADO
             # (RN-04); ver convenio_esta_formalizado().
-            condiciones = [
-                Convenio.fecha_firma.is_not(None),
-                Convenio.estado.not_in(ESTADOS_SIN_FORMALIZAR),
-            ]
+            condiciones = [filtro_convenio_formalizado()]
             if filtros.fecha_desde is not None:
                 condiciones.append(Convenio.fecha_firma >= filtros.fecha_desde)
             if filtros.fecha_hasta is not None:
@@ -1075,6 +1081,8 @@ class ServicioConvenios:
             *self._aplicar_filtro_fechas(filtros),
             *self._aplicar_filtros_avanzados(filtros),
         ]
+        if filtros.solo_formalizados:
+            condiciones.append(filtro_convenio_formalizado())
         base = (
             select(Convenio,self._filtro_alcance_operativo(usuario).label("puede_ver_detalle"))
             .outerjoin(Convenio.aliado)

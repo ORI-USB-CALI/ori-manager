@@ -128,6 +128,7 @@ export function ConsultaConveniosPage() {
 
   const filtros = useMemo(
     () => ({
+      solo_formalizados: true,
       buscar: buscarActivo || undefined,
       limite: LIMITE,
       desplazamiento: (pagina - 1) * LIMITE,
@@ -391,7 +392,7 @@ export function ConsultaConveniosPage() {
     <>
       <section className="header-banner">
         <h1>Consulta de convenios</h1>
-        <p>Busca convenios por código, objeto, aliado o NIT dentro de tu alcance de consulta.</p>
+        <p>Busca convenios formalizados por código, objeto, aliado o NIT dentro de tu alcance de consulta.</p>
       </section>
       <form onSubmit={buscar}>
         <TableFilters hasActiveFilters={hayFiltros} onClear={limpiarFiltros}>
