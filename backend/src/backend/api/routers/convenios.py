@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
@@ -63,6 +63,7 @@ from backend.schemas.convenio import (
     FirmaConvenioLeer,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
+    HitoLineaTiempoLeer,
     InvitacionFirmaConvenioLeer,
     ObservacionRevisionLeer,
     ProcesoFirmasConvenioLeer,
@@ -94,7 +95,10 @@ from backend.schemas.renovacion import (
 from backend.schemas.reportes import ConvenioReporteActivoLeer
 from backend.schemas.soporte_convenio import SoporteConvenioLeer
 from backend.services.actividades_utilizacion import ServicioActividadesUtilizacion
-from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
+from backend.services.alertas_vencimiento import (
+    ZONA_HORARIA_DOMINIO,
+    ServicioAlertasVencimiento,
+)
 from backend.services.convenios import (
     ESTADOS_SIN_FORMALIZAR,
     ConflictoVersionConvenio,
@@ -145,6 +149,7 @@ from backend.services.firma_electronica import (
     ServicioFirmaElectronica,
 )
 from backend.services.firmas import ServicioFirmas
+from backend.services.linea_tiempo import construir_linea_tiempo
 from backend.services.renovaciones import (
     ServicioRenovaciones,
     listar_seguimiento_renovaciones,
@@ -925,6 +930,21 @@ def obtener_historial_convenio(
         revisiones=[RevisionConvenioLeer.model_validate(r) for r in revisiones],
         cambios_etapa=[HistorialEtapaLeer.model_validate(h) for h in cambios_etapa],
     )
+
+
+@router.get(
+    "/{convenio_id}/linea-tiempo", response_model=list[HitoLineaTiempoLeer]
+)
+def obtener_linea_tiempo(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> list[HitoLineaTiempoLeer]:
+    try:
+        servicio = ServicioConvenios(db)
+        servicio.verificar_acceso_historial(convenio_id, usuario)
+        convenio = servicio.obtener(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return construir_linea_tiempo(convenio, datetime.now(ZONA_HORARIA_DOMINIO).date())
 
 
 @router.get("/{convenio_id}/revision", response_model=ConvenioParaRevisionLeer)

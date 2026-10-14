@@ -654,6 +654,14 @@ class ConfigurarFirmaConvenio(BaseModel):
         return normalizado
 
 
+class HitoLineaTiempoLeer(BaseModel):
+    codigo: Literal["INICIO_ELABORACION", "ACTIVACION", "VENCIMIENTO"]
+    nombre: str
+    # datetime para los hitos que registra el servidor; date para el vencimiento.
+    fecha: datetime | date | None
+    estado: Literal["COMPLETADO", "PENDIENTE", "PROGRAMADO"]
+
+
 # ---- HU-26: contrato de consulta compartido con HU-27 y HU-28 -------------
 # Este contrato (filtros + ConvenioConsultaItem/Listado) queda fijado para que
 # HU-27 y HU-28 solo le agreguen campos, sin reescribirlo.

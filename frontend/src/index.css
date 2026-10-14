@@ -3046,3 +3046,45 @@ a:hover {
   font-weight: 550;
   color: var(--color-texto);
 }
+
+/* Pestañas del detalle del convenio (Resumen / Historial). */
+.pestanas {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.pestana {
+  min-height: 40px;
+  margin-bottom: -1px;
+  padding: 9px 18px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.pestana:hover {
+  color: var(--text-primary);
+}
+
+.pestana[aria-selected='true'] {
+  border-bottom-color: var(--color-naranja);
+  color: var(--color-naranja);
+}
+
+.pestana:focus-visible {
+  outline: 3px solid rgb(243 108 33 / 35%);
+  outline-offset: -3px;
+}
+
+.versiones-documentos {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
