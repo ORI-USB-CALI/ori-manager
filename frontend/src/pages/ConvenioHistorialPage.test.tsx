@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -86,6 +87,7 @@ describe('ConvenioHistorialPage', () => {
           <MemoryRouter initialEntries={['/convenios/41/historial']}>
             <Routes>
               <Route path="/convenios/:convenioId/historial" element={<ConvenioHistorialPage />} />
+              <Route path="/convenios/:convenioId" element={<h1>Convenio de prueba</h1>} />
             </Routes>
           </MemoryRouter>
         </NotificationsContext.Provider>
@@ -105,5 +107,9 @@ describe('ConvenioHistorialPage', () => {
     // Sin solicitudId la página no consulta las versiones de la solicitud.
     expect(fetch.mock.calls.some(([url]) => url.includes('/solicitudes/'))).toBe(false)
     expect(screen.getByRole('link', { name: 'Tablero de convenios' }).getAttribute('href')).toBe('/convenios/tablero')
+    const navegacion = screen.getByRole('navigation', { name: 'Navegación del historial' })
+    expect(within(navegacion).getByRole('link', { name: 'Consulta de convenios formalizados' }).getAttribute('href')).toBe('/convenios')
+    await userEvent.click(within(navegacion).getByRole('link', { name: 'Volver al convenio' }))
+    expect(await screen.findByRole('heading', { name: 'Convenio de prueba' })).toBeTruthy()
   })
 })

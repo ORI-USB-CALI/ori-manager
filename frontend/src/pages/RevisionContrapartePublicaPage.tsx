@@ -299,11 +299,11 @@ export function RevisionContrapartePublicaPage() {
               <p className="section-help">La firma representa la conformidad de la contraparte con la versión {revision.version_numero}.</p>
               <label className="form-group" htmlFor="nombre-aprobacion">
                 <span className="form-label">Nombre del firmante *</span>
-                <input id="nombre-aprobacion" className="form-control" value={nombreAprobacion} maxLength={160} disabled={aprobar.isPending} onChange={(event) => setNombreAprobacion(event.target.value)} />
+                <input id="nombre-aprobacion" className="form-control" value={nombreAprobacion} required aria-required="true" maxLength={160} disabled={aprobar.isPending} onChange={(event) => setNombreAprobacion(event.target.value)} />
               </label>
               <label className="form-group" htmlFor="cargo-aprobacion">
                 <span className="form-label">Cargo *</span>
-                <input id="cargo-aprobacion" className="form-control" value={cargoAprobacion} maxLength={160} disabled={aprobar.isPending} onChange={(event) => setCargoAprobacion(event.target.value)} />
+                <input id="cargo-aprobacion" className="form-control" value={cargoAprobacion} required aria-required="true" maxLength={160} disabled={aprobar.isPending} onChange={(event) => setCargoAprobacion(event.target.value)} />
               </label>
               <label className="form-group" htmlFor="correo-aprobacion">
                 <span className="form-label">Correo destinatario</span>
@@ -338,18 +338,19 @@ export function RevisionContrapartePublicaPage() {
               <p className="section-help">La elaboración de convenio regresará a la ORI para que se atiendan las observaciones.</p>
               <label className="form-group" htmlFor="nombre-devolucion">
                 <span className="form-label">Nombre *</span>
-                <input id="nombre-devolucion" className="form-control" value={nombreDevolucion} maxLength={160} disabled={devolver.isPending} onChange={(event) => setNombreDevolucion(event.target.value)} />
+                <input id="nombre-devolucion" className="form-control" value={nombreDevolucion} required aria-required="true" aria-describedby="ayuda-devolucion-observaciones" maxLength={160} disabled={devolver.isPending} onChange={(event) => setNombreDevolucion(event.target.value)} />
               </label>
               <label className="form-group" htmlFor="cargo-devolucion">
                 <span className="form-label">Cargo *</span>
-                <input id="cargo-devolucion" className="form-control" value={cargoDevolucion} maxLength={160} disabled={devolver.isPending} onChange={(event) => setCargoDevolucion(event.target.value)} />
+                <input id="cargo-devolucion" className="form-control" value={cargoDevolucion} required aria-required="true" aria-describedby="ayuda-devolucion-observaciones" maxLength={160} disabled={devolver.isPending} onChange={(event) => setCargoDevolucion(event.target.value)} />
               </label>
-              <div className="devolucion-observaciones">
+              <div className="devolucion-observaciones" role="group" aria-label="Observaciones para devolución" aria-describedby="ayuda-devolucion-observaciones">
+                <p id="ayuda-devolucion-observaciones" className="section-help">Debe existir al menos una observación para devolver el convenio. Los campos marcados con * son obligatorios.</p>
                 {observaciones.map((observacion, indice) => (
                   <div className="observacion-borrador" key={indice}>
                     <label className="form-group" htmlFor={`observacion-${indice}`}>
                       <span className="form-label">Observación {indice + 1} *</span>
-                      <textarea id={`observacion-${indice}`} className="form-control" value={observacion} disabled={devolver.isPending} onChange={(event) => actualizarObservacion(indice, event.target.value)} />
+                      <textarea id={`observacion-${indice}`} className="form-control" value={observacion} required aria-required="true" aria-describedby="ayuda-devolucion-observaciones" disabled={devolver.isPending} onChange={(event) => actualizarObservacion(indice, event.target.value)} />
                     </label>
                     {observaciones.length > 1 && (
                       <button className="btn btn-outline btn-small" type="button" disabled={devolver.isPending} onClick={() => eliminarObservacion(indice)}>

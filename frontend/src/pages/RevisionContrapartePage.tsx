@@ -35,6 +35,9 @@ export function RevisionContrapartePage() {
   const notify = useNotifications()
   const [decision, setDecision] = useState<Decision | null>(null)
   const [observaciones, setObservaciones] = useState('')
+  const [observacionesTocadas, setObservacionesTocadas] = useState(false)
+  const observacionesVacias = !observaciones.trim()
+  const errorObservaciones = observacionesTocadas && observacionesVacias
   const detalle = useQuery({
     queryKey: ['revision-contraparte', revisionId],
     queryFn: () => apiFetch<DetalleRevisionContraparte>(`/convenios/revisiones-contraparte/${revisionId}`),
@@ -42,13 +45,18 @@ export function RevisionContrapartePage() {
     retry: false,
   })
   const resolver = useMutation({
-    mutationFn: (tipo: Decision) => apiFetch(`/convenios/revisiones-contraparte/${revisionId}/${tipo}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        expected_version: detalle.data?.version_recibida.numero,
-        ...(tipo === 'devolver' ? { observaciones: [observaciones.trim()] } : {}),
-      }),
-    }),
+    mutationFn: (tipo: Decision) => {
+      if (tipo === 'devolver' && observacionesVacias) {
+        throw new Error('Debe existir al menos una observación para devolver el convenio.')
+      }
+      return apiFetch(`/convenios/revisiones-contraparte/${revisionId}/${tipo}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          expected_version: detalle.data?.version_recibida.numero,
+          ...(tipo === 'devolver' ? { observaciones: [observaciones.trim()] } : {}),
+        }),
+      })
+    },
     onSuccess: async (_, tipo) => {
       notify({
         type: 'success',
@@ -108,7 +116,7 @@ export function RevisionContrapartePage() {
             <h2>Tu decisión</h2>
             <p className="section-help">Aprueba esta versión o devuélvela a la ORI indicando los ajustes requeridos.</p>
             <button className="btn btn-primary btn-block" type="button" disabled={!pendiente} onClick={() => setDecision('aprobar')}>Aprobar elaboración</button>
-            <button className="btn btn-outline btn-block" type="button" disabled={!pendiente} onClick={() => setDecision('devolver')}>Devolver con observaciones</button>
+            <button className="btn btn-outline btn-block" type="button" disabled={!pendiente} onClick={() => { setObservacionesTocadas(false); setDecision('devolver') }}>Devolver con observaciones</button>
           </section>
         </aside>
       </div>
@@ -120,11 +128,12 @@ export function RevisionContrapartePage() {
         </ConfirmacionModal>
       )}
       {decision === 'devolver' && (
-        <ConfirmacionModal titulo="Devolver elaboración" confirmar="Confirmar devolución" procesando="Devolviendo…" pendiente={resolver.isPending} confirmarDeshabilitado={!observaciones.trim()} onConfirmar={() => resolver.mutate('devolver')} onCerrar={() => setDecision(null)}>
+        <ConfirmacionModal titulo="Devolver elaboración" confirmar="Confirmar devolución" procesando="Devolviendo…" pendiente={resolver.isPending} confirmarDeshabilitado={observacionesVacias} onConfirmar={() => resolver.mutate('devolver')} onCerrar={() => setDecision(null)}>
           <label className="form-group" htmlFor="observaciones-contraparte">
-            <span className="form-label">Observaciones obligatorias</span>
-            <textarea id="observaciones-contraparte" className="form-control" value={observaciones} onChange={(event) => setObservaciones(event.target.value)} rows={5} />
+            <span className="form-label">Observaciones <span aria-hidden="true">*</span></span>
+            <textarea id="observaciones-contraparte" className="form-control" value={observaciones} onChange={(event) => setObservaciones(event.target.value)} onBlur={() => setObservacionesTocadas(true)} required aria-required="true" aria-describedby="ayuda-observaciones-contraparte" aria-invalid={errorObservaciones} rows={5} />
           </label>
+          <p id="ayuda-observaciones-contraparte" className="section-help" role={errorObservaciones ? 'alert' : undefined}>Debe existir al menos una observación para devolver el convenio.</p>
         </ConfirmacionModal>
       )}
     </>
