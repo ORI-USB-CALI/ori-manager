@@ -81,8 +81,6 @@ def test_convenio_completo_no_tiene_faltantes():
 @pytest.mark.parametrize(
     ("cambios", "campo"),
     [
-        ({"codigo": None}, "codigo_convenio"),
-        ({"codigo": "   "}, "codigo_convenio"),
         ({"aliado": None}, "entidad_participante"),
         ({"fecha_inicio": None}, "fecha_inicio_vigencia"),
         ({"fecha_vencimiento": None}, "fecha_fin_vigencia"),
@@ -94,6 +92,12 @@ def test_convenio_completo_no_tiene_faltantes():
 )
 def test_cada_campo_obligatorio_se_reporta_solo(cambios, campo):
     assert _faltantes(_convenio_completo(**cambios)) == [campo]
+
+
+@pytest.mark.parametrize("codigo", [None, "   "])
+def test_el_codigo_no_es_obligatorio(codigo):
+    # QA #136: ningún flujo genera el código; se identifica por el número interno.
+    assert _faltantes(_convenio_completo(codigo=codigo)) == []
 
 
 def test_aliado_propuesto_en_la_solicitud_cuenta_como_entidad():
@@ -259,7 +263,7 @@ def test_convenio_incompleto_responde_422_con_el_json_de_la_tarea(
     assert set(cuerpo) == {"error", "message", "campos_faltantes"}
     assert cuerpo["error"] == "CONVENIO_INCOMPLETO"
     assert cuerpo["message"] == MENSAJE_CONVENIO_INCOMPLETO
-    assert "codigo_convenio" in cuerpo["campos_faltantes"]
+    assert "codigo_convenio" not in cuerpo["campos_faltantes"]
     assert "representante_legal_institucion" in cuerpo["campos_faltantes"]
 
 

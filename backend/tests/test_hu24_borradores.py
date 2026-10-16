@@ -498,7 +498,7 @@ def test_fuera_de_elaboracion_se_conservan_las_validaciones_oficiales(
 
     assert respuesta.status_code == 422
     campos = respuesta.json()["campos_faltantes"]
-    assert {"codigo_convenio", "fecha_inicio_vigencia", "representante_legal_institucion"} <= set(campos)
+    assert {"fecha_inicio_vigencia", "representante_legal_institucion"} <= set(campos)
 
 
 def test_borrador_con_proceso_de_firmas_no_presenta_firmas(

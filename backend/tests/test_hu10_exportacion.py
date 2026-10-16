@@ -254,7 +254,6 @@ def test_manual_sin_aliado_reporta_validacion_controlada(
 
 
 @pytest.mark.parametrize("campo,valor,faltantes", [
-    ("codigo", None, ["codigo_convenio"]),
     ("fecha_inicio", None, ["fecha_inicio_vigencia"]),
     ("fecha_vencimiento", None, ["fecha_fin_vigencia"]),
     ("tipo_convenio_id", None, ["tipo_convenio"]),

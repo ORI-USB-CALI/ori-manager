@@ -515,3 +515,27 @@ def test_nombre_del_archivo_solo_usa_caracteres_seguros(
         respuesta.headers["content-disposition"],
     )
     assert "/" not in respuesta.headers["content-disposition"].split("filename=")[1]
+
+
+# ---- Regresión QA #136: convenio activo sin código ------------------------------
+
+
+@pytest.mark.parametrize("formato", ["pdf", "excel"])
+def test_convenio_activo_sin_codigo_se_exporta(
+    db, client, gestor, convenio_exportable, formato
+):
+    # Ningún flujo genera el código: se identifica por su número interno.
+    convenio_exportable.codigo = None
+    convenio_exportable.estado = "VIGENTE"
+    _completar_proceso_de_la_v1(db, convenio_exportable)
+    _mover_a_etapa(db, convenio_exportable, "FIRMA_ARCHIVO_SEGUIMIENTO")
+
+    respuesta = _exportar(client, convenio_exportable.id, formato)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert (
+        f'filename="Convenio_ID-{convenio_exportable.id}_'
+        in respuesta.headers["content-disposition"]
+    )
+    if formato == "excel":
+        assert f"#{convenio_exportable.id}" in _textos_libro(respuesta.content)
