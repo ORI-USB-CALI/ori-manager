@@ -73,6 +73,8 @@ class ConvenioExcelExportService:
         inicio = _escribir_marca(hoja, dto)
         _escribir_cabecera(hoja, inicio, ["Campo", "Valor"])
         filas: list[tuple[str, object]] = [
+            # Identifica el convenio aunque todavía no tenga código (QA #136).
+            ("Identificador", f"#{dto.convenio_id}"),
             ("Código del convenio", dto.codigo),
             ("Consecutivo de la solicitud", dto.solicitud_consecutivo),
             ("Tipo de convenio", dto.tipo_convenio),

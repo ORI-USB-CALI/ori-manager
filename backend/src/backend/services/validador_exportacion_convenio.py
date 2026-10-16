@@ -153,9 +153,9 @@ class ConvenioExportValidator:
         return faltantes
 
     def _faltantes_oficial(self, convenio: Convenio) -> list[str]:
+        # El código no se exige: ningún flujo lo genera (QA #136). Sin código,
+        # el convenio se identifica por su número interno, como en HU-34.
         faltantes: list[str] = []
-        if _vacio(convenio.codigo):
-            faltantes.append("codigo_convenio")
         if _falta_solicitud(convenio):
             faltantes.append("solicitud_origen")
         if _falta_entidad(convenio):
