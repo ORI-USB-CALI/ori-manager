@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from secrets import token_hex
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -31,8 +30,8 @@ from backend.services.convenios import (
     DatosRenovacion,
     ServicioConvenios,
 )
+from backend.services.vigencia import fecha_actual_dominio
 
-ZONA_HORARIA_DOMINIO = ZoneInfo("America/Bogota")
 DIAS_VENTANA_RENOVACION = 120
 ESTADOS_ELEGIBLES_RENOVACION = frozenset(
     (EstadoConvenio.VIGENTE.value, EstadoConvenio.POR_VENCER.value)
@@ -82,10 +81,6 @@ class SeguimientoRenovacion:
     codigo_renovacion: str | None
     numero_renovacion: int | None
     etapa_renovacion: str | None
-
-
-def fecha_actual_dominio() -> date:
-    return datetime.now(ZONA_HORARIA_DOMINIO).date()
 
 
 def es_elegible_para_renovacion(

@@ -68,3 +68,61 @@ describe('HU-10 - creación de convenio manual', () => {
     expect(screen.queryByText('Editor disponible')).toBeNull()
   })
 })
+
+describe('HT-08 - vigencia en la creación manual', () => {
+  function stubCreacion() {
+    const peticiones: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      peticiones.push({ url, init })
+      if (url.startsWith('/api/aliados')) return respuesta(200, { items: [], total: 0 })
+      if (url === '/api/convenios/manual') return respuesta(201, { id: 32, origen: 'MANUAL_ORI' })
+      throw new Error(`Ruta inesperada: ${url}`)
+    }))
+    return () => peticiones.filter((peticion) => peticion.url === '/api/convenios/manual')
+  }
+
+  it('CA-01: no envía un vencimiento pasado y lo indica en el campo', async () => {
+    const creaciones = stubCreacion()
+    abrir()
+    fireEvent.change(screen.getByLabelText('Fecha de vencimiento (opcional)'), { target: { value: '2000-01-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
+
+    expect(await screen.findByText('La fecha de vencimiento no puede ser anterior a hoy.')).toBeTruthy()
+    expect(creaciones()).toHaveLength(0)
+  })
+
+  it('CA-02: no envía un inicio posterior al vencimiento', async () => {
+    const creaciones = stubCreacion()
+    abrir()
+    fireEvent.change(screen.getByLabelText('Fecha de inicio de vigencia (opcional)'), { target: { value: '2999-12-31' } })
+    fireEvent.change(screen.getByLabelText('Fecha de vencimiento (opcional)'), { target: { value: '2999-01-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
+
+    expect(await screen.findByText('La fecha de vencimiento debe ser igual o posterior a la fecha de inicio.')).toBeTruthy()
+    expect(creaciones()).toHaveLength(0)
+  })
+
+  it('CA-03: envía una vigencia válida con inicio igual al vencimiento', async () => {
+    const creaciones = stubCreacion()
+    abrir()
+    fireEvent.change(screen.getByLabelText('Fecha de inicio de vigencia (opcional)'), { target: { value: '2999-01-01' } })
+    fireEvent.change(screen.getByLabelText('Fecha de vencimiento (opcional)'), { target: { value: '2999-01-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
+
+    expect(await screen.findByText('Editor disponible')).toBeTruthy()
+    const payload = JSON.parse(String(creaciones()[0].init?.body)) as Record<string, unknown>
+    expect(payload.fecha_inicio).toBe('2999-01-01')
+    expect(payload.fecha_vencimiento).toBe('2999-01-01')
+  })
+
+  it('las fechas son opcionales: sin fechas se envían como null', async () => {
+    const creaciones = stubCreacion()
+    abrir()
+    fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
+
+    expect(await screen.findByText('Editor disponible')).toBeTruthy()
+    const payload = JSON.parse(String(creaciones()[0].init?.body)) as Record<string, unknown>
+    expect(payload.fecha_inicio).toBeNull()
+    expect(payload.fecha_vencimiento).toBeNull()
+  })
+})

@@ -14,6 +14,7 @@ import {
   useAliados,
 } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
+import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia } from './vigencia'
 
 const ETAPA_ELABORACION = 'ELABORACION'
 const CAMPOS = [
@@ -68,9 +69,7 @@ function mensajePendiente(campo: string, motivo: string) {
     || motivo === 'Es obligatorio cuando el alcance es PROGRAMA') {
     return MENSAJES_PENDIENTES[campo] ?? motivo
   }
-  if (campo === 'fecha_vencimiento' && motivo === 'Debe ser posterior a la fecha de inicio') {
-    return 'La fecha de vencimiento debe ser posterior a la fecha de inicio.'
-  }
+  if (campo === 'fecha_vencimiento') return mensajeVigenciaServidor(motivo) ?? motivo
   return motivo
 }
 
@@ -87,6 +86,12 @@ function valoresMetadata(formulario: HTMLFormElement): Record<string, string | n
       || campo === 'duracion_meses'
     return [campo, numerico ? (bruto ? Number(bruto) : null) : (bruto || null)]
   }))
+}
+
+function erroresVigencia(metadata: Record<string, string | number | null>) {
+  const inicio = typeof metadata.fecha_inicio === 'string' ? metadata.fecha_inicio : null
+  const vencimiento = typeof metadata.fecha_vencimiento === 'string' ? metadata.fecha_vencimiento : null
+  return validarVigencia(inicio, vencimiento, fechaHoyLocal())
 }
 
 function erroresServidor(error: unknown): Record<string, string> {
@@ -216,8 +221,18 @@ export function ConvenioElaboracionPage() {
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!contenido) return
+    const metadata = valoresMetadata(event.currentTarget)
+    // Igual que el backend: al guardar solo se valida si cambió alguna fecha.
+    const cambioVigencia = metadata.fecha_inicio !== (fechaInput(datos.fecha_inicio) || null)
+      || metadata.fecha_vencimiento !== (fechaInput(datos.fecha_vencimiento) || null)
+    const invalidas = cambioVigencia ? erroresVigencia(metadata) : {}
+    if (Object.keys(invalidas).length > 0) {
+      setErrores(invalidas)
+      notify({ type: 'error', message: 'Revisa las fechas de vigencia antes de guardar.' })
+      return
+    }
     guardar.mutate({
-      ...valoresMetadata(event.currentTarget),
+      ...metadata,
       contenido,
       expected_version: datos.version_actual,
     })
@@ -225,9 +240,15 @@ export function ConvenioElaboracionPage() {
 
   function prepararFinalizacion() {
     if (!formRef.current || !contenido) return
-    setErrores({})
+    const metadata = valoresMetadata(formRef.current)
+    const invalidas = erroresVigencia(metadata)
+    setErrores(invalidas)
+    if (Object.keys(invalidas).length > 0) {
+      notify({ type: 'error', message: 'Revisa las fechas de vigencia antes de finalizar.' })
+      return
+    }
     setPayloadFinal({
-      ...valoresMetadata(formRef.current),
+      ...metadata,
       contenido,
       expected_version: datos.version_actual,
     })

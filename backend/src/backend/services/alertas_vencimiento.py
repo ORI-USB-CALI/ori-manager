@@ -1,7 +1,6 @@
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from enum import StrEnum
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
@@ -9,8 +8,8 @@ from sqlalchemy.orm import Session, aliased
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.enums import EstadoConvenio
+from backend.services.vigencia import fecha_actual_dominio
 
-ZONA_HORARIA_DOMINIO = ZoneInfo("America/Bogota")
 DIAS_MAXIMOS_ALERTA = 120
 
 
@@ -31,10 +30,6 @@ class ProximoVencimiento:
     rango_vencimiento: RangoVencimiento
 
 
-def _fecha_actual_dominio() -> date:
-    return datetime.now(ZONA_HORARIA_DOMINIO).date()
-
-
 def _clasificar(dias_restantes: int) -> RangoVencimiento:
     if dias_restantes <= 30:
         return RangoVencimiento.DIAS_0_30
@@ -52,7 +47,7 @@ class ServicioAlertasVencimiento:
     def listar_proximos_vencimientos(
         self, fecha_referencia: date | None = None
     ) -> list[ProximoVencimiento]:
-        referencia = fecha_referencia or _fecha_actual_dominio()
+        referencia = fecha_referencia or fecha_actual_dominio()
         fecha_limite = referencia + timedelta(days=DIAS_MAXIMOS_ALERTA)
         renovacion = aliased(Convenio)
         decision_vigente = select(DecisionNoRenovacion.id).where(

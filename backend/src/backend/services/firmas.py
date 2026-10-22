@@ -40,6 +40,7 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
+    exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
 
@@ -703,6 +704,10 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 "El convenio no está en aprobación de firmas"
             )
+        # HT-08: no se activa un convenio cuya vigencia ya terminó. Los CA hablan
+        # de creación/elaboración; extenderlo a la formalización es una decisión
+        # del desarrollador pendiente de revisión por el Líder Técnico (ver PR).
+        exigir_vigencia_valida(convenio.fecha_inicio, convenio.fecha_vencimiento)
 
         procesos = list(
             self.db.scalars(

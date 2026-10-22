@@ -95,10 +95,7 @@ from backend.schemas.renovacion import (
 from backend.schemas.reportes import ConvenioReporteActivoLeer
 from backend.schemas.soporte_convenio import SoporteConvenioLeer
 from backend.services.actividades_utilizacion import ServicioActividadesUtilizacion
-from backend.services.alertas_vencimiento import (
-    ZONA_HORARIA_DOMINIO,
-    ServicioAlertasVencimiento,
-)
+from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ESTADOS_SIN_FORMALIZAR,
     ConflictoVersionConvenio,
@@ -117,6 +114,7 @@ from backend.services.convenios import (
     ServicioConvenios,
     SolicitudNoAprobada,
     TipoFiltroFecha,
+    VigenciaInvalida,
     convenio_esta_formalizado,
 )
 from backend.services.correo import (
@@ -163,6 +161,7 @@ from backend.services.soportes_convenio import (
     ConvenioNoAdmiteSoportes,
     ServicioSoportesConvenio,
 )
+from backend.services.vigencia import ZONA_HORARIA_DOMINIO
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -217,7 +216,7 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
         ),
     ):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    if isinstance(exc, ElaboracionIncompleta):
+    if isinstance(exc, (ElaboracionIncompleta, VigenciaInvalida)):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={

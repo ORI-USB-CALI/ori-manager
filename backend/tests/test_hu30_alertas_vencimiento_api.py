@@ -21,7 +21,7 @@ FECHA_REFERENCIA = date(2026, 10, 7)
 def fecha_dominio_fija(monkeypatch) -> None:
     monkeypatch.setattr(
         alertas_vencimiento,
-        "_fecha_actual_dominio",
+        "fecha_actual_dominio",
         lambda: FECHA_REFERENCIA,
     )
     monkeypatch.setattr(renovaciones, "fecha_actual_dominio", lambda: FECHA_REFERENCIA)
