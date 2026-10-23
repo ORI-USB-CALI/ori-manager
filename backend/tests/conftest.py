@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -39,6 +40,7 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioCrear
+from backend.services import convenios as servicio_convenios
 from backend.services.auth import DURACION_SESION
 from backend.services.convenios import ServicioConvenios
 from backend.services.correo import CorreoLocal, get_enviador_correo
@@ -203,10 +205,15 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        return ServicioConvenios(db).crear(
-            ConvenioCrear.model_validate(datos),
-            autor,
-        )
+        # HT-08: el fixture fabrica convenios con vigencias históricas (vigentes,
+        # vencidos) para otras HU. Se congela "hoy" en date.min para que no aplique
+        # el CA-01 (vencimiento pasado); el CA-02 (inicio <= vencimiento) sí aplica.
+        # Las reglas de HT-08 se prueban en test_ht08_validacion_vigencia.py.
+        with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min):
+            return ServicioConvenios(db).crear(
+                ConvenioCrear.model_validate(datos),
+                autor,
+            )
 
     return _crear
 

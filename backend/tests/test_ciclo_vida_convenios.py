@@ -14,7 +14,7 @@ from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
 from backend.models.usuario import Usuario
-from backend.services import renovaciones
+from backend.services import vigencia
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.ciclo_vida_convenios import conciliar_estados
 from backend.services.renovaciones import listar_seguimiento_renovaciones
@@ -245,7 +245,7 @@ def test_fecha_por_defecto_usa_bogota(db, preparar, monkeypatch):
             assert zona.key == "America/Bogota"
             return datetime(2026, 10, 9, 2, 0, tzinfo=UTC).astimezone(zona)
 
-    monkeypatch.setattr(renovaciones, "datetime", Reloj)
+    monkeypatch.setattr(vigencia, "datetime", Reloj)
     convenio = preparar(dias=0)
     assert conciliar_estados(db).fecha_referencia == HOY
     assert convenio.estado == "POR_VENCER"

@@ -72,6 +72,7 @@ from backend.services.contraparte_externa import (
 from backend.services.correo import EnviadorCorreo
 from backend.services.documentos import AlmacenDocumentos
 from backend.services.notificaciones import ServicioNotificaciones
+from backend.services.vigencia import fecha_actual_dominio, validar_vigencia
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,9 @@ CAMPOS_REQUERIDOS_ELABORACION = (
 )
 
 
-def validar_completitud(convenio: Convenio) -> list[CampoFaltante]:
+def validar_completitud(
+    convenio: Convenio, hoy: date | None = None
+) -> list[CampoFaltante]:
     """Indica qué falta para poder finalizar la elaboración. Sin efectos secundarios."""
     faltantes: list[CampoFaltante] = []
 
@@ -157,17 +160,15 @@ def validar_completitud(convenio: Convenio) -> list[CampoFaltante]:
             )
         )
 
-    if (
-        convenio.fecha_inicio is not None
-        and convenio.fecha_vencimiento is not None
-        and convenio.fecha_vencimiento <= convenio.fecha_inicio
-    ):
-        faltantes.append(
-            CampoFaltante(
-                campo="fecha_vencimiento",
-                motivo="Debe ser posterior a la fecha de inicio",
-            )
+    # HT-08: se revalida al finalizar porque el vencimiento pudo quedar en el
+    # pasado mientras el convenio seguía en elaboración.
+    faltantes.extend(
+        validar_vigencia(
+            convenio.fecha_inicio,
+            convenio.fecha_vencimiento,
+            hoy or fecha_actual_dominio(),
         )
+    )
 
     return faltantes
 
@@ -227,6 +228,23 @@ class ElaboracionIncompleta(ErrorConvenio):
     def __init__(self, faltantes: list[CampoFaltante]) -> None:
         self.faltantes = faltantes
         super().__init__("Falta información requerida para finalizar la elaboración")
+
+
+class VigenciaInvalida(ErrorConvenio):
+    def __init__(self, faltantes: list[CampoFaltante]) -> None:
+        self.faltantes = faltantes
+        super().__init__("Las fechas de vigencia del convenio no son válidas")
+
+
+def exigir_vigencia_valida(
+    fecha_inicio: date | None, fecha_vencimiento: date | None
+) -> None:
+    """HT-08: punto único para rechazar una vigencia inválida al crear o editar."""
+    faltantes = validar_vigencia(
+        fecha_inicio, fecha_vencimiento, fecha_actual_dominio()
+    )
+    if faltantes:
+        raise VigenciaInvalida(faltantes)
 
 
 class DocumentoConvenioInvalido(ErrorConvenio):
@@ -436,6 +454,7 @@ class ServicioConvenios:
             raise ConfiguracionConvenioInvalida(
                 "No existe la etapa obligatoria ELABORACION"
             )
+        exigir_vigencia_valida(datos.fecha_inicio, datos.fecha_vencimiento)
         valores = datos.model_dump()
         if renovacion is not None:
             valores.update(
@@ -510,6 +529,7 @@ class ServicioConvenios:
             CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value
         ):
             raise ReferenciaConvenioInvalida("Solo Gestor ORI o Administrador ORI pueden crear convenios manualmente")
+        exigir_vigencia_valida(datos.fecha_inicio, datos.fecha_vencimiento)
         valores = datos.model_dump(exclude={"aliado_id"}, exclude_unset=True)
         if renovacion is not None:
             valores.update(
@@ -2018,6 +2038,18 @@ class ServicioConvenios:
             **cambios,
         }
         self._validar_referencias(combinados)
+        # HT-08: solo se valida cuando cambia el valor de alguna fecha, para no
+        # bloquear la edición de otros campos de convenios cargados antes de esta
+        # regla (el editor reenvía todas las fechas en cada guardado).
+        # Cubre actualizar y guardar_elaboracion (el CA-02 bloquea el guardado).
+        if any(
+            campo in cambios and cambios[campo] != getattr(convenio, campo)
+            for campo in ("fecha_inicio", "fecha_vencimiento")
+        ):
+            exigir_vigencia_valida(
+                cambios.get("fecha_inicio", convenio.fecha_inicio),
+                cambios.get("fecha_vencimiento", convenio.fecha_vencimiento),
+            )
         if "aliado_id" in cambios:
             if convenio.origen != OrigenConvenio.MANUAL_ORI.value:
                 raise ReferenciaConvenioInvalida(

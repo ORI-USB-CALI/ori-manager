@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from threading import Barrier
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -19,6 +20,7 @@ from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioCrear, ConvenioCrearManual
+from backend.services import convenios as servicio_convenios
 from backend.services.ciclo_vida_convenios import conciliar_estados
 from backend.services.convenios import (
     ConvenioDuplicado,
@@ -43,14 +45,20 @@ def origen_confirmado(request, db_engine):
         )
         db.add(usuario)
         db.flush()
+        # HT-08: el origen se fabrica ya vencido a propósito; se congela "hoy" para
+        # que la regla de vencimiento pasado no aplique a este dato de prueba.
+        congelar_hoy = patch.object(
+            servicio_convenios, "fecha_actual_dominio", lambda: date.min
+        )
         if request.param == "MANUAL_ORI":
-            convenio = ServicioConvenios(db).crear_manual(
-                ConvenioCrearManual(
-                    objeto="Convenio para renovación concurrente",
-                    fecha_vencimiento=HOY - timedelta(days=1),
-                ),
-                usuario,
-            )
+            with congelar_hoy:
+                convenio = ServicioConvenios(db).crear_manual(
+                    ConvenioCrearManual(
+                        objeto="Convenio para renovación concurrente",
+                        fecha_vencimiento=HOY - timedelta(days=1),
+                    ),
+                    usuario,
+                )
         else:
             solicitud = SolicitudConvenio(
                 consecutivo=f"SOL-{uuid4().hex}",
@@ -60,14 +68,15 @@ def origen_confirmado(request, db_engine):
             )
             db.add(solicitud)
             db.commit()
-            convenio = ServicioConvenios(db).crear(
-                ConvenioCrear(
-                    solicitud_id=solicitud.id,
-                    objeto="Convenio para renovación concurrente",
-                    fecha_vencimiento=HOY - timedelta(days=1),
-                ),
-                usuario,
-            )
+            with congelar_hoy:
+                convenio = ServicioConvenios(db).crear(
+                    ConvenioCrear(
+                        solicitud_id=solicitud.id,
+                        objeto="Convenio para renovación concurrente",
+                        fecha_vencimiento=HOY - timedelta(days=1),
+                    ),
+                    usuario,
+                )
         convenio.estado = "FINALIZADO"
         db.commit()
         ids = convenio.id, usuario.id

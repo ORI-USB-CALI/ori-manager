@@ -37,6 +37,7 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import ConvenioCrear
+from backend.services import convenios as servicio_convenios
 from backend.services.convenios import ServicioConvenios
 
 
@@ -542,7 +543,7 @@ def test_ca06_finalizar_programa_sin_unidad_es_rechazado(
 
 
 def test_ca06_vencimiento_anterior_al_inicio_se_reporta(
-    client, db, gestor, crear_convenio
+    client, db, gestor, crear_convenio, monkeypatch
 ) -> None:
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
     convenio = crear_convenio(
@@ -550,8 +551,14 @@ def test_ca06_vencimiento_anterior_al_inicio_se_reporta(
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo",
         duracion_meses=12,
-        fecha_inicio=date(2026, 6, 1),
-        fecha_vencimiento=date(2026, 1, 1),
+    )
+    # HT-08 ya rechaza esta vigencia al crear o editar; se simula un dato
+    # cargado antes de esa regla para comprobar que la validación lo reporta.
+    convenio.fecha_inicio = date(2026, 6, 1)
+    convenio.fecha_vencimiento = date(2026, 1, 1)
+    db.commit()
+    monkeypatch.setattr(
+        servicio_convenios, "fecha_actual_dominio", lambda: date(2025, 12, 1)
     )
 
     cuerpo = client.get(
