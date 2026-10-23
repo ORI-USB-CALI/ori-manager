@@ -11,11 +11,16 @@ const MENSAJES_SERVIDOR: Record<string, string> = {
   'Debe ser igual o posterior a la fecha de inicio': MENSAJE_INICIO_POSTERIOR,
 }
 
-/** Fecha local del navegador; cerca de medianoche puede diferir de Bogotá. */
+/** Día calendario del dominio ORI en America/Bogota, independiente del navegador. */
 export function fechaHoyLocal(ahora: Date = new Date()): string {
-  const mes = String(ahora.getMonth() + 1).padStart(2, '0')
-  const dia = String(ahora.getDate()).padStart(2, '0')
-  return `${ahora.getFullYear()}-${mes}-${dia}`
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(ahora)
+  const valores = Object.fromEntries(partes.map((parte) => [parte.type, parte.value]))
+  return `${valores.year}-${valores.month}-${valores.day}`
 }
 
 /** Solo valida lo informado: las fechas de vigencia son opcionales. */

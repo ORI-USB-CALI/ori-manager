@@ -13,6 +13,10 @@
 | Contribuciones | [Política documental](development/documentation-policy.md) |
 | Wiki de GitHub | [Portada preparada](wiki/Home.md), pendiente de publicar |
 
+## Historias técnicas en desarrollo (Sprint 4)
+
+- [HT-08 — Validación de vigencia de convenios](hu/ht-08-validacion-vigencia.md) · [PR #147](https://github.com/ORI-USB-CALI/ori-manager/pull/147); no implica aceptación QA ni release.
+
 ## Historias terminadas con ficha de referencia
 
 - [HU-01 — Inicio sesion](hu/hu-01-inicio-sesion.md)

@@ -35,7 +35,10 @@ describe('HT-08 - validación de vigencia en formularios', () => {
     expect(mensajeVigenciaServidor('Otro motivo')).toBeUndefined()
   })
 
-  it('usa la fecha local con formato YYYY-MM-DD', () => {
-    expect(fechaHoyLocal(new Date(2030, 0, 5, 23, 59))).toBe('2030-01-05')
+  it('usa el día calendario de Bogotá, independientemente del navegador', () => {
+    // UTC 04:59 del día 6 aún corresponde a las 23:59 del día 5 en Bogotá.
+    expect(fechaHoyLocal(new Date('2030-01-06T04:59:00.000Z'))).toBe('2030-01-05')
+    // UTC 05:01 del día 6 corresponde a las 00:01 del día 6 en Bogotá.
+    expect(fechaHoyLocal(new Date('2030-01-06T05:01:00.000Z'))).toBe('2030-01-06')
   })
 })

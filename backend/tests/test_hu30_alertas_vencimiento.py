@@ -9,7 +9,7 @@ from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
 from backend.models.usuario import Usuario
-from backend.services import alertas_vencimiento
+from backend.services import vigencia
 from backend.services.alertas_vencimiento import (
     ProximoVencimiento,
     RangoVencimiento,
@@ -223,11 +223,11 @@ def test_fecha_por_defecto_usa_zona_horaria_de_bogota(db, monkeypatch) -> None:
             zonas_recibidas.append(zona)
             return datetime(2026, 10, 7, 23, 59, tzinfo=zona)
 
-    monkeypatch.setattr(alertas_vencimiento, "datetime", FechaHoraFija)
+    monkeypatch.setattr(vigencia, "datetime", FechaHoraFija)
 
     assert ServicioAlertasVencimiento(db).listar_proximos_vencimientos() == []
-    assert zonas_recibidas == [alertas_vencimiento.ZONA_HORARIA_DOMINIO]
-    assert alertas_vencimiento.ZONA_HORARIA_DOMINIO.key == "America/Bogota"
+    assert zonas_recibidas == [vigencia.ZONA_HORARIA_DOMINIO]
+    assert vigencia.ZONA_HORARIA_DOMINIO.key == "America/Bogota"
 
 
 def test_filtro_de_decisiones_y_renovaciones_usa_una_sola_consulta(
