@@ -9,6 +9,7 @@ from sqlalchemy.sql.elements import ClauseElement
 from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
@@ -50,6 +51,9 @@ ENTIDADES_AUDITADAS: dict[type, str] = {
             DecisionNoRenovacion,
             EvaluacionConvenio,
             ActividadConvenio,
+            # HT-13: el contenido es JSON, así que _sin_texto_legible ya
+            # evita guardar su valor; solo se registra que cambió.
+            BorradorConvenio,
         )
     },
     # Nombre con el que la bitácora registró las solicitudes desde HU-07.
@@ -68,6 +72,12 @@ class Accion:
     actor: Actor
     descripcion: str
     instante: datetime | None = None
+    # HT-09: contrato de evento de negocio, aún no persistido en `auditoria`
+    # (llega con HT09-BE02, cuando existan las columnas). Se acepta desde ya
+    # para que los servicios de HT-13 puedan empezar a declararlo.
+    evento: str | None = None
+    etapa: str | None = None
+    version: int | None = None
 
 
 def _actor_de(usuario: Usuario) -> Actor:
@@ -86,12 +96,21 @@ def describir_accion(
     descripcion: str,
     *,
     instante: datetime | None = None,
+    evento: str | None = None,
+    etapa: str | None = None,
+    version: int | None = None,
 ) -> None:
     """Atribuye al usuario los cambios de la transacción en curso y los acompaña
     con la acción de negocio que los origina. Si se indica el instante, los
     registros llevan esa misma fecha y hora, por ejemplo la de una decisión que
-    también queda guardada en su propia entidad."""
-    db.info[CLAVE_ACCION] = Accion(_actor_de(usuario), descripcion, instante)
+    también queda guardada en su propia entidad.
+
+    `evento`, `etapa` y `version` identifican estructuradamente la acción de
+    negocio (HT-09, CA-01 y CA-05). Todavía no se persisten: las columnas se
+    agregan en HT09-BE02."""
+    db.info[CLAVE_ACCION] = Accion(
+        _actor_de(usuario), descripcion, instante, evento, etapa, version
+    )
 
 
 def _a_texto(valor: object) -> str | None:
