@@ -398,6 +398,7 @@ def test_guardar_avance_declara_el_evento_de_borrador(
         "evento": "BORRADOR_GUARDADO",
         "etapa": "ELABORACION",
         "version": 1,
+        "responsable_id": convenio_listo.creado_por_id,
     }
 
 
@@ -418,3 +419,4 @@ def test_enviar_declara_si_genero_o_reutilizo_la_version(
     assert acciones[-1]["evento"] == evento
     assert acciones[-1]["etapa"] == "ELABORACION"
     assert acciones[-1]["version"] == version
+    assert acciones[-1]["responsable_id"] == convenio_listo.creado_por_id
