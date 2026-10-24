@@ -58,7 +58,7 @@ def listar_auditoria(
     )
     items = db.scalars(
         select(Auditoria)
-        .options(joinedload(Auditoria.usuario))
+        .options(joinedload(Auditoria.usuario), joinedload(Auditoria.responsable))
         .where(*condiciones)
         .order_by(*criterio)
         .limit(filtros.limite)

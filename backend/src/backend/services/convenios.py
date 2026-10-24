@@ -183,6 +183,18 @@ def _nombre_revision_juridica(revision: RevisionConvenio) -> str:
     )
 
 
+def contexto_auditoria(convenio: Convenio) -> dict[str, object]:
+    """HT-09: etapa, versión y responsable de negocio vigentes del convenio,
+    para acompañar estructuradamente su auditoría (CA-01, CA-04, CA-05). El
+    responsable de negocio es, hoy, quien creó el convenio: el modelo no
+    tiene un responsable administrativo distinto (ver HU-34)."""
+    return {
+        "etapa": convenio.etapa_actual.codigo if convenio.etapa_actual else None,
+        "version": convenio.version_actual,
+        "responsable_id": convenio.creado_por_id,
+    }
+
+
 class ErrorConvenio(Exception):
     pass
 
@@ -584,7 +596,15 @@ class ServicioConvenios:
 
     def crear_manual(self, datos: ConvenioCrearManual, usuario: Usuario) -> Convenio:
         """HU-10: crea un proyecto vacío sin solicitud ni plantilla precargada."""
-        describir_accion(self.db, usuario, "Creó el convenio manualmente")
+        describir_accion(
+            self.db,
+            usuario,
+            "Creó el convenio manualmente",
+            evento="CONVENIO_CREADO_MANUAL",
+            etapa=CODIGO_ETAPA_ELABORACION,
+            version=0,
+            responsable_id=usuario.id,
+        )
         try:
             convenio = self._crear_manual_en_transaccion(datos, usuario)
             self.db.commit()
@@ -600,7 +620,15 @@ class ServicioConvenios:
         solicitud = self.db.get(SolicitudConvenio, datos.solicitud_id)
         if solicitud is None:
             raise ReferenciaConvenioInvalida("La solicitud indicada no existe")
-        describir_accion(self.db, usuario, "Creó el convenio")
+        describir_accion(
+            self.db,
+            usuario,
+            "Creó el convenio",
+            evento="CONVENIO_CREADO",
+            etapa=CODIGO_ETAPA_ELABORACION,
+            version=0,
+            responsable_id=usuario.id,
+        )
         try:
             convenio = self._crear_en_transaccion(datos, usuario, solicitud)
             self.db.commit()
@@ -640,7 +668,15 @@ class ServicioConvenios:
             objeto=solicitud.objeto or "",
             implicacion_financiera=solicitud.implicacion_financiera,
         )
-        describir_accion(self.db, usuario, "Inició la elaboración del convenio")
+        describir_accion(
+            self.db,
+            usuario,
+            "Inició la elaboración del convenio",
+            evento="ELABORACION_INICIADA",
+            etapa=CODIGO_ETAPA_ELABORACION,
+            version=0,
+            responsable_id=usuario.id,
+        )
         try:
             convenio = self._crear_en_transaccion(datos, usuario, solicitud)
             self.db.commit()
@@ -1243,7 +1279,11 @@ class ServicioConvenios:
                 "No existe la transición que habilitó la revisión de contraparte"
             )
         describir_accion(
-            self.db, usuario, "Envió el convenio a revisión de contraparte"
+            self.db,
+            usuario,
+            "Envió el convenio a revisión de contraparte",
+            evento="ENVIO_REVISION_CONTRAPARTE",
+            **contexto_auditoria(convenio),
         )
         revision = RevisionConvenio(
             convenio_id=convenio.id,
@@ -1436,7 +1476,11 @@ class ServicioConvenios:
                 "No existe la etapa obligatoria REVISION_FINAL"
             )
         describir_accion(
-            self.db, usuario, "Aprobó el convenio en la revisión de contraparte"
+            self.db,
+            usuario,
+            "Aprobó el convenio en la revisión de contraparte",
+            evento="REVISION_CONTRAPARTE_APROBADA",
+            **contexto_auditoria(convenio),
         )
         ahora = datetime.now(UTC)
         responsable_ori_id = revision.creada_por_id or convenio.creado_por_id
@@ -1513,6 +1557,8 @@ class ServicioConvenios:
             self.db,
             usuario,
             "Devolvió el convenio con observaciones en la revisión de contraparte",
+            evento="REVISION_CONTRAPARTE_DEVUELTA",
+            **contexto_auditoria(convenio),
         )
         ahora = datetime.now(UTC)
         responsable_ori_id = revision.creada_por_id or convenio.creado_por_id
@@ -2102,6 +2148,9 @@ class ServicioConvenios:
         cambios_metadata = datos.model_dump(
             exclude={"contenido", "expected_version"}, exclude_unset=True
         )
+        # HT-13 (Jesús) reemplaza este flujo por BORRADOR_GUARDADO/VERSION_GENERADA
+        # /VERSION_REUTILIZADA según el contrato de la sección 5.1; no se le agrega
+        # evento/etapa/version aquí para no pisar ese trabajo.
         describir_accion(
             self.db, usuario, "Guardó cambios en la elaboración del convenio"
         )
@@ -2137,7 +2186,13 @@ class ServicioConvenios:
             raise ConvenioNoEditable(
                 "Solo se puede editar un convenio en etapa de Elaboración"
             )
-        describir_accion(self.db, usuario, "Editó los datos del convenio")
+        describir_accion(
+            self.db,
+            usuario,
+            "Editó los datos del convenio",
+            evento="CONVENIO_EDITADO",
+            **contexto_auditoria(convenio),
+        )
         self._aplicar_cambios(convenio, datos.model_dump(exclude_unset=True))
         try:
             self.db.commit()
@@ -2200,6 +2255,9 @@ class ServicioConvenios:
             if datos is not None
             else {}
         )
+        # HT-13 (Jesús) reemplaza este flujo por VERSION_GENERADA/VERSION_REUTILIZADA
+        # según el contrato de la sección 5.1; no se le agrega evento/etapa/version
+        # aquí para no pisar ese trabajo.
         describir_accion(
             self.db,
             usuario,
@@ -2474,6 +2532,8 @@ class ServicioConvenios:
             self.db,
             usuario,
             "Corrigió el contenido del convenio durante la revisión jurídica",
+            evento="CONTENIDO_CORREGIDO_REVISION",
+            **contexto_auditoria(convenio),
         )
         try:
             version = self._crear_version(
@@ -2509,6 +2569,8 @@ class ServicioConvenios:
             self.db,
             usuario,
             f"Registró una observación en {_nombre_revision_juridica(revision)}",
+            evento="OBSERVACION_REVISION_REGISTRADA",
+            **contexto_auditoria(convenio),
         )
         observacion = ObservacionRevision(
             convenio_id=convenio.id,
@@ -2592,7 +2654,11 @@ class ServicioConvenios:
         else:
             etapa_destino = None
         describir_accion(
-            self.db, usuario, f"Aprobó {_nombre_revision_juridica(revision)}"
+            self.db,
+            usuario,
+            f"Aprobó {_nombre_revision_juridica(revision)}",
+            evento="REVISION_JURIDICA_APROBADA",
+            **contexto_auditoria(convenio),
         )
         revision.estado = EstadoRevisionConvenio.RESUELTA.value
         revision.resultado = ResultadoRevisionConvenio.APROBADA.value
@@ -2692,7 +2758,11 @@ class ServicioConvenios:
             raise ObservacionNoDisponible("La observación ya fue atendida")
 
         describir_accion(
-            self.db, usuario, "Atendió una observación y registró la corrección"
+            self.db,
+            usuario,
+            "Atendió una observación y registró la corrección",
+            evento="OBSERVACION_ATENDIDA",
+            **contexto_auditoria(convenio),
         )
         observacion.respuesta = texto
         observacion.atendida_por = usuario
@@ -2737,6 +2807,8 @@ class ServicioConvenios:
             self.db,
             usuario,
             f"Devolvió {_nombre_revision_juridica(revision)} con observaciones",
+            evento="REVISION_JURIDICA_DEVUELTA",
+            **contexto_auditoria(convenio),
         )
         historial = HistorialEtapa(
             convenio_id=convenio.id,

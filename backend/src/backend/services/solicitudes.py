@@ -301,7 +301,12 @@ class ServicioSolicitudes:
             )
         instante = datetime.now(UTC)
         describir_accion(
-            self.db, actor, ACCION_POR_DECISION[estado], instante=instante
+            self.db,
+            actor,
+            ACCION_POR_DECISION[estado],
+            instante=instante,
+            evento=f"SOLICITUD_{estado.value}",
+            responsable_id=solicitud.solicitante_id,
         )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
@@ -558,13 +563,16 @@ class ServicioSolicitudes:
         if errores:
             raise SolicitudIncompleta(errores)
         instante = datetime.now(UTC)
+        reradicacion = solicitud.estado == EstadoSolicitud.DEVUELTA.value
         describir_accion(
             self.db,
             usuario,
             "Volvió a radicar la solicitud corregida"
-            if solicitud.estado == EstadoSolicitud.DEVUELTA.value
+            if reradicacion
             else "Radicó la solicitud",
             instante=instante,
+            evento="SOLICITUD_RERADICADA" if reradicacion else "SOLICITUD_RADICADA",
+            responsable_id=solicitud.solicitante_id,
         )
         solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante

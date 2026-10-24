@@ -14,6 +14,7 @@ import { formatDateTime } from '../components/tableFormatters'
 import { StatusBadge } from '../components/tablePresentation'
 import {
   ETIQUETAS_ACCION,
+  ETIQUETAS_EJECUCION,
   FILTROS_BITACORA_VACIOS,
   LONGITUD_MAXIMA_ENTIDAD,
   TAMANO_PAGINA_BITACORA,
@@ -34,24 +35,51 @@ function etiquetaRol(rol: string | null) {
   return ETIQUETAS_ROL[rol as CodigoRol] ?? rol
 }
 
+// HT-09, CA-06/CA-07: lo no aplicable (procesos automáticos sin usuario) o
+// lo histórico y desconocido (registros previos a HT-09) se muestra igual,
+// de forma clara, sin inventar datos.
+const NO_DISPONIBLE = 'No disponible'
+
+function etapaYVersion(fila: RegistroBitacora): string {
+  if (!fila.etapa && fila.version === null) return NO_DISPONIBLE
+  const etapa = fila.etapa ?? '—'
+  const version = fila.version === null ? '—' : `v${fila.version}`
+  return `${etapa} · ${version}`
+}
+
 const COLUMNAS: DataTableColumn<RegistroBitacora>[] = [
   { id: 'fecha', header: 'Fecha y hora', render: (fila) => formatDateTime(fila.fecha_hora) },
   {
     id: 'usuario',
-    header: 'Usuario',
-    render: (fila) => (
-      <>
-        <strong>{fila.usuario.nombre_completo}</strong>
-        <small className="tabla-ayuda">{fila.usuario.correo}</small>
-      </>
-    ),
+    header: 'Originador',
+    render: (fila) =>
+      fila.usuario ? (
+        <>
+          <strong>{fila.usuario.nombre_completo}</strong>
+          <small className="tabla-ayuda">{fila.usuario.correo}</small>
+        </>
+      ) : (
+        <span className="tabla-ayuda">Proceso automático</span>
+      ),
   },
   { id: 'rol', header: 'Rol', render: (fila) => etiquetaRol(fila.rol) },
+  {
+    id: 'ejecucion',
+    header: 'Naturaleza',
+    render: (fila) => (fila.ejecucion ? ETIQUETAS_EJECUCION[fila.ejecucion] : NO_DISPONIBLE),
+  },
+  {
+    id: 'responsable',
+    header: 'Responsable',
+    render: (fila) => (fila.responsable ? fila.responsable.nombre_completo : '—'),
+  },
   {
     id: 'accion',
     header: 'Acción',
     render: (fila) => <StatusBadge value={fila.accion} label={ETIQUETAS_ACCION[fila.accion]} />,
   },
+  { id: 'evento', header: 'Evento', render: (fila) => valor(fila.evento) },
+  { id: 'etapa_version', header: 'Etapa / Versión', render: etapaYVersion },
   { id: 'registro', header: 'Registro afectado', render: (fila) => `${fila.entidad} #${fila.registro_id}` },
   { id: 'campo', header: 'Campo', render: (fila) => valor(fila.campo) },
   { id: 'anterior', header: 'Valor anterior', render: (fila) => valor(fila.valor_anterior) },

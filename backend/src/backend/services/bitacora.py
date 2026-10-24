@@ -14,7 +14,7 @@ from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.documento import Documento
-from backend.models.enums import AccionAuditoria
+from backend.models.enums import AccionAuditoria, EjecucionAuditoria
 from backend.models.evaluacion_convenio import EvaluacionConvenio
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.observacion_revision import ObservacionRevision
@@ -63,8 +63,10 @@ ENTIDADES_AUDITADAS: dict[type, str] = {
 
 @dataclass(frozen=True)
 class Actor:
-    usuario_id: int
-    rol: str
+    # HT-09, CA-03: nulos únicamente para procesos automáticos sin usuario
+    # originador. No se usa un usuario ficticio para representarlos (RN-07).
+    usuario_id: int | None
+    rol: str | None
 
 
 @dataclass(frozen=True)
@@ -72,12 +74,18 @@ class Accion:
     actor: Actor
     descripcion: str
     instante: datetime | None = None
-    # HT-09: contrato de evento de negocio, aún no persistido en `auditoria`
-    # (llega con HT09-BE02, cuando existan las columnas). Se acepta desde ya
-    # para que los servicios de HT-13 puedan empezar a declararlo.
+    # HT-09, CA-01/CA-05: identifica estructuradamente la acción de negocio,
+    # independiente del texto libre de `descripcion`.
     evento: str | None = None
     etapa: str | None = None
     version: int | None = None
+    # HT-09, CA-02/CA-03: HUMANA o AUTOMATICA. Nulo en los registros previos
+    # a HT-09 (nunca se completa retroactivamente, CA-07).
+    ejecucion: str | None = None
+    # HT-09, CA-04: responsable de negocio de la operación (hoy,
+    # convenio.creado_por_id cuando la acción es sobre un convenio),
+    # distinto del usuario que la origina o la ejecuta.
+    responsable_id: int | None = None
 
 
 def _actor_de(usuario: Usuario) -> Actor:
@@ -99,6 +107,7 @@ def describir_accion(
     evento: str | None = None,
     etapa: str | None = None,
     version: int | None = None,
+    responsable_id: int | None = None,
 ) -> None:
     """Atribuye al usuario los cambios de la transacción en curso y los acompaña
     con la acción de negocio que los origina. Si se indica el instante, los
@@ -106,10 +115,43 @@ def describir_accion(
     también queda guardada en su propia entidad.
 
     `evento`, `etapa` y `version` identifican estructuradamente la acción de
-    negocio (HT-09, CA-01 y CA-05). Todavía no se persisten: las columnas se
-    agregan en HT09-BE02."""
+    negocio (HT-09, CA-01 y CA-05). `responsable_id` es el responsable de
+    negocio de la operación cuando exista (CA-04); no confundir con el
+    usuario que origina la acción."""
     db.info[CLAVE_ACCION] = Accion(
-        _actor_de(usuario), descripcion, instante, evento, etapa, version
+        _actor_de(usuario),
+        descripcion,
+        instante,
+        evento,
+        etapa,
+        version,
+        EjecucionAuditoria.HUMANA.value,
+        responsable_id,
+    )
+
+
+def describir_accion_automatica(
+    db: Session,
+    descripcion: str,
+    *,
+    instante: datetime | None = None,
+    evento: str | None = None,
+    etapa: str | None = None,
+    version: int | None = None,
+) -> None:
+    """Equivalente a `describir_accion` para cambios que origina un proceso
+    del sistema sin usuario humano (por ejemplo, HT-10 finalizando convenios
+    vencidos). No se inventa un usuario ficticio (RN-07): `usuario_id` y
+    `rol` quedan nulos y `ejecucion` queda en AUTOMATICA."""
+    actor = Actor(usuario_id=None, rol=None)
+    db.info[CLAVE_ACCION] = Accion(
+        actor,
+        descripcion,
+        instante,
+        evento,
+        etapa,
+        version,
+        EjecucionAuditoria.AUTOMATICA.value,
     )
 
 
@@ -142,6 +184,12 @@ def _fila(
     campo: str | None = None,
     anterior: object = None,
     nuevo: object = None,
+    *,
+    evento: str | None = None,
+    etapa: str | None = None,
+    version: int | None = None,
+    ejecucion: str | None = None,
+    responsable_id: int | None = None,
 ) -> dict[str, object]:
     fila: dict[str, object] = {
         "usuario_id": actor.usuario_id,
@@ -153,6 +201,11 @@ def _fila(
         "valor_anterior": _a_texto(anterior),
         "valor_nuevo": _a_texto(nuevo),
         "contexto": contexto,
+        "evento": evento,
+        "etapa": etapa,
+        "version": version,
+        "ejecucion": ejecucion,
+        "responsable_id": responsable_id,
     }
     # Sin instante, la fecha la asigna la base al insertar.
     if instante is not None:
@@ -166,6 +219,7 @@ def _filas_de_modificacion(
     actor: Actor,
     contexto: str | None,
     instante: datetime | None,
+    accion: Accion | None,
 ) -> list[dict[str, object]]:
     estado = inspect(objeto)
     registro_id = _registro_id(objeto)
@@ -202,6 +256,11 @@ def _filas_de_modificacion(
                 campo,
                 anterior,
                 nuevo,
+                evento=accion.evento if accion else None,
+                etapa=accion.etapa if accion else None,
+                version=accion.version if accion else None,
+                ejecucion=accion.ejecucion if accion else None,
+                responsable_id=accion.responsable_id if accion else None,
             )
         )
     return filas
@@ -217,6 +276,11 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
         return
     contexto = accion.descripcion if accion else None
     instante = accion.instante if accion else None
+    evento = accion.evento if accion else None
+    etapa = accion.etapa if accion else None
+    version = accion.version if accion else None
+    ejecucion = accion.ejecucion if accion else None
+    responsable_id = accion.responsable_id if accion else None
     # Lo que se completa de un registro en la misma transacción que lo crea es
     # parte de su creación: su inserción ya lo representa.
     insertados = session.info.setdefault(CLAVE_INSERTADOS, set())
@@ -235,13 +299,18 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
                     entidad,
                     registro_id,
                     AccionAuditoria.INSERT,
+                    evento=evento,
+                    etapa=etapa,
+                    version=version,
+                    ejecucion=ejecucion,
+                    responsable_id=responsable_id,
                 )
             )
     for objeto in session.dirty:
         entidad = ENTIDADES_AUDITADAS.get(type(objeto))
         if entidad is not None and (entidad, _registro_id(objeto)) not in insertados:
             filas.extend(
-                _filas_de_modificacion(objeto, entidad, actor, contexto, instante)
+                _filas_de_modificacion(objeto, entidad, actor, contexto, instante, accion)
             )
     for objeto in session.deleted:
         entidad = ENTIDADES_AUDITADAS.get(type(objeto))
@@ -254,6 +323,11 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
                     entidad,
                     _registro_id(objeto),
                     AccionAuditoria.DELETE,
+                    evento=evento,
+                    etapa=etapa,
+                    version=version,
+                    ejecucion=ejecucion,
+                    responsable_id=responsable_id,
                 )
             )
 

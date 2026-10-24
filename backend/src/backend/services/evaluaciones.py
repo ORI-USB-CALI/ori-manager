@@ -14,6 +14,7 @@ from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEncontrado,
     ErrorConvenio,
+    contexto_auditoria,
 )
 
 # Único punto donde vive la regla de elegibilidad. El ciclo de vida de convenios
@@ -78,7 +79,13 @@ class ServicioEvaluaciones:
                 # evita un lazy load al serializar después del commit.
                 evaluado_por=usuario,
             )
-            describir_accion(self.db, usuario, "Registró la evaluación del convenio")
+            describir_accion(
+                self.db,
+                usuario,
+                "Registró la evaluación del convenio",
+                evento="EVALUACION_REGISTRADA",
+                **contexto_auditoria(convenio),
+            )
             self.db.add(evaluacion)
             self.db.commit()
         except IntegrityError as exc:
