@@ -129,7 +129,7 @@ def test_creacion_manual_audita_una_sola_insercion_incluso_fuera_de_la_api(
     assert convenio.version_actual == 1
 
 
-def test_guardar_version_manual_audita_el_incremento_sin_duplicar_ni_copiar_contenido(
+def test_guardar_avance_del_convenio_manual_no_versiona_ni_copia_el_contenido(
     db, client, gestor
 ) -> None:
     creada = client.post("/api/convenios/manual", json={})
@@ -144,22 +144,24 @@ def test_guardar_version_manual_audita_el_incremento_sin_duplicar_ni_copiar_cont
         }],
     }
 
-    guardado = client.patch(ruta, json={"expected_version": 1, "contenido": contenido})
+    guardado = client.patch(ruta, json={"expected_revision": 0, "contenido": contenido})
     assert guardado.status_code == 200
-    assert guardado.json()["version_actual"] == 2
+    assert guardado.json()["version_actual"] == 1
+    assert guardado.json()["revision_borrador"] == 1
     registros = _bitacora(db, "convenio", convenio_id)
-    assert len(registros) == 2
-    assert registros[0].accion == AccionAuditoria.INSERT
-    cambio = registros[1]
-    assert (cambio.accion, cambio.campo) == (AccionAuditoria.UPDATE, "version_actual")
-    assert (cambio.valor_anterior, cambio.valor_nuevo) == ("1", "2")
-    assert (cambio.usuario_id, cambio.rol) == (gestor.id, CodigoRol.GESTOR_ORI.value)
-    assert cambio.contexto == "Guardó cambios en la elaboración del convenio"
-    assert cambio.fecha_hora is not None
+    assert [(r.accion, r.campo) for r in registros] == [(AccionAuditoria.INSERT, None)]
+    assert db.scalar(
+        select(Auditoria.id).where(
+            or_(
+                Auditoria.valor_anterior.contains("Contenido reservado"),
+                Auditoria.valor_nuevo.contains("Contenido reservado"),
+            )
+        )
+    ) is None
 
-    repetido = client.patch(ruta, json={"expected_version": 2, "contenido": contenido})
+    repetido = client.patch(ruta, json={"expected_revision": 1, "contenido": contenido})
     assert repetido.status_code == 200
-    assert repetido.json()["version_actual"] == 2
+    assert repetido.json()["revision_borrador"] == 1
     assert [r.id for r in _bitacora(db, "convenio", convenio_id)] == [
         r.id for r in registros
     ]
