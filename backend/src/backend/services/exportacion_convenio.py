@@ -68,6 +68,7 @@ class ServicioExportacionConvenio:
                 joinedload(Convenio.etapa_actual),
                 selectinload(Convenio.solicitud),
                 selectinload(Convenio.versiones),
+                selectinload(Convenio.borrador),
                 selectinload(Convenio.procesos_firmas).selectinload(
                     ProcesoFirmasConvenio.firmas
                 ),
