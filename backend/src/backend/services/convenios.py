@@ -2201,8 +2201,7 @@ class ServicioConvenios:
             usuario,
             "Guardó un avance del borrador del convenio",
             evento="BORRADOR_GUARDADO",
-            etapa=convenio.etapa_actual.codigo,
-            version=convenio.version_actual,
+            **contexto_auditoria(convenio),
         )
         try:
             cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata)
@@ -2342,8 +2341,10 @@ class ServicioConvenios:
             usuario,
             "Finalizó la elaboración y envió el convenio a revisión jurídica",
             evento="VERSION_GENERADA" if genera_version else "VERSION_REUTILIZADA",
-            etapa=convenio.etapa_actual.codigo,
-            version=convenio.version_actual + (1 if genera_version else 0),
+            **{
+                **contexto_auditoria(convenio),
+                "version": convenio.version_actual + (1 if genera_version else 0),
+            },
         )
         version_para_validar = actual
         if contenido_final is not None and (actual is None or cambio_contenido):
