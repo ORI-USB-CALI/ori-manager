@@ -12,6 +12,7 @@ from backend.models.enums import ContextoVersionConvenio
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioElaboracionGuardar
+from backend.services import convenios
 from backend.services.convenios import ConflictoBorradorConvenio, ServicioConvenios
 from backend.services.notificaciones import ServicioNotificaciones
 
@@ -365,3 +366,55 @@ def test_en_elaboracion_se_exporta_el_avance_guardado(
         if celda.value is not None
     }
     assert any("Cláusula del avance" in texto for texto in textos)
+
+
+# ---- Eventos para la bitácora (contrato con HT-09) ---------------------------
+
+
+@pytest.fixture
+def acciones(monkeypatch) -> list[dict]:
+    registradas: list[dict] = []
+    original = convenios.describir_accion
+
+    def registrar(db, usuario, descripcion, **datos):
+        registradas.append({"descripcion": descripcion, **datos})
+        original(db, usuario, descripcion, **datos)
+
+    monkeypatch.setattr(convenios, "describir_accion", registrar)
+    return registradas
+
+
+def test_guardar_avance_declara_el_evento_de_borrador(
+    client, convenio_listo, acciones
+) -> None:
+    contenido = _con_parrafo(
+        _elaboracion(client, convenio_listo.id)["contenido"], "Avance auditado"
+    )
+
+    assert _guardar(client, convenio_listo.id, contenido, 0).status_code == 200
+
+    assert acciones[-1] == {
+        "descripcion": "Guardó un avance del borrador del convenio",
+        "evento": "BORRADOR_GUARDADO",
+        "etapa": "ELABORACION",
+        "version": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("con_cambios", "evento", "version"),
+    [(True, "VERSION_GENERADA", 2), (False, "VERSION_REUTILIZADA", 1)],
+)
+def test_enviar_declara_si_genero_o_reutilizo_la_version(
+    client, convenio_listo, acciones, con_cambios, evento, version
+) -> None:
+    contenido = _elaboracion(client, convenio_listo.id)["contenido"]
+    if con_cambios:
+        contenido = _con_parrafo(contenido, "Cambio antes de enviar")
+    assert _guardar(client, convenio_listo.id, contenido, 0).status_code == 200
+
+    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar").status_code == 200
+
+    assert acciones[-1]["evento"] == evento
+    assert acciones[-1]["etapa"] == "ELABORACION"
+    assert acciones[-1]["version"] == version
