@@ -280,7 +280,7 @@ def test_ca02_guardar_elaboracion_bloquea_el_guardado(
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}/elaboracion",
         json={
-            "expected_version": version_antes,
+            "expected_revision": 0,
             "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "text", "text": "Cláusula nueva"},
             ]}]},
@@ -295,6 +295,7 @@ def test_ca02_guardar_elaboracion_bloquea_el_guardado(
     guardado = db.get(Convenio, convenio.id)
     assert guardado.version_actual == version_antes
     assert guardado.fecha_vencimiento is None
+    assert guardado.borrador is None
     assert db.scalar(
         select(func.count())
         .select_from(VersionConvenio)

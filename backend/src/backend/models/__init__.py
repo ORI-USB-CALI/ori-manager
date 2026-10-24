@@ -1,6 +1,7 @@
 from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
@@ -33,6 +34,7 @@ __all__ = [
     "ActividadConvenio",
     "Aliado",
     "Auditoria",
+    "BorradorConvenio",
     "ContactoAliado",
     "Convenio",
     "DecisionNoRenovacion",

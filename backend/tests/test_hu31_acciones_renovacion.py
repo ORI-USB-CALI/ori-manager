@@ -329,16 +329,17 @@ def test_renovacion_se_edita_y_requiere_sus_dos_avales_propios(
         "type": "paragraph", "content": [{"type": "text", "text": "Cláusula de la renovación"}],
     })
     guardado = client.patch(ruta, json={
-        "expected_version": 1, "contenido": contenido,
+        "expected_revision": 0, "contenido": contenido,
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
     })
     assert guardado.status_code == 200, guardado.text
-    assert guardado.json()["version_actual"] == 2
+    assert guardado.json()["version_actual"] == 1
+    assert guardado.json()["revision_borrador"] == 1
     assert client.get(f"/api/convenios/{hijo.id}/versiones/1").json()["contenido"] == DOCUMENTO_VIGENTE
     assert ServicioConvenios(db)._version_actual(origen).contenido == DOCUMENTO_VIGENTE
     finalizado = client.post(f"{ruta}/finalizar", json={
-        "expected_version": 2, "contenido": contenido,
+        "expected_revision": 1, "contenido": contenido,
     })
     assert finalizado.status_code == 200, finalizado.text
     primera = db.scalar(select(RevisionConvenio).where(

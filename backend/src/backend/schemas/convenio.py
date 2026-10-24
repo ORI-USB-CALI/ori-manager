@@ -97,13 +97,17 @@ class ConvenioElaboracionActualizar(BaseModel):
 
 
 class ConvenioElaboracionGuardar(ConvenioElaboracionActualizar):
+    """Guardar avance: persiste el borrador sin crear una versión formal."""
+
     contenido: dict[str, Any]
-    expected_version: int = Field(ge=0)
+    # Revisión del borrador con la que se abrió el editor (0 si aún no hay
+    # borrador). Si otra persona guardó antes, la operación responde 409.
+    expected_revision: int = Field(ge=0)
 
 
 class ConvenioElaboracionFinalizar(ConvenioElaboracionActualizar):
     contenido: dict[str, Any] | None = None
-    expected_version: int | None = Field(default=None, ge=0)
+    expected_revision: int | None = Field(default=None, ge=0)
 
 
 class UsuarioResumen(BaseModel):
@@ -255,6 +259,9 @@ class ConvenioElaboracionLeer(ConvenioLeer):
     unidad_organizacional: UnidadOrganizacionalResumen | None
     plantilla_origen: PlantillaConvenioResumen | None
     contenido: dict[str, Any] | None
+    # Estado del borrador de trabajo, independiente de version_actual (HT-13).
+    revision_borrador: int = 0
+    borrador_guardado_en: datetime | None = None
 
 
 class CampoFaltante(BaseModel):
