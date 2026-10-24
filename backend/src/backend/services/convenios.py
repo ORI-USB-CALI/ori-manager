@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from backend.core.roles import CodigoRol
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.models.aliado import Aliado
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
@@ -121,6 +122,17 @@ def _snapshot_de(convenio: Convenio) -> dict[str, object]:
         snapshot[campo] = valor.isoformat() if isinstance(valor, date) else valor
     return snapshot
 
+
+def _datos_difieren(actuales: dict[str, object], congelados: dict[str, object]) -> bool:
+    # Solo se comparan los campos que la versión congeló: los snapshots anteriores
+    # a un campo nuevo no lo incluyen y eso no es un cambio del convenio.
+    return any(
+        actuales[campo] != valor
+        for campo, valor in congelados.items()
+        if campo in actuales
+    )
+
+
 # Lo mínimo para entregar el proyecto a Jurídica. Los campos de etapas posteriores
 # (fecha_firma, porcentaje_avance, firmas) no se exigen aquí, y `codigo` puede
 # seguir en NULL al entrar a revisión jurídica.
@@ -213,6 +225,16 @@ class ConflictoVersionConvenio(ErrorConvenio):
         self.actual = actual
         super().__init__(
             f"La versión esperada era {esperada}, pero la versión actual es {actual}"
+        )
+
+
+class ConflictoBorradorConvenio(ErrorConvenio):
+    def __init__(self, esperada: int, actual: int) -> None:
+        self.esperada = esperada
+        self.actual = actual
+        super().__init__(
+            "Otra persona guardó el borrador mientras lo editaba: se esperaba la "
+            f"revisión {esperada}, pero la actual es {actual}"
         )
 
 
@@ -418,6 +440,19 @@ class ServicioConvenios:
                 VersionConvenio.numero == convenio.version_actual,
             )
         )
+
+    def _borrador(self, convenio_id: int) -> BorradorConvenio | None:
+        return self.db.scalar(
+            select(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio_id)
+        )
+
+    def _contenido_de_trabajo(self, convenio: Convenio) -> VersionConvenio | None:
+        """El borrador guardado o, si no hay, la versión actual. El borrador se
+        envuelve en una versión sin guardar solo para validarlo."""
+        borrador = self._borrador(convenio.id)
+        if borrador is not None:
+            return VersionConvenio(contenido=borrador.contenido)
+        return self._version_actual(convenio)
 
     def _crear_en_transaccion(
         self,
@@ -1950,14 +1985,23 @@ class ServicioConvenios:
         )
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
-        version = self._version_actual(convenio)
-        convenio.contenido = version.contenido if version is not None else None
+        borrador = self._borrador(convenio.id)
+        if borrador is not None:
+            convenio.contenido = borrador.contenido
+        else:
+            version = self._version_actual(convenio)
+            convenio.contenido = version.contenido if version is not None else None
+        convenio.revision_borrador = borrador.revision if borrador is not None else 0
+        convenio.borrador_guardado_en = (
+            borrador.actualizado_en if borrador is not None else None
+        )
         return convenio
 
     def validar_elaboracion(self, convenio_id: int) -> list[CampoFaltante]:
         convenio = self.obtener(convenio_id)
-        version = self._version_actual(convenio)
-        return self._faltantes_elaboracion(convenio, version)
+        return self._faltantes_elaboracion(
+            convenio, self._contenido_de_trabajo(convenio)
+        )
 
     def _faltantes_elaboracion(
         self, convenio: Convenio, version: VersionConvenio | None
@@ -2087,36 +2131,51 @@ class ServicioConvenios:
             raise ConvenioNoEditable(
                 "Solo se puede editar un convenio en etapa de Elaboración"
             )
-        if datos.expected_version != convenio.version_actual:
+        borrador = self._borrador(convenio.id)
+        revision_actual = borrador.revision if borrador is not None else 0
+        if datos.expected_revision != revision_actual:
             self.db.rollback()
-            raise ConflictoVersionConvenio(
-                datos.expected_version, convenio.version_actual
-            )
+            raise ConflictoBorradorConvenio(datos.expected_revision, revision_actual)
         try:
             validar_contenido(datos.contenido)
         except ContenidoConvenioInvalido as exc:
             self.db.rollback()
             raise ReferenciaConvenioInvalida(str(exc)) from exc
 
-        actual = self._version_actual(convenio)
+        if borrador is not None:
+            contenido_actual = borrador.contenido
+        else:
+            actual = self._version_actual(convenio)
+            contenido_actual = actual.contenido if actual is not None else None
         cambios_metadata = datos.model_dump(
-            exclude={"contenido", "expected_version"}, exclude_unset=True
+            exclude={"contenido", "expected_revision"}, exclude_unset=True
         )
-        describir_accion(
-            self.db, usuario, "Guardó cambios en la elaboración del convenio"
-        )
-        cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata)
-        cambio_contenido = actual is None or actual.contenido != datos.contenido
+        describir_accion(self.db, usuario, "Guardó un avance del borrador del convenio")
+        try:
+            cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata)
+        except ErrorConvenio:
+            self.db.rollback()
+            raise
+        cambio_contenido = contenido_actual != datos.contenido
         if not cambio_metadata and not cambio_contenido:
             self.db.rollback()
             return self.obtener_para_elaboracion(convenio.id)
-        try:
-            self._crear_version(
-                convenio,
-                datos.contenido,
-                usuario,
-                ContextoVersionConvenio.GUARDADO,
+        # Guardar avance no crea versiones: la formal se genera al enviar a revisión.
+        if borrador is None:
+            self.db.add(
+                BorradorConvenio(
+                    convenio_id=convenio.id,
+                    contenido=datos.contenido,
+                    revision=1,
+                    actualizado_por_id=usuario.id,
+                )
             )
+        else:
+            if cambio_contenido:
+                borrador.contenido = datos.contenido
+            borrador.revision = revision_actual + 1
+            borrador.actualizado_por_id = usuario.id
+        try:
             self.db.commit()
         except (IntegrityError, SQLAlchemyError):
             self.db.rollback()
@@ -2172,15 +2231,15 @@ class ServicioConvenios:
                 "Solo se puede finalizar un convenio en etapa de Elaboración"
             )
 
+        borrador = self._borrador(convenio.id)
+        revision_actual = borrador.revision if borrador is not None else 0
         if (
             datos is not None
-            and datos.expected_version is not None
-            and datos.expected_version != convenio.version_actual
+            and datos.expected_revision is not None
+            and datos.expected_revision != revision_actual
         ):
             self.db.rollback()
-            raise ConflictoVersionConvenio(
-                datos.expected_version, convenio.version_actual
-            )
+            raise ConflictoBorradorConvenio(datos.expected_revision, revision_actual)
 
         actual = self._version_actual(convenio)
         contenido = datos.contenido if datos is not None else None
@@ -2190,12 +2249,14 @@ class ServicioConvenios:
             except ContenidoConvenioInvalido as exc:
                 self.db.rollback()
                 raise ReferenciaConvenioInvalida(str(exc)) from exc
+        elif borrador is not None:
+            contenido = borrador.contenido
         contenido_final = contenido if contenido is not None else (
             actual.contenido if actual is not None else None
         )
         cambios = (
             datos.model_dump(
-                exclude={"contenido", "expected_version"}, exclude_unset=True
+                exclude={"contenido", "expected_revision"}, exclude_unset=True
             )
             if datos is not None
             else {}
@@ -2206,10 +2267,15 @@ class ServicioConvenios:
             "Finalizó la elaboración y envió el convenio a revisión jurídica",
         )
         try:
-            cambio_metadata = self._aplicar_cambios(convenio, cambios)
+            self._aplicar_cambios(convenio, cambios)
         except ErrorConvenio:
             self.db.rollback()
             raise
+        # Los datos guardados como avance ya están en el convenio: se comparan con
+        # los que congeló la última versión para saber si es idéntica.
+        cambio_metadata = actual is not None and _datos_difieren(
+            _snapshot_de(convenio), actual.snapshot_metadata
+        )
         cambio_contenido = (
             contenido is not None
             and (actual is None or contenido != actual.contenido)
@@ -2305,6 +2371,10 @@ class ServicioConvenios:
                     )
                 ]
             )
+        # El borrador queda representado por la versión formal. Si el convenio
+        # vuelve a Elaboración, el trabajo parte de su última versión.
+        if borrador is not None:
+            self.db.delete(borrador)
 
         ultimo_proceso_cancelado = self.db.scalar(
             select(ProcesoFirmasConvenio)
