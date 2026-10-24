@@ -115,10 +115,10 @@ function erroresServidor(error: unknown): Record<string, string> {
   return {}
 }
 
-function esConflictoVersion(error: unknown): error is ApiError {
+function esConflictoBorrador(error: unknown): error is ApiError {
   if (!(error instanceof ApiError) || error.status !== 409 || !error.detail
     || typeof error.detail !== 'object' || Array.isArray(error.detail)) return false
-  return 'expected_version' in error.detail && 'current_version' in error.detail
+  return 'expected_revision' in error.detail && 'current_revision' in error.detail
 }
 
 export function ConvenioElaboracionPage() {
@@ -137,8 +137,8 @@ export function ConvenioElaboracionPage() {
   const notify = useNotifications()
   const queryClient = useQueryClient()
   const formRef = useRef<HTMLFormElement>(null)
-  const [borrador, setBorrador] = useState<{
-    version: number
+  const [cambiosLocales, setCambiosLocales] = useState<{
+    revision: number
     contenido: DocumentoConvenio
   } | null>(null)
   const [errores, setErrores] = useState<Record<string, string>>({})
@@ -152,19 +152,18 @@ export function ConvenioElaboracionPage() {
       { method: 'PATCH', body: JSON.stringify(payload) },
     ),
     onSuccess: async (resultado, variables) => {
-      const versionAnterior = Number(variables.expected_version)
+      const sinCambios = resultado.revision_borrador === Number(variables.expected_revision)
       setErrores({})
-      setBorrador(null)
+      setCambiosLocales(null)
       queryClient.setQueryData(['convenios', id, 'elaboracion'], resultado)
       notify({
-        type: resultado.version_actual === versionAnterior ? 'warning' : 'success',
-        message: resultado.version_actual === versionAnterior
-          ? 'No había cambios para crear una nueva versión.'
-          : `Proyecto guardado como versión ${resultado.version_actual}.`,
+        type: sinCambios ? 'warning' : 'success',
+        message: sinCambios
+          ? 'No había cambios por guardar.'
+          : 'Avance guardado. La versión formal se crea al enviar el proyecto a revisión jurídica.',
       })
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
-        queryClient.invalidateQueries({ queryKey: ['convenios', id, 'versiones'] }),
         queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion', 'validacion'] }),
       ])
     },
@@ -172,9 +171,9 @@ export function ConvenioElaboracionPage() {
       setErrores(erroresServidor(error))
       notify({
         type: 'error',
-        message: esConflictoVersion(error)
-          ? 'El proyecto fue actualizado desde que abriste esta revisión. Recarga la página antes de continuar.'
-          : error instanceof Error ? error.message : 'No fue posible guardar el proyecto.',
+        message: esConflictoBorrador(error)
+          ? 'Otra persona guardó el borrador mientras lo editabas. Tus cambios no se guardaron: cópialos y recarga la página para ver el borrador más reciente.'
+          : error instanceof Error ? error.message : 'No fue posible guardar el avance.',
       })
     },
   })
@@ -200,10 +199,10 @@ export function ConvenioElaboracionPage() {
   }
 
   const datos = elaboracion.data
-  const contenido = borrador?.version === datos.version_actual
-    ? borrador.contenido
+  const contenido = cambiosLocales?.revision === datos.revision_borrador
+    ? cambiosLocales.contenido
     : datos.contenido
-  const contenidoModificado = borrador?.version === datos.version_actual
+  const contenidoModificado = cambiosLocales?.revision === datos.revision_borrador
   const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
   const todasLasObservaciones = historial.data?.revisiones.flatMap((revision) => revision.observaciones) ?? []
   const observacionesJuridicas = todasLasObservaciones.filter((item) => item.origen === 'REVISOR_ORI')
@@ -234,7 +233,7 @@ export function ConvenioElaboracionPage() {
     guardar.mutate({
       ...metadata,
       contenido,
-      expected_version: datos.version_actual,
+      expected_revision: datos.revision_borrador,
     })
   }
 
@@ -250,7 +249,7 @@ export function ConvenioElaboracionPage() {
     setPayloadFinal({
       ...metadata,
       contenido,
-      expected_version: datos.version_actual,
+      expected_revision: datos.revision_borrador,
     })
     setModalAbierto(true)
   }
@@ -261,7 +260,7 @@ export function ConvenioElaboracionPage() {
         <h1>Proyecto de convenio {datos.codigo ?? `#${datos.id}`}</h1>
         <p>
           <span className="badge">{datos.etapa_actual?.nombre ?? datos.estado}</span>
-          {' · '}Versión {datos.version_actual} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
+          {' · '}Versión formal {datos.version_actual} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
         </p>
       </section>
 
@@ -274,15 +273,17 @@ export function ConvenioElaboracionPage() {
                   <h2>Documento jurídico</h2>
                   <p className="section-help">Edita libremente el contenido del proyecto de convenio.</p>
                 </div>
-                {contenidoModificado && <span className="badge badge-pendiente">Cambios sin guardar</span>}
+                {contenidoModificado
+                  ? <span className="badge badge-pendiente">Cambios sin guardar</span>
+                  : datos.borrador_guardado_en && <span className="badge">Borrador guardado</span>}
               </div>
               {contenido ? (
                 <ConvenioEditor
-                  key={datos.version_actual}
+                  key={`${datos.version_actual}-${datos.revision_borrador}`}
                   contenido={contenido}
                   editable={editable}
                   onChange={(nuevo) => {
-                    setBorrador({ version: datos.version_actual, contenido: nuevo })
+                    setCambiosLocales({ revision: datos.revision_borrador, contenido: nuevo })
                   }}
                 />
               ) : (
@@ -338,7 +339,7 @@ export function ConvenioElaboracionPage() {
             {revisionFinalPendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes">
                 <h2>Observaciones de revisión final pendientes</h2>
-                <p className="section-help">Atiende la observación, corrige el proyecto y guarda una nueva versión antes de repetir las revisiones.</p>
+                <p className="section-help">Atiende la observación, corrige el proyecto y envíalo de nuevo: al enviarlo se crea la nueva versión que repite las revisiones.</p>
                 {revisionFinalPendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
@@ -363,7 +364,13 @@ export function ConvenioElaboracionPage() {
               <h2>Proyecto de convenio</h2>
               <dl className="proyecto-datos">
                 <dt>Etapa actual</dt><dd>{datos.etapa_actual?.nombre ?? '—'}</dd>
-                <dt>Versión actual</dt><dd>{datos.version_actual || 'Sin versión'}</dd>
+                <dt>Versión formal</dt><dd>{datos.version_actual || 'Sin versión'}</dd>
+                <dt>Borrador</dt>
+                <dd>
+                  {datos.borrador_guardado_en
+                    ? `Guardado el ${fechaHora(datos.borrador_guardado_en)}, pendiente de enviar a revisión`
+                    : 'Sin avances guardados desde la versión formal'}
+                </dd>
                 <dt>Plantilla utilizada</dt><dd>{datos.plantilla_origen?.nombre ?? 'Sin plantilla asociada'}</dd>
               </dl>
               {editable && (
