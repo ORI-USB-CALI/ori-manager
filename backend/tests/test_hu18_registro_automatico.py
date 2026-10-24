@@ -92,6 +92,7 @@ def test_entidades_auditadas_son_las_acordadas() -> None:
         "decision_no_renovacion",
         "evaluacion_convenio",
         "actividad_convenio",
+        "borrador_convenio",
     }
 
 
