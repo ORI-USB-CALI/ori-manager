@@ -79,7 +79,7 @@ function preparar(guardado: () => Response, datos: ElaboracionConvenio = elabora
       </NotificationsContext.Provider>
     </QueryClientProvider>,
   )
-  return { guardados, notify, usuario: userEvent.setup() }
+  return { cliente, guardados, notify, usuario: userEvent.setup() }
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -142,5 +142,38 @@ describe('HT-13 - guardar avances del convenio', () => {
     })))
     expect(screen.getByText('Cambios sin guardar')).toBeTruthy()
     expect(screen.getByTestId('documento').textContent).toContain('Avance nuevo')
+  })
+
+  it('conserva lo escrito cuando otra persona guarda mientras se edita y guarda contra la revisión de partida', async () => {
+    const { cliente, guardados, usuario } = preparar(() => respuesta(409, {
+      detail: { message: 'Otra persona guardó el borrador', expected_revision: 0, current_revision: 1 },
+    }))
+
+    await usuario.click(await screen.findByRole('button', { name: 'Editar documento' }))
+    cliente.setQueryData(['convenios', 7, 'elaboracion'], {
+      ...elaboracion, revision_borrador: 1, borrador_guardado_en: '2026-10-24T15:00:00Z',
+      contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'De otra persona' }] }] },
+    })
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByTestId('documento').textContent).toContain('Avance nuevo')
+    expect(screen.getByText('Cambios sin guardar')).toBeTruthy()
+    await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+    await waitFor(() => expect(guardados).toHaveLength(1))
+    expect(guardados[0]).toMatchObject({ expected_revision: 0, contenido: DOCUMENTO_EDITADO })
+  })
+
+  it('descarta lo escrito solo cuando se pide cargar el borrador más reciente', async () => {
+    const { usuario } = preparar(() => respuesta(409, {
+      detail: { message: 'Otra persona guardó el borrador', expected_revision: 0, current_revision: 1 },
+    }))
+
+    await usuario.click(await screen.findByRole('button', { name: 'Editar documento' }))
+    await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Cargar el borrador más reciente' }))
+
+    await waitFor(() => expect(screen.getByTestId('documento').textContent).toContain('Versión 1'))
+    expect(screen.queryByText('Cambios sin guardar')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cargar el borrador más reciente' })).toBeNull()
   })
 })
