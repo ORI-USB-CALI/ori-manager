@@ -137,10 +137,13 @@ export function ConvenioElaboracionPage() {
   const notify = useNotifications()
   const queryClient = useQueryClient()
   const formRef = useRef<HTMLFormElement>(null)
+  // Lo editado y no guardado, junto con la revisión del borrador desde la que se
+  // empezó a editar. Se conserva aunque lleguen datos nuevos del servidor.
   const [cambiosLocales, setCambiosLocales] = useState<{
     revision: number
     contenido: DocumentoConvenio
   } | null>(null)
+  const [conflicto, setConflicto] = useState(false)
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [modalAbierto, setModalAbierto] = useState(false)
   const [payloadFinal, setPayloadFinal] = useState<Record<string, unknown>>({})
@@ -155,6 +158,7 @@ export function ConvenioElaboracionPage() {
       const sinCambios = resultado.revision_borrador === Number(variables.expected_revision)
       setErrores({})
       setCambiosLocales(null)
+      setConflicto(false)
       queryClient.setQueryData(['convenios', id, 'elaboracion'], resultado)
       notify({
         type: sinCambios ? 'warning' : 'success',
@@ -169,14 +173,22 @@ export function ConvenioElaboracionPage() {
     },
     onError: (error) => {
       setErrores(erroresServidor(error))
+      const esConflicto = esConflictoBorrador(error)
+      setConflicto(esConflicto)
       notify({
         type: 'error',
-        message: esConflictoBorrador(error)
-          ? 'Otra persona guardó el borrador mientras lo editabas. Tus cambios no se guardaron: cópialos y recarga la página para ver el borrador más reciente.'
+        message: esConflicto
+          ? 'Otra persona guardó el borrador mientras lo editabas. Tus cambios no se guardaron.'
           : error instanceof Error ? error.message : 'No fue posible guardar el avance.',
       })
     },
   })
+
+  function cargarBorradorReciente() {
+    setCambiosLocales(null)
+    setConflicto(false)
+    void queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] })
+  }
 
   const atender = useMutation({
     mutationFn: ({ observacionId, respuesta }: { observacionId: number; respuesta: string }) =>
@@ -199,10 +211,11 @@ export function ConvenioElaboracionPage() {
   }
 
   const datos = elaboracion.data
-  const contenido = cambiosLocales?.revision === datos.revision_borrador
-    ? cambiosLocales.contenido
-    : datos.contenido
-  const contenidoModificado = cambiosLocales?.revision === datos.revision_borrador
+  const contenido = cambiosLocales?.contenido ?? datos.contenido
+  const contenidoModificado = cambiosLocales !== null
+  const revisionBase = cambiosLocales?.revision ?? datos.revision_borrador
+  const borradorDesactualizado = conflicto
+    || (cambiosLocales !== null && cambiosLocales.revision !== datos.revision_borrador)
   const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
   const todasLasObservaciones = historial.data?.revisiones.flatMap((revision) => revision.observaciones) ?? []
   const observacionesJuridicas = todasLasObservaciones.filter((item) => item.origen === 'REVISOR_ORI')
@@ -233,7 +246,7 @@ export function ConvenioElaboracionPage() {
     guardar.mutate({
       ...metadata,
       contenido,
-      expected_revision: datos.revision_borrador,
+      expected_revision: revisionBase,
     })
   }
 
@@ -249,7 +262,7 @@ export function ConvenioElaboracionPage() {
     setPayloadFinal({
       ...metadata,
       contenido,
-      expected_revision: datos.revision_borrador,
+      expected_revision: revisionBase,
     })
     setModalAbierto(true)
   }
@@ -277,13 +290,27 @@ export function ConvenioElaboracionPage() {
                   ? <span className="badge badge-pendiente">Cambios sin guardar</span>
                   : datos.borrador_guardado_en && <span className="badge">Borrador guardado</span>}
               </div>
+              {borradorDesactualizado && (
+                <div className="alert-error" role="alert">
+                  <p>
+                    Otra persona guardó el borrador mientras lo editabas. Tus cambios siguen en
+                    pantalla pero no se han guardado: cópialos antes de cargar el borrador más reciente.
+                  </p>
+                  <button className="btn btn-outline" type="button" onClick={cargarBorradorReciente}>
+                    Cargar el borrador más reciente
+                  </button>
+                </div>
+              )}
               {contenido ? (
                 <ConvenioEditor
-                  key={`${datos.version_actual}-${datos.revision_borrador}`}
+                  key={`${datos.version_actual}-${revisionBase}`}
                   contenido={contenido}
                   editable={editable}
                   onChange={(nuevo) => {
-                    setCambiosLocales({ revision: datos.revision_borrador, contenido: nuevo })
+                    setCambiosLocales((actual) => ({
+                      revision: actual?.revision ?? datos.revision_borrador,
+                      contenido: nuevo,
+                    }))
                   }}
                 />
               ) : (
