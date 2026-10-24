@@ -259,11 +259,19 @@ def _filas_de_modificacion(
                 evento=accion.evento if accion else None,
                 etapa=accion.etapa if accion else None,
                 version=accion.version if accion else None,
-                ejecucion=accion.ejecucion if accion else None,
+                ejecucion=_ejecucion(accion),
                 responsable_id=accion.responsable_id if accion else None,
             )
         )
     return filas
+
+
+def _ejecucion(accion: Accion | None) -> str | None:
+    # Sin una acción descrita, el actor viene de asignar_actor, que solo se usa
+    # con el usuario autenticado de la petición: el cambio lo originó una persona.
+    if accion is None:
+        return EjecucionAuditoria.HUMANA.value
+    return accion.ejecucion
 
 
 @event.listens_for(Session, "after_flush")
@@ -279,7 +287,7 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
     evento = accion.evento if accion else None
     etapa = accion.etapa if accion else None
     version = accion.version if accion else None
-    ejecucion = accion.ejecucion if accion else None
+    ejecucion = _ejecucion(accion)
     responsable_id = accion.responsable_id if accion else None
     # Lo que se completa de un registro en la misma transacción que lo crea es
     # parte de su creación: su inserción ya lo representa.
