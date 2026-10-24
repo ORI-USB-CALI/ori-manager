@@ -2150,7 +2150,14 @@ class ServicioConvenios:
         cambios_metadata = datos.model_dump(
             exclude={"contenido", "expected_revision"}, exclude_unset=True
         )
-        describir_accion(self.db, usuario, "Guardó un avance del borrador del convenio")
+        describir_accion(
+            self.db,
+            usuario,
+            "Guardó un avance del borrador del convenio",
+            evento="BORRADOR_GUARDADO",
+            etapa=convenio.etapa_actual.codigo,
+            version=convenio.version_actual,
+        )
         try:
             cambio_metadata = self._aplicar_cambios(convenio, cambios_metadata)
         except ErrorConvenio:
@@ -2261,11 +2268,6 @@ class ServicioConvenios:
             if datos is not None
             else {}
         )
-        describir_accion(
-            self.db,
-            usuario,
-            "Finalizó la elaboración y envió el convenio a revisión jurídica",
-        )
         try:
             self._aplicar_cambios(convenio, cambios)
         except ErrorConvenio:
@@ -2279,6 +2281,17 @@ class ServicioConvenios:
         cambio_contenido = (
             contenido is not None
             and (actual is None or contenido != actual.contenido)
+        )
+        genera_version = cambio_metadata or cambio_contenido or actual is None
+        # Se declara antes de cualquier consulta: los cambios aún sin guardar del
+        # convenio se registran con esta acción al hacer flush.
+        describir_accion(
+            self.db,
+            usuario,
+            "Finalizó la elaboración y envió el convenio a revisión jurídica",
+            evento="VERSION_GENERADA" if genera_version else "VERSION_REUTILIZADA",
+            etapa=convenio.etapa_actual.codigo,
+            version=convenio.version_actual + (1 if genera_version else 0),
         )
         version_para_validar = actual
         if contenido_final is not None and (actual is None or cambio_contenido):
@@ -2354,7 +2367,7 @@ class ServicioConvenios:
             )
 
         version_final = actual
-        if cambio_metadata or cambio_contenido or actual is None:
+        if genera_version:
             version_final = self._crear_version(
                 convenio,
                 contenido_final,
