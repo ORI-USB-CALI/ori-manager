@@ -200,6 +200,8 @@ export interface ElaboracionConvenio extends Convenio {
   unidad_organizacional: UnidadOrganizacionalResumen | null
   plantilla_origen: PlantillaConvenioResumen | null
   contenido: Record<string, unknown> | null
+  revision_borrador: number
+  borrador_guardado_en: string | null
 }
 
 export interface PlantillaConvenioResumen {
