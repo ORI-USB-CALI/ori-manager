@@ -126,11 +126,11 @@ def test_proceso_automatico_no_usa_usuario_ficticio(
     assert total_usuarios_despues == total_usuarios_antes
 
 
-def test_sin_describir_accion_la_ejecucion_queda_sin_declarar(
+def test_el_cambio_del_usuario_de_la_sesion_sin_accion_descrita_es_humano(
     db: Session, gestor: Usuario, crear_aliado
 ) -> None:
-    """RN-02: la ejecución no se deduce solo porque el backend procesó el
-    cambio; si nadie la declara, queda nula, no HUMANA por defecto."""
+    """El actor de la sesión solo se asigna con el usuario autenticado de la
+    petición: su cambio es humano aunque no declare un evento de negocio."""
     aliado = crear_aliado()
     asignar_actor(db, gestor)
     aliado.nombre = "Cambio sin describir_accion"
@@ -138,7 +138,7 @@ def test_sin_describir_accion_la_ejecucion_queda_sin_declarar(
 
     fila = _ultima_fila(db, "aliado", aliado.id)
     assert fila.usuario_id == gestor.id
-    assert fila.ejecucion is None
+    assert fila.ejecucion == "HUMANA"
     assert fila.evento is None
 
 
