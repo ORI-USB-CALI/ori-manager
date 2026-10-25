@@ -66,7 +66,7 @@ def _guardar_contenido(client, convenio, contenido) -> None:
     elaboracion = client.get(f"/api/convenios/{convenio.id}/elaboracion").json()
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
+        json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     )
     assert respuesta.status_code == 200
 

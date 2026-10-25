@@ -416,7 +416,7 @@ def test_correccion_y_dos_avales_crean_nuevo_ciclo_sin_sobrescribir_anterior(
         convenio_listo.id,
         ConvenioElaboracionGuardar(
             contenido=_contenido_corregido(elaboracion.contenido),
-            expected_version=elaboracion.version_actual,
+            expected_revision=elaboracion.revision_borrador,
         ),
         gestor,
     )

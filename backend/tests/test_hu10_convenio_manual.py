@@ -80,7 +80,7 @@ def test_actualizacion_y_elaboracion_ya_rechazan_campos_reservados(
     if "convenio_origen_id" in datos:
         datos["convenio_origen_id"] = convenio_id
     if sufijo:
-        datos.update(expected_version=1, contenido={"type": "doc", "content": [{"type": "paragraph"}]})
+        datos.update(expected_revision=0, contenido={"type": "doc", "content": [{"type": "paragraph"}]})
     datos["objeto"] = "No debe guardarse"
     antes = _conteos(db)
     respuesta = client.request(metodo, f"/api/convenios/{convenio_id}{sufijo}", json=datos)
@@ -185,7 +185,7 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
     tipo_convenio_id = db.scalar(select(TipoConvenio.id).limit(1))
     assert tipo_convenio_id is not None
     payload = {
-        "expected_version": 1,
+        "expected_revision": 0,
         "contenido": contenido,
         "objeto": "Cooperación académica",
         "tipo_convenio_id": tipo_convenio_id,
@@ -195,24 +195,23 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
     }
     guardado = client.patch(ruta, json=payload)
     assert guardado.status_code == 200, guardado.text
-    assert guardado.json()["version_actual"] == 2
+    assert guardado.json()["version_actual"] == 1
+    assert guardado.json()["revision_borrador"] == 1
     assert guardado.json()["etapa_actual"]["codigo"] == "ELABORACION"
     assert client.get(ruta).json()["contenido"] == contenido
-    repetir = client.patch(ruta, json={"contenido": contenido, "expected_version": 2})
+    repetir = client.patch(ruta, json={"contenido": contenido, "expected_revision": 1})
     assert repetir.status_code == 200
-    assert repetir.json()["version_actual"] == 2
-    conflicto = client.patch(ruta, json={"contenido": contenido, "expected_version": 1})
+    assert repetir.json()["revision_borrador"] == 1
+    conflicto = client.patch(ruta, json={"contenido": contenido, "expected_revision": 0})
     assert conflicto.status_code == 409
 
     versiones = client.get(f"/api/convenios/{id_convenio}/versiones")
     assert versiones.status_code == 200
-    assert [v["numero"] for v in versiones.json()] == [2, 1]
-    assert versiones.json()[0]["autor"]["id"] == gestor.id
-    assert versiones.json()[0]["creado_en"]
+    assert [v["numero"] for v in versiones.json()] == [1]
 
     final = client.post(
         f"{ruta}/finalizar",
-        json={"expected_version": 2, "contenido": contenido},
+        json={"expected_revision": 1, "contenido": contenido},
     )
     assert final.status_code == 200, final.text
     assert db.get(Convenio, id_convenio).etapa_actual.codigo == "REVISION_AVAL_JURIDICO"
@@ -228,10 +227,8 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
         VersionConvenio.convenio_id == id_convenio,
         VersionConvenio.numero == numero,
     ))
-    assert version.contexto in (
-        ContextoVersionConvenio.GUARDADO.value,
-        ContextoVersionConvenio.FINALIZACION.value,
-    )
+    assert numero == 2
+    assert version.contexto == ContextoVersionConvenio.FINALIZACION.value
     assert version.autor_id == gestor.id
 
 
@@ -249,7 +246,7 @@ def test_aliado_opcional_hasta_envio_contraparte(client, db, gestor):
     tipo_id = db.scalar(select(TipoConvenio.id).limit(1))
     ruta = f"/api/convenios/{creado['id']}/elaboracion"
     guardar = client.patch(ruta, json={
-        "expected_version": creado["version_actual"],
+        "expected_revision": 0,
         "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
             {"type": "text", "text": "Acuerdo institucional redactado por la ORI"}
         ]}]},
@@ -261,7 +258,7 @@ def test_aliado_opcional_hasta_envio_contraparte(client, db, gestor):
     })
     assert guardar.status_code == 200, guardar.text
     final = client.post(f"{ruta}/finalizar", json={
-        "expected_version": guardar.json()["version_actual"],
+        "expected_revision": guardar.json()["revision_borrador"],
         "contenido": guardar.json()["contenido"],
     })
     assert final.status_code == 200, final.text

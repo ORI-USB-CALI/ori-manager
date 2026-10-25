@@ -83,6 +83,18 @@ def version_contractual(convenio: Convenio) -> VersionConvenio | None:
     )
 
 
+def version_exportable(convenio: Convenio) -> VersionConvenio | None:
+    """El documento de trabajo en Elaboración (el avance guardado, HT-13) o la
+    versión contractual en cualquier otro caso.
+
+    El avance se envuelve en una versión sin guardar: no tiene id, así que nunca
+    se asocia a un proceso de firmas.
+    """
+    if modo_emision(convenio) is ModoEmision.BORRADOR and convenio.borrador is not None:
+        return VersionConvenio(contenido=convenio.borrador.contenido)
+    return version_contractual(convenio)
+
+
 def _procesos_vigentes(convenio: Convenio) -> list[ProcesoFirmasConvenio]:
     return [
         proceso
@@ -145,7 +157,7 @@ class ConvenioExportValidator:
             faltantes.append("objeto")
         if _falta_entidad(convenio):
             faltantes.append("entidad_participante")
-        version = version_contractual(convenio)
+        version = version_exportable(convenio)
         if version is None:
             faltantes.append("version_contractual")
         elif not self._tiene_texto(version):

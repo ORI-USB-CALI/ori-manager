@@ -274,7 +274,7 @@ def test_reenviar_a_juridica_resuelve_la_devolucion_anterior(
     ServicioConvenios(db).guardar_elaboracion(
         convenio_listo.id,
         ConvenioElaboracionGuardar(
-            contenido=contenido, expected_version=convenio_listo.version_actual
+            contenido=contenido, expected_revision=0
         ),
         gestor,
     )
