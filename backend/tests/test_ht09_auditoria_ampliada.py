@@ -422,9 +422,10 @@ def test_ejecucion_automatica_con_originador_explicito(db, gestor, crear_aliado)
 
 
 def test_solicitante_no_es_responsable_institucional_de_decision_ori(
-    client, db, solicitud_para_radicar, gestor,
+    client, db, solicitud_para_radicar, gestor, solicitante, entrar_como,
 ):
     solicitud_id = solicitud_para_radicar
+    entrar_como(solicitante)
     assert client.post(f"/api/solicitudes/{solicitud_id}/radicar").status_code == 200
     ServicioSolicitudes(db).aceptar(solicitud_id, gestor)
     fila = _ultima_fila(db, "solicitud", solicitud_id)
