@@ -295,7 +295,11 @@ class ServicioRenovaciones:
                 usuario,
                 "Inició la renovación del convenio",
                 evento="RENOVACION_INICIADA",
-                **contexto_auditoria(origen),
+                # La operación crea al hijo en Elaboración, versión inicial 1,
+                # con responsable explícito en su historial de entrada.
+                etapa="ELABORACION",
+                version=1,
+                responsable_id=usuario.id,
             )
             if origen.origen == OrigenConvenio.MANUAL_ORI.value:
                 hijo = servicio._crear_manual_en_transaccion(

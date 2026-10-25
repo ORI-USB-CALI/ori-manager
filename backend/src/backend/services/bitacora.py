@@ -3,7 +3,7 @@ from datetime import date, datetime
 from enum import Enum
 
 from sqlalchemy import event, insert, inspect
-from sqlalchemy.orm import Session, SessionTransaction, UOWTransaction
+from sqlalchemy.orm import Session, SessionTransaction, UOWTransaction, object_session
 from sqlalchemy.sql.elements import ClauseElement
 
 from backend.models.actividad_convenio import ActividadConvenio
@@ -27,6 +27,7 @@ from backend.models.usuario import Usuario
 CLAVE_ACTOR = "bitacora_actor"
 CLAVE_ACCION = "bitacora_accion"
 CLAVE_INSERTADOS = "bitacora_insertados"
+CLAVE_CAMBIOS_AUTOMATICOS = "bitacora_cambios_automaticos"
 
 # Columnas que cambian por mantenimiento interno y no aportan a la trazabilidad.
 CAMPOS_TECNICOS = frozenset({"id", "creado_en", "actualizado_en", "ultimo_acceso"})
@@ -82,9 +83,7 @@ class Accion:
     # HT-09, CA-02/CA-03: HUMANA o AUTOMATICA. Nulo en los registros previos
     # a HT-09 (nunca se completa retroactivamente, CA-07).
     ejecucion: str | None = None
-    # HT-09, CA-04: responsable de negocio de la operación (hoy,
-    # convenio.creado_por_id cuando la acción es sobre un convenio),
-    # distinto del usuario que la origina o la ejecuta.
+    # Asignación de negocio verificable, independiente del originador.
     responsable_id: int | None = None
 
 
@@ -138,12 +137,15 @@ def describir_accion_automatica(
     evento: str | None = None,
     etapa: str | None = None,
     version: int | None = None,
+    originador: Usuario | None = None,
+    responsable_id: int | None = None,
 ) -> None:
-    """Equivalente a `describir_accion` para cambios que origina un proceso
-    del sistema sin usuario humano (por ejemplo, HT-10 finalizando convenios
-    vencidos). No se inventa un usuario ficticio (RN-07): `usuario_id` y
-    `rol` quedan nulos y `ejecucion` queda en AUTOMATICA."""
-    actor = Actor(usuario_id=None, rol=None)
+    """Declara la ejecución automática, conservando un originador si se conoce.
+
+    Sin originador explícito, no hereda al usuario de la sesión ni inventa uno.
+    La naturaleza de ejecución es independiente de quién inició el proceso.
+    """
+    actor = _actor_de(originador) if originador is not None else Actor(None, None)
     db.info[CLAVE_ACCION] = Accion(
         actor,
         descripcion,
@@ -152,7 +154,29 @@ def describir_accion_automatica(
         etapa,
         version,
         EjecucionAuditoria.AUTOMATICA.value,
+        responsable_id,
     )
+
+
+def describir_cambios_automaticos(db: Session, objeto: object, *campos: str) -> None:
+    """Asocia efectos derivados a un objeto y a su próxima modificación.
+
+    Se captura la acción humana antes del flush, sin cambiar el contexto global
+    de la sesión. Se registra su evento humano y sus efectos por campo, con el
+    mismo originador e instante. No genera filas si no hubo cambios reales.
+    """
+    accion = db.info.get(CLAVE_ACCION)
+    if accion is None or accion.ejecucion != EjecucionAuditoria.HUMANA.value:
+        raise ValueError("Los efectos derivados requieren una acción humana descrita")
+    if not inspect(objeto).persistent or object_session(objeto) is not db:
+        raise ValueError("Los efectos derivados requieren un objeto persistido de esta sesión")
+    if not campos or not set(campos) <= set(inspect(objeto).mapper.column_attrs.keys()):
+        raise ValueError("Los efectos automáticos deben identificar columnas del objeto")
+    marcas = db.info.setdefault(CLAVE_CAMBIOS_AUTOMATICOS, {})
+    previa = marcas.get(objeto)
+    if previa is not None and previa[0] != accion:
+        raise ValueError("Confirme con flush los efectos previos antes de cambiar su acción")
+    marcas[objeto] = (accion, frozenset(campos) | (previa[1] if previa else frozenset()))
 
 
 def _a_texto(valor: object) -> str | None:
@@ -220,6 +244,7 @@ def _filas_de_modificacion(
     contexto: str | None,
     instante: datetime | None,
     accion: Accion | None,
+    campos_automaticos: frozenset[str] = frozenset(),
 ) -> list[dict[str, object]]:
     estado = inspect(objeto)
     registro_id = _registro_id(objeto)
@@ -259,7 +284,8 @@ def _filas_de_modificacion(
                 evento=accion.evento if accion else None,
                 etapa=accion.etapa if accion else None,
                 version=accion.version if accion else None,
-                ejecucion=_ejecucion(accion),
+                ejecucion=(EjecucionAuditoria.AUTOMATICA.value
+                           if campo in campos_automaticos else _ejecucion(accion)),
                 responsable_id=accion.responsable_id if accion else None,
             )
         )
@@ -267,8 +293,9 @@ def _filas_de_modificacion(
 
 
 def _ejecucion(accion: Accion | None) -> str | None:
-    # Sin una acción descrita, el actor viene de asignar_actor, que solo se usa
-    # con el usuario autenticado de la petición: el cambio lo originó una persona.
+    # Compatibilidad HU-18: las mutaciones autenticadas directas tienen naturaleza
+    # humana por defecto. Los efectos automáticos se declaran por su semántica,
+    # nunca por el simple hecho de ejecutarse en el backend.
     if accion is None:
         return EjecucionAuditoria.HUMANA.value
     return accion.ejecucion
@@ -292,6 +319,7 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
     # Lo que se completa de un registro en la misma transacción que lo crea es
     # parte de su creación: su inserción ya lo representa.
     insertados = session.info.setdefault(CLAVE_INSERTADOS, set())
+    derivados = session.info.pop(CLAVE_CAMBIOS_AUTOMATICOS, {})
 
     filas: list[dict[str, object]] = []
     for objeto in session.new:
@@ -317,9 +345,24 @@ def _registrar_cambios(session: Session, _flush_context: UOWTransaction) -> None
     for objeto in session.dirty:
         entidad = ENTIDADES_AUDITADAS.get(type(objeto))
         if entidad is not None and (entidad, _registro_id(objeto)) not in insertados:
-            filas.extend(
-                _filas_de_modificacion(objeto, entidad, actor, contexto, instante, accion)
+            accion_objeto, campos = derivados.get(objeto, (accion, frozenset()))
+            actor_objeto = accion_objeto.actor if accion_objeto else actor
+            contexto_objeto = accion_objeto.descripcion if accion_objeto else contexto
+            instante_objeto = accion_objeto.instante if accion_objeto else instante
+            modificaciones = _filas_de_modificacion(
+                objeto, entidad, actor_objeto, contexto_objeto, instante_objeto,
+                accion_objeto, campos,
             )
+            if modificaciones and campos:
+                # Evento humano de radicar, separado de los efectos automáticos.
+                filas.append(_fila(
+                    actor_objeto, contexto_objeto, instante_objeto, entidad,
+                    _registro_id(objeto), AccionAuditoria.UPDATE,
+                    evento=accion_objeto.evento, etapa=accion_objeto.etapa,
+                    version=accion_objeto.version, ejecucion=accion_objeto.ejecucion,
+                    responsable_id=accion_objeto.responsable_id,
+                ))
+            filas.extend(modificaciones)
     for objeto in session.deleted:
         entidad = ENTIDADES_AUDITADAS.get(type(objeto))
         if entidad is not None:
@@ -352,3 +395,4 @@ def _cerrar_transaccion(session: Session, transaccion: SessionTransaction) -> No
     if transaccion.parent is None:
         session.info.pop(CLAVE_ACCION, None)
         session.info.pop(CLAVE_INSERTADOS, None)
+        session.info.pop(CLAVE_CAMBIOS_AUTOMATICOS, None)

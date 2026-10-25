@@ -65,6 +65,7 @@ class Auditoria(Base):
     accion: Mapped[str] = mapped_column(String(10), nullable=False)
     # campo, valor_anterior y valor_nuevo quedan nulos en acciones INSERT y DELETE,
     # donde el registro cambia completo y no hay un campo puntual que señalar.
+    # También en el UPDATE que representa un evento humano con efectos separados.
     campo: Mapped[str | None] = mapped_column(String(80), nullable=True)
     valor_anterior: Mapped[str | None] = mapped_column(Text, nullable=True)
     valor_nuevo: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -78,8 +79,8 @@ class Auditoria(Base):
     etapa: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Versión formal del convenio asociada a la acción, cuando aplique.
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # HT-09, CA-02/CA-03: si la acción la originó una persona o un proceso
-    # automático. Nula en los registros previos a HT-09 (CA-07): no se puede
+    # HT-09, CA-02/CA-03: naturaleza del cambio, independiente del originador.
+    # AUTOMATICA admite usuario_id conocido. Nula en registros previos (CA-07): no se puede
     # reconstruir esa información de forma confiable para el pasado.
     ejecucion: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # HT-09, CA-04: responsable de negocio de la operación, distinto del

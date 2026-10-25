@@ -6,25 +6,43 @@ automática sin usuarios ficticios.
 """
 
 from collections.abc import Callable
+from importlib.util import module_from_spec, spec_from_file_location
+from io import BytesIO
+from pathlib import Path
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.enums import TipoAliado, TipoIdentificacion
+from backend.models.firma_convenio import FirmaConvenio
+from backend.models.historial_etapa import HistorialEtapa
+from backend.models.invitacion_revision_contraparte import InvitacionRevisionContraparte
+from backend.models.revision_convenio import RevisionConvenio
+from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.convenio import ConvenioElaboracionActualizar
+from backend.schemas.convenio import (
+    ConvenioElaboracionActualizar,
+    RevisionContenidoGuardar,
+)
+from backend.schemas.solicitud import SolicitudCampos
+from backend.services import bitacora
 from backend.services.bitacora import (
     asignar_actor,
     describir_accion,
     describir_accion_automatica,
+    describir_cambios_automaticos,
 )
-from backend.services.convenios import ServicioConvenios
+from backend.services.convenios import ServicioConvenios, contexto_auditoria
+from backend.services.solicitudes import ServicioSolicitudes
 
 URL_AUDITORIA = "/api/auditoria"
 
@@ -106,10 +124,11 @@ def test_accion_humana_conserva_usuario_y_rol(
 
 
 def test_proceso_automatico_no_usa_usuario_ficticio(
-    db: Session, crear_aliado
+    db: Session, gestor: Usuario, crear_aliado
 ) -> None:
     total_usuarios_antes = db.scalar(select(func.count()).select_from(Usuario))
     aliado = crear_aliado()
+    asignar_actor(db, gestor)
     describir_accion_automatica(
         db, "Concilió el estado del aliado", evento="ALIADO_CONCILIADO"
     )
@@ -329,3 +348,322 @@ def test_automatica_con_usuario_no_viola_la_restriccion(
         )
     )
     db.commit()
+
+
+@pytest.fixture
+def solicitud_para_radicar(client, db, solicitante, entrar_como):
+    entrar_como(solicitante)
+    tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
+    datos = {campo: f"Valor de {campo}" for campo in SolicitudCampos.model_fields}
+    datos.update(
+        solicitante_correo=solicitante.correo,
+        tipo_identificacion_aliado_propuesto="NIT",
+        tipo_aliado_propuesto="EMPRESA", tipo_convenio_id=tipo.id,
+        correo_aliado_propuesto="contacto@aliado.example",
+        contacto_contraparte_correo="persona@aliado.example",
+        supervisor_usb_correo="supervisor@usb.example",
+        supervisor_contraparte_correo="supervisor@aliado.example",
+    )
+    creada = client.post("/api/solicitudes", json=datos)
+    assert creada.status_code == 201, creada.text
+    solicitud_id = creada.json()["id"]
+    archivo = client.post(
+        f"/api/solicitudes/{solicitud_id}/documentos",
+        data={"tipo_documento": "OTRO_DOCUMENTO_REPRESENTACION"},
+        files={"archivo": ("soporte.pdf", BytesIO(b"%PDF-1.4 soporte"), "application/pdf")},
+    )
+    assert archivo.status_code == 201, archivo.text
+    return solicitud_id
+
+
+def test_radicacion_humana_con_efectos_automaticos_conserva_originador_en_api(
+    client, db, solicitud_para_radicar, solicitante, crear_usuario, entrar_como,
+) -> None:
+    solicitud_id = solicitud_para_radicar
+    radicada = client.post(f"/api/solicitudes/{solicitud_id}/radicar")
+    assert radicada.status_code == 200, radicada.text
+    entrar_como(crear_usuario(CodigoRol.ADMINISTRADOR_ORI))
+    respuesta = client.get(URL_AUDITORIA, params={
+        "entidad": "solicitud", "registro_id": solicitud_id,
+    })
+    assert respuesta.status_code == 200
+    filas = [f for f in respuesta.json()["items"] if f["evento"] == "SOLICITUD_RADICADA"]
+    humanas = [f for f in filas if f["ejecucion"] == "HUMANA"]
+    assert len(humanas) == 1
+    assert humanas[0]["accion"] == "UPDATE"
+    assert humanas[0]["campo"] is None
+    efectos = {f["campo"]: f for f in filas if f["ejecucion"] == "AUTOMATICA"}
+    assert set(efectos) == {"estado", "fecha_radicacion", "fecha_recibido_ori"}
+    assert efectos["estado"]["valor_anterior"] == "BORRADOR"
+    assert efectos["estado"]["valor_nuevo"] == "RADICADA"
+    assert efectos["fecha_radicacion"]["valor_nuevo"] == efectos["fecha_recibido_ori"]["valor_nuevo"]
+    for fila in filas:
+        assert fila["usuario"]["id"] == solicitante.id
+        assert fila["rol"] == "SOLICITANTE_INTERNO"
+        assert fila["responsable"]["id"] == solicitante.id
+        assert fila["contexto"] == "Radicó la solicitud"
+        assert fila["fecha_hora"] == radicada.json()["fecha_radicacion"]
+        # Una solicitud aún no tiene etapa ni versión formal de convenio.
+        assert fila["etapa"] is None and fila["version"] is None
+
+
+def test_ejecucion_automatica_con_originador_explicito(db, gestor, crear_aliado):
+    aliado = crear_aliado()
+    describir_accion_automatica(
+        db, "Efecto programado por el Gestor", originador=gestor,
+        evento="ALIADO_CONCILIADO",
+    )
+    aliado.activo = False
+    db.commit()
+    fila = _ultima_fila(db, "aliado", aliado.id)
+    assert (fila.usuario_id, fila.rol, fila.ejecucion) == (
+        gestor.id, gestor.rol.codigo, "AUTOMATICA",
+    )
+
+
+def test_solicitante_no_es_responsable_institucional_de_decision_ori(
+    client, db, solicitud_para_radicar, gestor,
+):
+    solicitud_id = solicitud_para_radicar
+    assert client.post(f"/api/solicitudes/{solicitud_id}/radicar").status_code == 200
+    ServicioSolicitudes(db).aceptar(solicitud_id, gestor)
+    fila = _ultima_fila(db, "solicitud", solicitud_id)
+    assert fila.evento == "SOLICITUD_APROBADA"
+    assert fila.usuario_id == gestor.id
+    assert fila.responsable_id is None
+
+
+def test_marcar_efectos_sin_cambios_no_genera_eventos(db, gestor, crear_aliado):
+    aliado = crear_aliado()
+    antes = db.scalar(select(func.count()).select_from(Auditoria))
+    describir_accion(db, gestor, "Operación sin cambios", evento="SIN_CAMBIOS")
+    describir_cambios_automaticos(db, aliado, "activo")
+    aliado.activo = True
+    db.commit()
+    assert db.scalar(select(func.count()).select_from(Auditoria)) == antes
+
+
+def test_efectos_automaticos_no_contaminan_otro_objeto_ni_otra_accion(
+    db, gestor, crear_usuario, crear_aliado,
+):
+    primero, segundo = crear_aliado(), crear_aliado()
+    otro = crear_usuario()
+    with db.no_autoflush:
+        describir_accion(db, gestor, "Primera operación", evento="PRIMER_EVENTO")
+        describir_cambios_automaticos(db, primero, "activo")
+        primero.activo = False
+        # Sin flush entre contextos: la marca conserva su acción de origen.
+        describir_accion(db, otro, "Segunda operación", evento="SEGUNDO_EVENTO")
+        segundo.activo = False
+        assert db.is_modified(primero) and db.is_modified(segundo)
+    db.commit()
+    fila_primera = _ultima_fila(db, "aliado", primero.id)
+    fila_segunda = _ultima_fila(db, "aliado", segundo.id)
+    assert (fila_primera.usuario_id, fila_primera.evento, fila_primera.ejecucion) == (
+        gestor.id, "PRIMER_EVENTO", "AUTOMATICA",
+    )
+    assert (fila_segunda.usuario_id, fila_segunda.evento, fila_segunda.ejecucion) == (
+        otro.id, "SEGUNDO_EVENTO", "HUMANA",
+    )
+
+
+def test_creador_sin_asignacion_no_se_inventa_como_responsable(db, gestor, crear_convenio):
+    convenio = crear_convenio(gestor)
+    ultimo = db.scalar(select(HistorialEtapa).where(
+        HistorialEtapa.convenio_id == convenio.id,
+    ).order_by(HistorialEtapa.id.desc()))
+    ultimo.responsable_id = None
+    db.commit()
+    ServicioConvenios(db).actualizar(
+        convenio.id, ConvenioElaboracionActualizar(objeto="Sin responsable asignado"), gestor,
+    )
+    fila = _ultima_fila(db, "convenio", convenio.id)
+    assert fila.responsable_id is None
+    assert convenio.creado_por_id == gestor.id
+
+
+def test_responsable_de_etapa_asignado_puede_diferir_del_creador(
+    db, gestor, crear_usuario, crear_convenio,
+):
+    convenio = crear_convenio(gestor)
+    responsable = crear_usuario()
+    ultimo = db.scalar(select(HistorialEtapa).where(
+        HistorialEtapa.convenio_id == convenio.id,
+    ).order_by(HistorialEtapa.id.desc()))
+    ultimo.responsable_id = responsable.id
+    db.commit()
+    ServicioConvenios(db).actualizar(
+        convenio.id, ConvenioElaboracionActualizar(objeto="Responsable verificable"), gestor,
+    )
+    assert _ultima_fila(db, "convenio", convenio.id).responsable_id == responsable.id
+    assert convenio.creado_por_id == gestor.id
+
+
+def test_no_se_recupera_un_responsable_de_una_etapa_anterior(db, gestor, convenio_listo):
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    # La nueva transición de Jurídica no tiene asignación, aunque Elaboración sí.
+    assert contexto_auditoria(convenio_listo)["responsable_id"] is None
+
+
+def test_contexto_no_hace_autoflush_antes_de_declarar_el_evento(db, gestor, crear_convenio):
+    convenio = crear_convenio(gestor)
+    db.expire(convenio, ["etapa_actual"])
+    convenio.objeto = "Cambio todavía sin contexto"
+    contexto = contexto_auditoria(convenio)
+    assert db.is_modified(convenio)
+    describir_accion(db, gestor, "Edición contextualizada", evento="CONVENIO_EDITADO", **contexto)
+    db.commit()
+    assert _ultima_fila(db, "convenio", convenio.id).evento == "CONVENIO_EDITADO"
+
+
+def test_fallo_de_radicacion_despues_de_flush_no_deja_eventos_huerfanos(
+    client, db, solicitud_para_radicar, monkeypatch,
+):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from backend.services.notificaciones import ServicioNotificaciones
+
+    solicitud_id = solicitud_para_radicar
+    antes = set(db.scalars(select(Auditoria.id)).all())
+
+    def fallar(*_args):
+        db.flush()
+        assert db.scalar(select(Auditoria.id).where(
+            Auditoria.evento == "SOLICITUD_RADICADA",
+            Auditoria.registro_id == solicitud_id,
+        )) is not None
+        raise SQLAlchemyError("Fallo tras registrar el evento y sus efectos")
+
+    monkeypatch.setattr(ServicioNotificaciones, "resolver", fallar)
+    with pytest.raises(SQLAlchemyError):
+        client.post(f"/api/solicitudes/{solicitud_id}/radicar")
+    assert set(db.scalars(select(Auditoria.id)).all()) == antes
+    solicitud = db.get(SolicitudConvenio, solicitud_id)
+    assert solicitud.estado == "BORRADOR"
+    assert solicitud.fecha_radicacion is None
+    assert bitacora.CLAVE_CAMBIOS_AUTOMATICOS not in db.info
+
+
+@pytest.mark.parametrize(("modelo", "campo", "secreto"), [
+    (Usuario, "hash_contrasena", "hash-reservado"),
+    (InvitacionRevisionContraparte, "token_hash", "token-reservado"),
+    (FirmaConvenio, "firma_png", b"firma-reservada"),
+    (BorradorConvenio, "contenido", {"text": "documento-reservado"}),
+    (RevisionConvenio, "snapshot_datos", {"text": "snapshot-reservado"}),
+])
+def test_redaccion_se_conserva_con_ejecucion_automatica(modelo, campo, secreto):
+    objeto = modelo(id=123)
+    setattr(objeto, campo, secreto)
+    actor = bitacora.Actor(7, "GESTOR_ORI")
+    accion = bitacora.Accion(actor, "Efecto derivado", ejecucion="AUTOMATICA")
+    (fila,) = bitacora._filas_de_modificacion(
+        objeto, modelo.__tablename__, actor, accion.descripcion, None, accion,
+    )
+    assert fila["campo"] == campo
+    assert fila["valor_anterior"] is None and fila["valor_nuevo"] is None
+    assert fila["ejecucion"] == "AUTOMATICA" and fila["usuario_id"] == 7
+
+
+def test_creacion_audita_la_version_inicial_real(client, db, gestor):
+    creada = client.post("/api/convenios/manual", json={})
+    assert creada.status_code == 201
+    convenio_id = creada.json()["id"]
+    fila = _ultima_fila(db, "convenio", convenio_id)
+    assert fila.evento == "CONVENIO_CREADO_MANUAL"
+    assert fila.etapa == "ELABORACION"
+    assert fila.version == creada.json()["version_actual"] == 1
+
+
+def test_revision_audita_la_version_generada_y_su_asignacion(
+    db, gestor, revisor, convenio_listo,
+):
+    servicio = ServicioConvenios(db)
+    servicio.finalizar_elaboracion(convenio_listo.id, gestor)
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+    ))
+    revision.responsable_id = revisor.id
+    db.commit()
+    numero = convenio_listo.version_actual
+    version = servicio.guardar_contenido_revision(
+        convenio_listo.id, revision.id,
+        RevisionContenidoGuardar(expected_version=numero, contenido={
+            "type": "doc", "content": [{"type": "paragraph", "content": [
+                {"type": "text", "text": "Corrección jurídica"},
+            ]}],
+        }), revisor,
+    )
+    fila = _ultima_fila(db, "convenio", convenio_listo.id)
+    assert fila.evento == "CONTENIDO_CORREGIDO_REVISION"
+    assert fila.etapa == "REVISION_AVAL_JURIDICO"
+    assert fila.version == version.numero == numero + 1
+    assert fila.responsable_id == revisor.id
+    assert fila.usuario_id == revisor.id
+
+
+@pytest.mark.parametrize(("con_cambios", "evento", "numero"), [
+    (True, "VERSION_GENERADA", 2), (False, "VERSION_REUTILIZADA", 1),
+])
+def test_eventos_ht13_se_persisten_sin_versionar_cada_guardado(
+    client, db, gestor, convenio_listo, con_cambios, evento, numero,
+):
+    ruta = f"/api/convenios/{convenio_listo.id}/elaboracion"
+    datos = client.get(ruta).json()
+    if con_cambios:
+        datos["contenido"] = {"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": "Avance persistido"},
+        ]}]}
+    guardado = client.patch(ruta, json={"contenido": datos["contenido"], "expected_revision": 0})
+    assert guardado.status_code == 200
+    assert guardado.json()["version_actual"] == 1
+    if con_cambios:
+        fila = db.scalar(select(Auditoria).where(
+            Auditoria.entidad == "borrador_convenio", Auditoria.evento == "BORRADOR_GUARDADO",
+        ).order_by(Auditoria.id.desc()))
+        assert (fila.etapa, fila.version, fila.usuario_id) == ("ELABORACION", 1, gestor.id)
+    antes = db.scalar(select(func.count()).select_from(Auditoria))
+    repetido = client.patch(ruta, json={
+        "contenido": datos["contenido"], "expected_revision": guardado.json()["revision_borrador"],
+    })
+    assert repetido.status_code == 200
+    assert db.scalar(select(func.count()).select_from(Auditoria)) == antes
+    final = client.post(f"{ruta}/finalizar", json={
+        "expected_revision": guardado.json()["revision_borrador"],
+    })
+    assert final.status_code == 200
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+    ))
+    fila = _ultima_fila(db, "revision_convenio", revision.id)
+    assert (fila.evento, fila.etapa, fila.version) == (evento, "ELABORACION", numero)
+
+
+def test_not_null_legacy_es_incompatible_con_proceso_sin_originador(db):
+    # Solo una tabla temporal: no se altera auditoria ni se ejecuta downgrade.
+    db.execute(text("CREATE TEMP TABLE ht09_rollback_usuario (usuario_id INTEGER) ON COMMIT DROP"))
+    db.execute(text("INSERT INTO ht09_rollback_usuario VALUES (NULL)"))
+    with pytest.raises(IntegrityError), db.begin_nested():
+        db.execute(text("ALTER TABLE ht09_rollback_usuario ALTER COLUMN usuario_id SET NOT NULL"))
+    assert db.scalar(text("SELECT count(*) FROM ht09_rollback_usuario WHERE usuario_id IS NULL")) == 1
+
+
+@pytest.mark.parametrize("hay_datos", [True, False])
+def test_downgrade_verifica_integridad_antes_de_cualquier_ddl(monkeypatch, hay_datos):
+    ruta = Path(__file__).parents[1] / "migrations/versions/9d53cf1dcef3_ht_09_ampliar_bitacora_de_auditoria.py"
+    spec = spec_from_file_location("migracion_ht09", ruta)
+    migracion = module_from_spec(spec)
+    spec.loader.exec_module(migracion)
+    operaciones = Mock()
+    operaciones.get_bind.return_value.scalar.return_value = hay_datos
+    monkeypatch.setattr(migracion, "op", operaciones)
+    if hay_datos:
+        with pytest.raises(RuntimeError, match="Downgrade HT-09 bloqueado"):
+            migracion.downgrade()
+        operaciones.drop_constraint.assert_not_called()
+        operaciones.alter_column.assert_not_called()
+        operaciones.drop_column.assert_not_called()
+    else:
+        migracion.downgrade()
+        operaciones.alter_column.assert_called_once()
+        assert operaciones.alter_column.call_args.args == ("auditoria", "usuario_id")
+        assert operaciones.alter_column.call_args.kwargs["nullable"] is False

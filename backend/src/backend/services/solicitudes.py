@@ -35,7 +35,7 @@ from backend.schemas.solicitud import (
     SolicitudCrear,
     VersionSolicitudHistorialLeer,
 )
-from backend.services.bitacora import describir_accion
+from backend.services.bitacora import describir_accion, describir_cambios_automaticos
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -306,7 +306,8 @@ class ServicioSolicitudes:
             ACCION_POR_DECISION[estado],
             instante=instante,
             evento=f"SOLICITUD_{estado.value}",
-            responsable_id=solicitud.solicitante_id,
+            # El solicitante es titular de la solicitud, no responsable de la
+            # decisión de ORI; no existe una asignación institucional verificable.
         )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
@@ -573,6 +574,10 @@ class ServicioSolicitudes:
             instante=instante,
             evento="SOLICITUD_RERADICADA" if reradicacion else "SOLICITUD_RADICADA",
             responsable_id=solicitud.solicitante_id,
+        )
+        describir_cambios_automaticos(
+            self.db, solicitud, "estado", "fecha_radicacion", "fecha_recibido_ori",
+            "decidida_por_id", "fecha_decision",
         )
         solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante

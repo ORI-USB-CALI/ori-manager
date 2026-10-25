@@ -10,6 +10,7 @@
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
 | Borradores, versiones formales y concurrencia | [HT-13 — Borrador y versionamiento](hu/ht-13-borrador-versionamiento.md), contrato y dependencia con HT-09 |
+| Autoría y ejecución de la auditoría | [HT-09 — Auditoría ampliada](hu/ht-09-auditoria-ampliada.md), responsables, contratos y rollback conservador |
 | Base de datos e infraestructura | [Operaciones](operations/README.md) |
 | Contribuciones | [Política documental](development/documentation-policy.md) |
 | Wiki de GitHub | [Portada preparada](wiki/Home.md), pendiente de publicar |

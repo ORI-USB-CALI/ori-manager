@@ -34,6 +34,7 @@ class RegistroAuditoriaLeer(BaseModel):
     evento: str | None
     etapa: str | None
     version: int | None
+    # Un originador humano también puede tener efectos de ejecución AUTOMATICA.
     ejecucion: EjecucionAuditoria | None
     responsable: UsuarioAuditoriaLeer | None
 
