@@ -190,6 +190,11 @@ def test_el_registro_incluye_los_datos_de_la_accion(
         "valor_anterior": "antes",
         "valor_nuevo": "después",
         "contexto": "Editó el convenio",
+        "evento": None,
+        "etapa": None,
+        "version": None,
+        "ejecucion": None,
+        "responsable": None,
     }
     assert datetime.fromisoformat(registro["fecha_hora"]) == _fecha(5, 9)
 

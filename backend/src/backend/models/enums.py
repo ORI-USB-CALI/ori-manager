@@ -143,6 +143,16 @@ class AccionAuditoria(StrEnum):
     DELETE = "DELETE"
 
 
+class EjecucionAuditoria(StrEnum):
+    """HT-09. Si la acción auditada la originó una persona autenticada o un
+    proceso automático del sistema (por ejemplo, HT-10). Nula en los
+    registros previos a HT-09, que no pueden reconstruirse de forma
+    confiable."""
+
+    HUMANA = "HUMANA"
+    AUTOMATICA = "AUTOMATICA"
+
+
 class TipoNotificacion(StrEnum):
     """HU-33. Cada valor corresponde a uno de los disparadores de CA-03 a
     CA-06; no es un catálogo abierto para cualquier evento del sistema."""

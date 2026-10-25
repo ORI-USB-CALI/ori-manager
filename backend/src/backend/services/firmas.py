@@ -40,6 +40,7 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
+    contexto_auditoria,
     exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
@@ -639,7 +640,11 @@ class ServicioFirmas:
             raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
 
         describir_accion(
-            self.db, usuario, "Canceló el proceso de firmas por un cambio sustancial"
+            self.db,
+            usuario,
+            "Canceló el proceso de firmas por un cambio sustancial",
+            evento="PROCESO_FIRMAS_CANCELADO",
+            **contexto_auditoria(convenio),
         )
         ahora = datetime.now(UTC)
         historial = HistorialEtapa(

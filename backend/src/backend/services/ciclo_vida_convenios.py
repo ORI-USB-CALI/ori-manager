@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
 from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
+from backend.services.bitacora import describir_accion_automatica
 from backend.services.renovaciones import DIAS_VENTANA_RENOVACION, fecha_actual_dominio
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,15 @@ def conciliar_estados(
     sin_fecha: list[int] = []
     legado_inconsistente: list[int] = []
     try:
+        if not simular:
+            # HT-09, CA-03: cambio de estado automático sin usuario; no se
+            # declara etapa/versión porque un mismo evento de conciliación
+            # puede tocar convenios con etapas y versiones distintas.
+            describir_accion_automatica(
+                db,
+                "Concilió automáticamente el estado contractual de los convenios",
+                evento="CONCILIACION_ESTADO_AUTOMATICA",
+            )
         convenios = db.scalars(
             select(Convenio)
             .where(Convenio.estado.in_(ESTADOS_CONCILIABLES))

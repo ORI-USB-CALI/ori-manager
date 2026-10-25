@@ -18,6 +18,7 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     ReferenciaConvenioInvalida,
     ServicioConvenios,
+    contexto_auditoria,
 )
 from backend.services.renovaciones import fecha_actual_dominio
 
@@ -61,7 +62,11 @@ class ServicioActividadesUtilizacion:
         _validar_fecha_ejecucion(convenio, datos)
 
         describir_accion(
-            self.db, usuario, "Registró una actividad de utilización del convenio"
+            self.db,
+            usuario,
+            "Registró una actividad de utilización del convenio",
+            evento="ACTIVIDAD_UTILIZACION_REGISTRADA",
+            **contexto_auditoria(convenio),
         )
         actividad = ActividadConvenio(
             convenio_id=convenio.id,
