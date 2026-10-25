@@ -54,7 +54,6 @@ def fecha_dominio_fija(monkeypatch):
 def origen(request, db, crear_usuario, crear_convenio, solicitante):
     autor = crear_usuario(CodigoRol.GESTOR_ORI)
     datos = {
-        "codigo": f"ORIGEN-{autor.id}",
         "objeto": "Convenio de origen para renovar",
         "fecha_inicio": date(2025, 1, 1),
         "fecha_vencimiento": FECHA_REFERENCIA + timedelta(days=30),
@@ -63,8 +62,11 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
     }
     if request.param == "MANUAL_ORI":
         convenio = ServicioConvenios(db).crear_manual(ConvenioCrearManual(**datos), autor)
+        # HT-06, CA-05: el código ya no entra por el contrato de creación; se
+        # fija sobre el modelo porque estas pruebas distinguen origen de hijo.
+        convenio.codigo = f"ORIGEN-{autor.id}"
     else:
-        convenio = crear_convenio(autor, **datos)
+        convenio = crear_convenio(autor, codigo=f"ORIGEN-{autor.id}", **datos)
         convenio.solicitud.solicitante_id = solicitante.id
         convenio.solicitud.contacto_contraparte_nombre = "Contacto vigente"
         convenio.solicitud.observaciones = "Observación histórica que no debe copiarse"

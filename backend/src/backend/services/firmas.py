@@ -33,7 +33,8 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.services.aliados import ErrorAliado, resolver_aliado_para_convenio
-from backend.services.bitacora import describir_accion
+from backend.services.bitacora import describir_accion, describir_cambios_automaticos
+from backend.services.codigo_convenio import asignar_codigo
 from backend.services.convenios import (
     ConfiguracionConvenioInvalida,
     ConflictoVersionConvenio,
@@ -44,6 +45,7 @@ from backend.services.convenios import (
     exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
+from backend.services.vigencia import fecha_actual_dominio
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
@@ -925,6 +927,15 @@ class ServicioFirmas:
                 raise RevisionNoDisponible(
                     "El estado del convenio padre no permite formalizar la renovación"
                 )
+        # Antes de mover la etapa, para que la bitácora registre aquella en la
+        # que se tomó la decisión y no la de destino (HT-09, RN-04).
+        describir_accion(
+            self.db,
+            usuario,
+            "Formalizó el convenio tras completar las siete firmas obligatorias",
+            evento="CONVENIO_FORMALIZADO",
+            **contexto_auditoria(convenio),
+        )
         ahora = datetime.now(UTC)
         historial = HistorialEtapa(
             convenio_id=convenio.id,
@@ -946,6 +957,18 @@ class ServicioFirmas:
             firma.fecha_firma for firma in firmas if firma.fecha_firma is not None
         ).date()
         convenio.etapa_actual = etapa_seguimiento
+        # HT-06, CA-02: el código se asigna aquí, dentro de la transacción que
+        # confirma la formalización, y se deshace con ella (RN-15). El año es el
+        # calendario de Bogotá (RN-05), no el de `ahora`, que está en UTC: a las
+        # 23:00 del 31 de diciembre en Bogotá, UTC ya cambió de año.
+        # La reserva del consecutivo toma su propio candado, así que va lo más
+        # tarde posible y siempre después del convenio, para fijar el orden de
+        # bloqueo y descartar interbloqueos.
+        asignar_codigo(self.db, convenio, fecha_actual_dominio().year)
+        # El código es un efecto automático de una formalización humana: la
+        # acción conserva su originador y el campo queda marcado como
+        # automático (HT-09, CA-03).
+        describir_cambios_automaticos(self.db, convenio, "codigo")
         try:
             if padre is not None and padre.estado != EstadoConvenio.RENOVADO.value:
                 padre.estado = EstadoConvenio.RENOVADO.value

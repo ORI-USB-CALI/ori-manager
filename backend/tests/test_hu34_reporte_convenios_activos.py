@@ -22,6 +22,7 @@ from backend.models.enums import (
 )
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.schemas.exportacion import referencia_provisional
 
 URL_JSON = "/api/convenios/reportes/activos"
 URL_PDF = "/api/convenios/reportes/activos/pdf"
@@ -389,7 +390,8 @@ def test_descarga_pdf_incluye_identificacion_sin_codigo(
 
     respuesta = client.get(URL_PDF)
 
-    assert f"Convenio #{convenio.id}".encode() in respuesta.content
+    # HT-06: la referencia provisional es la misma en pantalla, PDF y Excel.
+    assert referencia_provisional(convenio.id).encode() in respuesta.content
 
 
 def test_descarga_pdf_sin_convenios_no_falla(client, gestor) -> None:
@@ -467,7 +469,7 @@ def test_descarga_excel_identifica_convenios_sin_codigo(
     libro = load_workbook(BytesIO(respuesta.content))
     hoja_convenios = libro["Convenios activos"]
     fila_convenio = [celda.value for celda in hoja_convenios[2]]
-    assert fila_convenio[0] == f"Convenio #{convenio.id}"
+    assert fila_convenio[0] == referencia_provisional(convenio.id)
 
 
 def test_descarga_excel_sanitiza_textos_que_parecen_formulas(

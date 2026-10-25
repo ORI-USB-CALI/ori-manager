@@ -12,6 +12,7 @@ import {
 import { Select } from '../components/Select'
 import { TableFilters } from '../components/TableFilters'
 import { formatDateTime } from '../components/tableFormatters'
+import { referenciaConvenio } from './epica02'
 
 interface RevisionJuridicaPendiente {
   revision_id: number
@@ -52,7 +53,7 @@ export function RevisionesJuridicasPage() {
   const items = useMemo(() => {
     const termino = busqueda.trim().toLocaleLowerCase('es')
     return (consulta.data ?? []).filter((item) => {
-      const texto = `${item.codigo_convenio ?? item.convenio_id} ${item.solicitud_consecutivo} ${item.objeto ?? ''} ${item.responsable.nombre_completo} ${item.responsable.correo}`.toLocaleLowerCase('es')
+      const texto = `${referenciaConvenio(item.codigo_convenio, item.convenio_id)} ${item.solicitud_consecutivo} ${item.objeto ?? ''} ${item.responsable.nombre_completo} ${item.responsable.correo}`.toLocaleLowerCase('es')
       return (
         (!termino || texto.includes(termino)) &&
         (!tipoConvenio || item.tipo_convenio?.nombre === tipoConvenio) &&
@@ -68,7 +69,7 @@ export function RevisionesJuridicasPage() {
   }
 
   const columns: DataTableColumn<RevisionJuridicaPendiente>[] = [
-    { id: 'convenio', header: 'Convenio', render: (item) => <strong>{item.codigo_convenio ?? `#${item.convenio_id}`}</strong> },
+    { id: 'convenio', header: 'Convenio', render: (item) => <strong>{referenciaConvenio(item.codigo_convenio, item.convenio_id)}</strong> },
     { id: 'solicitud', header: 'Solicitud origen', render: (item) => item.solicitud_consecutivo ?? 'Creación directa ORI' },
     { id: 'objeto', header: 'Objeto', className: 'table-cell-wide', render: (item) => item.objeto ?? '—' },
     { id: 'tipo', header: 'Tipo convenio', render: (item) => item.tipo_convenio?.nombre ?? '—' },

@@ -6,6 +6,7 @@ import pytest
 from openpyxl import load_workbook
 
 from backend.schemas.exportacion import (
+    ETIQUETA_CODIGO_OFICIAL,
     ConvenioPdfDTO,
     FirmantePdfDTO,
     SeccionContenidoDTO,
@@ -102,7 +103,8 @@ def test_genera_dos_hojas_con_los_nombres_de_la_tarea(libro):
 def test_datos_generales_vuelca_los_datos_del_convenio(libro):
     datos = _datos_generales(libro[HOJA_DATOS_GENERALES])
 
-    assert datos["Código del convenio"] == "CONV-0001"
+    # HT-06, CA-06: el documento oficial rotula el código institucional.
+    assert datos[ETIQUETA_CODIGO_OFICIAL] == "CONV-0001"
     assert datos["Objeto"] == OBJETO_LARGO
     assert datos["Tipo de convenio"] == "Marco"
     # Las fechas se guardan como fechas de Excel, no como texto.
@@ -158,7 +160,7 @@ def test_endpoint_descarga_xlsx_con_los_datos_del_convenio(
     assert respuesta.headers["content-disposition"].endswith('.xlsx"')
     libro = _libro(respuesta.content)
     datos = _datos_generales(libro[HOJA_DATOS_GENERALES])
-    assert datos["Código del convenio"] == convenio_exportable.codigo
+    assert datos[ETIQUETA_CODIGO_OFICIAL] == convenio_exportable.codigo
     assert datos["Objeto"] == convenio_exportable.objeto
     textos = _textos(libro[HOJA_PARTICIPANTES_COMPROMISOS])
     assert {"Rector de Prueba", "Representante Legal de Prueba"} <= textos

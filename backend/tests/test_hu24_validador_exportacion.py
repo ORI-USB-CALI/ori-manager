@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
+from backend.models.enums import EstadoConvenio
 from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
@@ -50,9 +51,17 @@ def _proceso(version_id=1, estado="CONFIGURACION", firmas=None):
 
 
 def _convenio_completo(**cambios) -> Convenio:
-    """Convenio en memoria (sin BD) con todo lo que exige la exportación."""
+    """Convenio en memoria (sin BD) con todo lo que exige el documento oficial.
+
+    HT-06, CA-06: el documento oficial es el de un convenio **formalizado**.
+    Antes bastaba con no estar en la etapa de elaboración; ahora el modo lo
+    decide `convenio_esta_formalizado`, así que el convenio de referencia lleva
+    estado y fecha de firma.
+    """
     datos = {
         "codigo": "CONV-0001",
+        "estado": EstadoConvenio.VIGENTE.value,
+        "fecha_firma": date(2026, 1, 15),
         "objeto": "Cooperación académica",
         "tipo_convenio_id": 1,
         "fecha_inicio": date(2026, 1, 1),
@@ -237,10 +246,20 @@ def test_error_expone_el_contrato_de_la_tarea():
 
 @pytest.fixture
 def convenio_oficial_incompleto(db, convenio_listo):
-    """Fuera de ELABORACION rige la validación completa del documento oficial."""
+    """Convenio formalizado al que le faltan datos del documento oficial.
+
+    HT-06, CA-06: el modo oficial ya no lo decide la etapa sino la
+    formalización, así que el convenio se deja formalizado y sin código. Es el
+    caso heredado real: un convenio de antes de HT-06 que aún no pasó por el
+    procedimiento de regularización (CA-08), y para el que el validador sigue
+    siendo la red de seguridad.
+    """
     convenio_listo.etapa_actual = db.scalar(
-        select(Etapa).where(Etapa.codigo == "REVISION_AVAL_JURIDICO")
+        select(Etapa).where(Etapa.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO")
     )
+    convenio_listo.estado = EstadoConvenio.VIGENTE.value
+    convenio_listo.fecha_firma = date(2026, 1, 15)
+    convenio_listo.codigo = None
     db.commit()
     return convenio_listo
 

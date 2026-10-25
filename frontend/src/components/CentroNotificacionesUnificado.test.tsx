@@ -352,7 +352,8 @@ describe('Adaptadores, rangos y estados por fuente', () => {
     expect(avisos[0].entidad.identificacion).toBe('Convenio sin código')
     expect(avisos[0].descripcion).toBe('Convenio sin código · 1 día restante')
     expect(adaptarVencimientos([{ ...alerta(0), codigo: null, objeto: null }])[0].entidad.identificacion)
-      .toBe('Convenio #0')
+      // HT-06, CA-01: referencia provisional unificada en todas las vistas.
+      .toBe('Convenio provisional #0')
   })
 })
 

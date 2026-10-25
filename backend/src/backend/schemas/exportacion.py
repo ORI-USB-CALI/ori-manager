@@ -10,8 +10,19 @@ from pydantic import BaseModel, ConfigDict, Field
 INFORMACION_NO_DISPONIBLE = "Información no disponible"
 
 
-# Marca visible de los documentos generados en etapa de elaboración.
+# Marca visible de los documentos de trabajo, antes de formalizar el convenio.
 MARCA_BORRADOR = "BORRADOR — NO FORMALIZADO"
+
+# HT-06, CA-01 y CA-07: el documento de trabajo no anuncia un "código oficial"
+# que todavía no existe. Lleva una referencia provisional, derivada del
+# identificador interno del convenio (RN-10), distinguible del código
+# institucional aprobado.
+ETIQUETA_CODIGO_OFICIAL = "Código oficial"
+ETIQUETA_REFERENCIA_PROVISIONAL = "Identificación provisional"
+
+
+def referencia_provisional(convenio_id: int) -> str:
+    return f"Convenio provisional #{convenio_id}"
 
 
 class FormatoExportacion(StrEnum):
@@ -90,3 +101,16 @@ class ConvenioPdfDTO(BaseModel):
 
     # Firmantes oficiales
     firmantes: list[FirmantePdfDTO] = Field(default_factory=list)
+
+    def identificacion(self) -> tuple[str, str | None]:
+        """Etiqueta y valor con que el documento identifica al convenio.
+
+        Vive aquí para que el PDF y el Excel digan lo mismo. El documento
+        oficial lleva el código institucional; el de trabajo, la referencia
+        provisional (HT-06, CA-01 y CA-07).
+        """
+        if self.modo_emision is ModoEmision.OFICIAL:
+            return ETIQUETA_CODIGO_OFICIAL, self.codigo
+        return ETIQUETA_REFERENCIA_PROVISIONAL, referencia_provisional(
+            self.convenio_id
+        )

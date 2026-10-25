@@ -4,9 +4,9 @@ El validador no consulta la base de datos ni renderiza: recibe el convenio ya
 cargado (aliado, solicitud, etapa, versiones y procesos de firmas con sus
 firmas) y devuelve qué datos obligatorios faltan para exportarlo.
 
-Hay dos reglas, según `modo_emision`: el borrador de un convenio en
-elaboración exige solo lo esencial para identificarlo y mostrar su contenido
-real; el resto de exportaciones conserva la validación completa.
+Hay dos reglas, según `modo_emision`: el documento de trabajo de un convenio
+que todavía no se ha formalizado exige solo lo esencial para identificarlo y
+mostrar su contenido real; el documento oficial conserva la validación completa.
 
 `version_contractual` y `proceso_firmas_de_version` también los usa el mapeo
 del PDF y del Excel, para que lo validado sea exactamente lo que se exporta.
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from backend.models.convenio import Convenio
 from backend.models.enums import (
-    EstadoConvenio,
     EstadoProcesoFirmasConvenio,
     OrigenConvenio,
     ParteFirmaConvenio,
@@ -30,7 +29,7 @@ from backend.services.contenido_convenio import (
     ContenidoConvenioInvalido,
     documento_tiene_texto,
 )
-from backend.services.convenios import CODIGO_ETAPA_ELABORACION
+from backend.services.convenios import convenio_esta_formalizado
 
 # Un proceso cancelado (por ejemplo, tras un cambio sustancial) ya no vale.
 _ESTADOS_PROCESO_VIGENTE = frozenset(
@@ -122,18 +121,26 @@ def proceso_firmas_de_version(
 
 
 def modo_emision(convenio: Convenio) -> ModoEmision:
-    """Borrador solo en la etapa de elaboración de un convenio en trámite.
+    """Oficial solo si el convenio está formalizado; todo lo demás es borrador.
 
-    EN_TRAMITE por sí solo no basta: también lo están las revisiones jurídica,
-    de contraparte y las firmas, que conservan el comportamiento existente.
+    HT-06, CA-06 y CA-07. Antes el borrador se limitaba a la etapa de
+    elaboración y las revisiones jurídica, de contraparte y firmas emitían en
+    modo oficial. Eso dejaba un estado imposible: el documento oficial exige el
+    código institucional, que no existe hasta formalizar (RN-01), así que esos
+    convenios no podían exportarse nunca (QA #136).
+
+    Ahora el criterio es el mismo predicado de dominio que usan la consulta y
+    los filtros, de modo que «documento oficial» y «tiene código» coinciden por
+    construcción. Un convenio en trámite emite un documento de trabajo
+    identificado como no formalizado, en cualquiera de sus etapas, sin exigirle
+    un código inexistente.
+
+    Esto cambia solo *cómo se emite* lo que cada etapa ya permitía exportar; no
+    habilita exportaciones que el flujo de negocio prohíba.
     """
-    en_elaboracion = (
-        convenio.etapa_actual is not None
-        and convenio.etapa_actual.codigo == CODIGO_ETAPA_ELABORACION
-    )
-    if en_elaboracion and convenio.estado == EstadoConvenio.EN_TRAMITE.value:
-        return ModoEmision.BORRADOR
-    return ModoEmision.OFICIAL
+    if convenio_esta_formalizado(convenio):
+        return ModoEmision.OFICIAL
+    return ModoEmision.BORRADOR
 
 
 class ConvenioExportValidator:

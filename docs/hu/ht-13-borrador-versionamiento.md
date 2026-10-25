@@ -153,6 +153,14 @@ borrador usan el avance guardado cuando existe. La exportación oficial usa la
 versión formal y mantiene sus validaciones y permisos. Los cambios que solo están
 en pantalla no están disponibles para exportación hasta persistirlos.
 
+> **Actualizado por HT-06.** El modo de emisión ya no depende de la etapa sino de
+> la formalización del convenio, así que las etapas intermedias (revisión
+> jurídica, contraparte y firmas) también emiten en modo borrador. En ellas el
+> borrador persistido ya no existe —se elimina al crear la versión formal—, de
+> modo que `version_exportable()` cae en la versión contractual, que es lo
+> correcto: una revisión jurídica no se hace sobre un avance sin versionar. Ver
+> [HT-06 — Código institucional del convenio](ht-06-codigo-convenio.md).
+
 ## Dependencia con HT-09
 
 HT-09 depende de esta rama para la auditoría estructurada. HT-13 declara mediante

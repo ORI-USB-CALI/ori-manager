@@ -485,10 +485,16 @@ class ServicioPdfConvenio:
             )
         )
 
+        etiqueta_identificacion, valor_identificacion = dto.identificacion()
         filas = [
             [
-                Paragraph("<b>Código oficial:</b>", estilos["tabla_header"]),
-                Paragraph(_e(_o_no_disponible(dto.codigo)), estilos["tabla_celda"]),
+                Paragraph(
+                    f"<b>{_e(etiqueta_identificacion)}:</b>", estilos["tabla_header"]
+                ),
+                Paragraph(
+                    _e(_o_no_disponible(valor_identificacion)),
+                    estilos["tabla_celda"],
+                ),
                 Paragraph("<b>Solicitud origen:</b>", estilos["tabla_header"]),
                 Paragraph(_e(dto.solicitud_consecutivo), estilos["tabla_celda"]),
             ],

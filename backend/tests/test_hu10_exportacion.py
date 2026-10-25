@@ -44,7 +44,6 @@ def manual_documentado(client, db, gestor):
     db.flush()
     respuesta = client.post("/api/convenios/manual", json={
         "aliado_id": aliado.id,
-        "codigo": f"MAN-{uuid4().hex[:8].upper()}",
         "objeto": "Cooperación académica desde la ORI",
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
@@ -55,6 +54,11 @@ def manual_documentado(client, db, gestor):
     })
     assert respuesta.status_code == 201, respuesta.text
     convenio_id = respuesta.json()["id"]
+    # HT-06, CA-05: el código no entra por el contrato de creación. Se fija
+    # sobre el modelo porque estas pruebas comparan el documento oficial con un
+    # código conocido, sin recorrer la formalización completa.
+    db.get(Convenio, convenio_id).codigo = f"MAN-{uuid4().hex[:8].upper()}"
+    db.commit()
     guardado = client.patch(f"/api/convenios/{convenio_id}/elaboracion", json={
         "expected_revision": 0,
         "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
@@ -178,7 +182,12 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
             {"type": "text", "text": clausula},
         ]}]}
         if modo == "BORRADOR":
+            # HT-06: el modo lo decide la formalización, así que devolver el
+            # convenio a documento de trabajo exige también deshacer su estado,
+            # no solo la etapa.
             convenio.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
+            convenio.estado = "EN_TRAMITE"
+            convenio.fecha_firma = None
         db.commit()
         db.expire_all()
     antes = _conteos(db)
@@ -257,10 +266,10 @@ def test_manual_sin_aliado_reporta_validacion_controlada(
     respuesta = client.get(f"/api/convenios/{convenio.id}/exportar", params={"formato": formato})
     assert respuesta.status_code == 422, respuesta.text
     assert respuesta.json()["error"] == "CONVENIO_INCOMPLETO"
-    esperados = ["entidad_participante"]
-    if etapa == "REVISION_JURIDICA":
-        esperados.extend(["representante_legal_institucion", "representante_legal_entidad"])
-    assert respuesta.json()["campos_faltantes"] == esperados
+    # HT-06, CA-07: en revisión jurídica el convenio sigue en trámite, así que
+    # emite documento de trabajo y no se le exigen los representantes legales
+    # del documento oficial. Antes esa etapa emitía en modo oficial.
+    assert respuesta.json()["campos_faltantes"] == ["entidad_participante"]
     assert _conteos(db) == antes
 
 
