@@ -45,7 +45,7 @@ from backend.services.convenios import (
     exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
-from backend.services.vigencia import fecha_actual_dominio
+from backend.services.vigencia import instante_actual_dominio
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
@@ -936,7 +936,14 @@ class ServicioFirmas:
             evento="CONVENIO_FORMALIZADO",
             **contexto_auditoria(convenio),
         )
-        ahora = datetime.now(UTC)
+        # HT-06, RN-05: un único instante de referencia para toda la
+        # formalización. El año institucional sale de esa misma lectura, ya en
+        # la zona del dominio. Con dos lecturas distintas del reloj —una en UTC
+        # para los hitos y otra para el año— el 31 de diciembre a las 23:59 en
+        # Bogotá podían caer a cada lado del cambio de año y el código quedaba
+        # con un año distinto al de su propia formalización.
+        ahora = instante_actual_dominio()
+        anio_institucional = ahora.year
         historial = HistorialEtapa(
             convenio_id=convenio.id,
             etapa_origen_id=convenio.etapa_actual_id,
@@ -957,19 +964,19 @@ class ServicioFirmas:
             firma.fecha_firma for firma in firmas if firma.fecha_firma is not None
         ).date()
         convenio.etapa_actual = etapa_seguimiento
-        # HT-06, CA-02: el código se asigna aquí, dentro de la transacción que
-        # confirma la formalización, y se deshace con ella (RN-15). El año es el
-        # calendario de Bogotá (RN-05), no el de `ahora`, que está en UTC: a las
-        # 23:00 del 31 de diciembre en Bogotá, UTC ya cambió de año.
-        # La reserva del consecutivo toma su propio candado, así que va lo más
-        # tarde posible y siempre después del convenio, para fijar el orden de
-        # bloqueo y descartar interbloqueos.
-        asignar_codigo(self.db, convenio, fecha_actual_dominio().year)
-        # El código es un efecto automático de una formalización humana: la
-        # acción conserva su originador y el campo queda marcado como
-        # automático (HT-09, CA-03).
-        describir_cambios_automaticos(self.db, convenio, "codigo")
         try:
+            # HT-06, CA-02 y RN-15: el código se asigna dentro del alcance
+            # protegido, no antes. Reservar el consecutivo consulta la base y
+            # puede fallar —candado agotado, interbloqueo, caída de conexión—,
+            # y fuera del `try` esa excepción salía sin revertir, dejando la
+            # transacción abortada a merced de quien cerrara la sesión.
+            # La reserva va lo más tarde posible y siempre después del candado
+            # del convenio, para fijar un orden único de bloqueo.
+            asignar_codigo(self.db, convenio, anio_institucional)
+            # El código es un efecto automático de una formalización humana: la
+            # acción conserva su originador y el campo queda marcado como
+            # automático (HT-09, CA-03).
+            describir_cambios_automaticos(self.db, convenio, "codigo")
             if padre is not None and padre.estado != EstadoConvenio.RENOVADO.value:
                 padre.estado = EstadoConvenio.RENOVADO.value
             resolver_aliado_para_convenio(self.db, convenio)

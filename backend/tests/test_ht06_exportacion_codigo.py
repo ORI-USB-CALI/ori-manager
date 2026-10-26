@@ -15,6 +15,7 @@ from backend.models.convenio import Convenio
 from backend.models.etapa import Etapa
 from backend.schemas.exportacion import (
     ETIQUETA_CODIGO_OFICIAL,
+    ETIQUETA_CODIGO_SIN_FORMALIZAR,
     ETIQUETA_REFERENCIA_PROVISIONAL,
     ModoEmision,
     referencia_provisional,
@@ -105,6 +106,43 @@ def test_ca06_el_documento_oficial_lleva_el_codigo_institucional(
 
     assert etiqueta == ETIQUETA_CODIGO_OFICIAL
     assert valor == convenio_exportable.codigo
+
+
+def test_un_codigo_heredado_no_se_presenta_como_oficial(
+    db, gestor, convenio_listo
+):
+    """Corrección 5: tener código no prueba que el convenio esté formalizado.
+
+    Un convenio en trámite puede traer código de antes de CA-05. El documento
+    de trabajo lo muestra —identifica al convenio— pero sin rotularlo como
+    código oficial, y sin ocultarlo tras la referencia provisional.
+    """
+    convenio = _en_etapa(db, convenio_listo, "REVISION_AVAL_JURIDICO")
+    convenio.codigo = "CONV-CARGADO-A-MANO"
+    db.commit()
+
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio.id, db)
+    etiqueta, valor = dto.identificacion()
+
+    assert dto.modo_emision is ModoEmision.BORRADOR
+    assert etiqueta == ETIQUETA_CODIGO_SIN_FORMALIZAR
+    assert valor == "CONV-CARGADO-A-MANO"
+    assert etiqueta != ETIQUETA_CODIGO_OFICIAL
+
+
+@pytest.mark.parametrize("vacio", ["", "   "])
+def test_un_codigo_en_blanco_cae_en_la_referencia_provisional(
+    db, gestor, convenio_listo, vacio
+):
+    convenio = _en_etapa(db, convenio_listo, "REVISION_AVAL_JURIDICO")
+    convenio.codigo = vacio
+    db.commit()
+
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio.id, db)
+    etiqueta, valor = dto.identificacion()
+
+    assert etiqueta == ETIQUETA_REFERENCIA_PROVISIONAL
+    assert valor == referencia_provisional(convenio.id)
 
 
 # --- CA-04, RN-14: exportar nunca genera un código -----------------------

@@ -12,11 +12,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoProcesoFirmasConvenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.usuario import Usuario
 from backend.services.bitacora import describir_accion_automatica
 from backend.services.codigo_convenio import asignar_codigo
@@ -37,7 +38,49 @@ class CodigoRegularizado:
 class ResultadoRegularizacion:
     asignados: tuple[CodigoRegularizado, ...]
     sin_fecha_confiable: tuple[int, ...]
+    # Convenios con evidencia de formalización pero sin `fecha_firma`, que el
+    # predicado de formalizado excluye. Ver `inconsistentes_sin_fecha_firma`.
+    inconsistentes: tuple[int, ...]
     simulado: bool
+
+
+def inconsistentes_sin_fecha_firma(db: Session) -> list[int]:
+    """Convenios con evidencia de formalización pero sin `fecha_firma`.
+
+    Solo diagnóstico, sin escribir nada. Este estado **no es alcanzable** por
+    la aplicación ni por las migraciones:
+
+    - `convenio.fecha_firma` la escribe únicamente `formalizar()`, y siempre
+      con la última de las siete firmas; ningún schema de actualización la
+      expone, así que no se puede dejar en nulo después.
+    - El backfill de `activado_en` en la migración `e77280c6486a` exige
+      `fecha_firma IS NOT NULL`.
+
+    Se consulta igualmente porque solo una manipulación directa de la base
+    podría producirlo, y en ese caso el convenio quedaría invisible para la
+    regularización sin que nadie se enterara. Se reporta para revisión manual
+    en lugar de ampliar el predicado de formalizado, que cambiaría el
+    significado de «formalizado» para todo el sistema.
+    """
+    proceso_completado = (
+        select(ProcesoFirmasConvenio.id)
+        .where(
+            ProcesoFirmasConvenio.convenio_id == Convenio.id,
+            ProcesoFirmasConvenio.estado
+            == EstadoProcesoFirmasConvenio.COMPLETADO.value,
+        )
+        .exists()
+    )
+    return list(
+        db.scalars(
+            select(Convenio.id)
+            .where(
+                Convenio.fecha_firma.is_(None),
+                or_(Convenio.activado_en.is_not(None), proceso_completado),
+            )
+            .order_by(Convenio.id)
+        ).all()
+    )
 
 
 def instante_de_formalizacion(convenio: Convenio) -> datetime | None:
@@ -99,7 +142,12 @@ def regularizar_codigos(
     """
     asignados: list[CodigoRegularizado] = []
     sin_fecha_confiable: list[int] = []
+    inconsistentes: list[int] = []
     try:
+        # Diagnóstico antes de tocar nada: deja constancia de los convenios que
+        # el predicado de formalizado excluye por falta de `fecha_firma` pese a
+        # tener otra evidencia.
+        inconsistentes = inconsistentes_sin_fecha_firma(db)
         if not simular:
             # HT-09, CA-03: la ejecución es automática y conserva al usuario que
             # la autorizó, cuando se conoce, sin inventar uno si no existe
@@ -115,7 +163,22 @@ def regularizar_codigos(
         # que ambas operaciones tomen los candados en el mismo orden.
         candidatos = db.scalars(
             select(Convenio)
-            .where(Convenio.codigo.is_(None))
+            # Un código en blanco cuenta como ausente: no identifica nada, el
+            # validador de exportación lo trata como faltante y sin esto el
+            # convenio quedaba atascado —ni emitía documento oficial ni era
+            # candidato a recibir código. Un código real nunca entra aquí
+            # (RN-13).
+            .where(
+                or_(
+                    Convenio.codigo.is_(None),
+                    # Cualquier cadena de solo espacios en blanco. Se usa una
+                    # expresión regular y no `btrim`, que en PostgreSQL recorta
+                    # únicamente espacios: con `btrim` una tabulación no se
+                    # detectaba aquí, pero sí en `tiene_codigo()`, y los dos
+                    # lados quedaban en desacuerdo.
+                    Convenio.codigo.op("~")(r"^\s*$"),
+                )
+            )
             .where(filtro_convenio_formalizado())
             .order_by(Convenio.id)
             .options(selectinload(Convenio.procesos_firmas))
@@ -163,8 +226,15 @@ def regularizar_codigos(
             "accion=revisar_manualmente",
             convenio_id,
         )
+    for convenio_id in inconsistentes:
+        logger.warning(
+            "anomalia=FORMALIZADO_SIN_FECHA_DE_FIRMA convenio_id=%s "
+            "accion=revisar_manualmente",
+            convenio_id,
+        )
     return ResultadoRegularizacion(
         asignados=tuple(asignados),
         sin_fecha_confiable=tuple(sin_fecha_confiable),
+        inconsistentes=tuple(inconsistentes),
         simulado=simular,
     )

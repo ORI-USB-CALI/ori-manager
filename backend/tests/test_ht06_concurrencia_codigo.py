@@ -12,7 +12,7 @@ que confirman no lo revierte el fixture `db`.
 """
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from threading import Barrier
 from uuid import uuid4
 
@@ -32,6 +32,7 @@ from backend.models.usuario import Usuario
 from backend.services import firmas as servicio_firmas
 from backend.services.codigo_convenio import siguiente_consecutivo
 from backend.services.firmas import ServicioFirmas
+from backend.services.vigencia import ZONA_HORARIA_DOMINIO
 
 # Año propio para no cruzarse con el consecutivo que consumen otras pruebas que
 # también confirman de verdad. La fila se borra al terminar.
@@ -40,9 +41,12 @@ ANIO = 2098
 
 @pytest.fixture(autouse=True)
 def anio_fijo(monkeypatch) -> None:
-    # Los hilos ven el parche porque es un atributo del módulo.
+    # Los hilos ven el parche porque es un atributo del módulo. Se parchea el
+    # instante de formalización, del que la formalización deriva el año.
     monkeypatch.setattr(
-        servicio_firmas, "fecha_actual_dominio", lambda: date(ANIO, 6, 15)
+        servicio_firmas,
+        "instante_actual_dominio",
+        lambda: datetime(ANIO, 6, 15, 12, 0, tzinfo=ZONA_HORARIA_DOMINIO),
     )
 
 

@@ -202,6 +202,82 @@ def test_un_convenio_en_tramite_no_recibe_codigo(db: Session, gestor, crear_conv
     assert _codigos(db, en_tramite) == [None]
 
 
+# --- Corrección 3, caso A: códigos realmente vacíos ---------------------
+
+
+@pytest.mark.parametrize("vacio", ["", "   ", "	"])
+def test_un_codigo_en_blanco_cuenta_como_ausente(
+    db: Session, gestor, crear_convenio, vacio
+):
+    """Un código vacío dejaba al convenio atascado.
+
+    No identificaba nada, el validador de exportación lo trataba como faltante
+    (así que no emitía documento oficial) y la regularización no lo tomaba
+    porque solo miraba `codigo IS NULL`. Se normaliza asignándole uno real.
+    """
+    convenio = _formalizado(db, crear_convenio(gestor), activado=_en(ANIO, 5, 1))
+    convenio.codigo = vacio
+    db.commit()
+
+    resultado = regularizar_codigos(db)
+
+    assert len(resultado.asignados) == 1
+    assert _codigos(db, convenio) == [f"USB-ORI-{ANIO}-00001"]
+
+
+def test_rn13_un_codigo_con_espacios_alrededor_no_se_toca(
+    db: Session, gestor, crear_convenio
+):
+    # Solo lo realmente vacío se normaliza: un código con espacios de sobra
+    # sigue siendo un código y se conserva tal cual (RN-13).
+    convenio = _formalizado(db, crear_convenio(gestor), activado=_en(ANIO, 5, 1))
+    convenio.codigo = "  CONV-0001  "
+    db.commit()
+
+    resultado = regularizar_codigos(db)
+
+    assert resultado.asignados == ()
+    assert _codigos(db, convenio) == ["  CONV-0001  "]
+
+
+# --- Corrección 3, caso B: formalizado sin fecha de firma ---------------
+
+
+def test_un_formalizado_sin_fecha_de_firma_se_reporta_sin_tocarlo(
+    db: Session, gestor, crear_convenio
+):
+    """Estado no alcanzable por la aplicación, pero diagnosticado.
+
+    `fecha_firma` solo la escribe `formalizar()` y ningún schema la expone, y
+    el backfill de `activado_en` de HU-20 la exige. Solo una manipulación
+    directa de la base podría producir esto, y entonces el convenio quedaría
+    invisible para la regularización. Se reporta en lugar de ampliar el
+    predicado global de formalizado.
+    """
+    convenio = crear_convenio(gestor)
+    convenio.estado = EstadoConvenio.VIGENTE.value
+    convenio.activado_en = _en(ANIO, 5, 1)
+    convenio.fecha_firma = None
+    db.commit()
+
+    resultado = regularizar_codigos(db)
+
+    assert convenio.id in resultado.inconsistentes
+    # No recibe código: el predicado de formalizado sigue siendo el mismo.
+    assert _codigos(db, convenio) == [None]
+    assert resultado.asignados == ()
+
+
+def test_un_formalizado_con_fecha_de_firma_no_se_reporta_como_inconsistente(
+    db: Session, gestor, crear_convenio
+):
+    convenio = _formalizado(db, crear_convenio(gestor), activado=_en(ANIO, 5, 1))
+
+    resultado = regularizar_codigos(db)
+
+    assert convenio.id not in resultado.inconsistentes
+
+
 # --- Simulación -----------------------------------------------------------
 
 

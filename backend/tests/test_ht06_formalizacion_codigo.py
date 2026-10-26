@@ -8,11 +8,11 @@ El generador en sí se prueba en test_ht06_generador_codigo.py y la concurrencia
 en test_ht06_concurrencia_codigo.py.
 """
 
-from datetime import date
+from datetime import datetime
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from test_hu15_revision_final_firmas import (
     _formalizar,
     _proceso_listo_para_formalizar,
@@ -23,8 +23,10 @@ from backend.models.auditoria import Auditoria
 from backend.models.contador_codigo_convenio import ContadorCodigoConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import EjecucionAuditoria, EstadoConvenio
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.services import firmas as servicio_firmas
+from backend.services.vigencia import ZONA_HORARIA_DOMINIO
 
 # Año propio, que ninguna otra prueba usa. El consecutivo es global por año y
 # hay pruebas que formalizan con commits reales sobre `db_engine` (la de
@@ -39,14 +41,21 @@ SEGUNDO_CODIGO = "USB-ORI-2099-00002"
 escenario_final = _escenario_hu15
 
 
+def _instante(anio: int, mes: int, dia: int, hora: int = 12, minuto: int = 0):
+    """Instante en la zona del dominio, como lo devuelve el servicio real."""
+    return datetime(anio, mes, dia, hora, minuto, tzinfo=ZONA_HORARIA_DOMINIO)
+
+
 @pytest.fixture(autouse=True)
 def anio_fijo(monkeypatch) -> None:
-    """Fija el año del dominio para que las aserciones no dependan del reloj.
+    """Fija el instante de formalización para que nada dependa del reloj.
 
-    Se parchea el módulo que importó la función, no `vigencia`.
+    HT-06, corrección 2: la formalización toma un único instante y de él
+    deriva el año institucional, así que se parchea ese instante y no una
+    función de fecha aparte. Se parchea el módulo que lo importó, no `vigencia`.
     """
     monkeypatch.setattr(
-        servicio_firmas, "fecha_actual_dominio", lambda: date(ANIO, 6, 15)
+        servicio_firmas, "instante_actual_dominio", lambda: _instante(ANIO, 6, 15)
     )
 
 
@@ -84,22 +93,28 @@ def test_ca02_formalizar_asigna_el_codigo_institucional(client, db, escenario_fi
     assert convenio.estado == EstadoConvenio.VIGENTE.value
 
 
-def test_ca02_el_anio_es_el_calendario_de_bogota(
-    client, db, escenario_final, monkeypatch
+@pytest.mark.parametrize(
+    ("instante", "anio_esperado"),
+    [
+        # 31 de diciembre 23:59 en Bogotá: en UTC ya es el 1 de enero, pero el
+        # código lleva el año que termina (RN-05).
+        pytest.param(_instante(2098, 12, 31, 23, 59), 2098, id="ultimo-minuto-del-anio"),
+        pytest.param(_instante(2099, 1, 1, 0, 0), 2099, id="primer-minuto-del-anio"),
+    ],
+)
+def test_ca02_el_anio_sale_del_instante_de_formalizacion(
+    client, db, escenario_final, monkeypatch, instante, anio_esperado
 ):
-    # 31 de diciembre a las 23:00 en Bogotá son las 04:00 del 1 de enero en UTC.
-    # El código debe llevar el año de Bogotá (RN-05), no el de `datetime.now(UTC)`
-    # que la formalización ya usa para `activado_en`.
     monkeypatch.setattr(
-        servicio_firmas, "fecha_actual_dominio", lambda: date(ANIO, 12, 31)
+        servicio_firmas, "instante_actual_dominio", lambda: instante
     )
 
     convenio = _formalizado(client, db, escenario_final)
 
-    assert convenio.codigo.startswith(f"USB-ORI-{ANIO}-")
-    # `activado_en` sigue siendo el instante real en UTC: el año del código no
-    # sale de ahí.
-    assert convenio.activado_en.year != ANIO
+    assert convenio.codigo.startswith(f"USB-ORI-{anio_esperado}-")
+    # Corrección 2: el año del código y el instante registrado de formalización
+    # salen de la misma lectura del reloj, así que no pueden discrepar.
+    assert convenio.activado_en.astimezone(ZONA_HORARIA_DOMINIO).year == anio_esperado
 
 
 def test_rn13_formalizar_conserva_un_codigo_heredado(client, db, escenario_final):
@@ -200,14 +215,14 @@ def test_ca09_un_fallo_en_el_commit_no_deja_codigo_ni_auditoria(
     convenio_id = escenario_final["convenio"].id
     auditorias_antes = db.scalar(select(func.count()).select_from(Auditoria))
 
-    monkeypatch.setattr(
-        db,
-        "commit",
-        lambda: (_ for _ in ()).throw(SQLAlchemyError("falla simulada")),
-    )
-    with pytest.raises(SQLAlchemyError):
-        servicio_firmas.ServicioFirmas(db).formalizar(convenio_id, gestor)
-    monkeypatch.undo()
+    with monkeypatch.context() as inyeccion:
+        inyeccion.setattr(
+            db,
+            "commit",
+            lambda: (_ for _ in ()).throw(SQLAlchemyError("falla simulada")),
+        )
+        with pytest.raises(SQLAlchemyError):
+            servicio_firmas.ServicioFirmas(db).formalizar(convenio_id, gestor)
 
     db.expire_all()
     convenio = db.get(Convenio, convenio_id)
@@ -219,6 +234,68 @@ def test_ca09_un_fallo_en_el_commit_no_deja_codigo_ni_auditoria(
         select(ContadorCodigoConvenio).where(ContadorCodigoConvenio.anio == ANIO)
     )
     assert contador is None or contador.ultimo_consecutivo == 0
+
+
+def test_ca02_un_fallo_al_reservar_el_consecutivo_revierte_la_formalizacion(
+    client, db, escenario_final, monkeypatch, gestor
+):
+    """Corrección 1: la reserva del consecutivo consulta la base y puede fallar.
+
+    Antes la asignación quedaba fuera del `try` que protege el commit, así que
+    una excepción salía sin revertir y dejaba la transacción abortada a merced
+    de quien cerrara la sesión. Ahora revierte la formalización completa.
+    """
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    proceso_id = int(proceso["id"])
+    convenio_id = escenario_final["convenio"].id
+    auditorias_antes = db.scalar(select(func.count()).select_from(Auditoria))
+    estado_proceso_antes = db.get(ProcesoFirmasConvenio, proceso_id).estado
+
+    def falla_la_reserva(*_args, **_kwargs):
+        raise OperationalError("SELECT ...", {}, Exception("candado agotado"))
+
+    # Contexto acotado: `monkeypatch.undo()` desharía también el parche del
+    # instante que pone la fixture autouse, porque comparten instancia.
+    with monkeypatch.context() as inyeccion:
+        inyeccion.setattr(servicio_firmas, "asignar_codigo", falla_la_reserva)
+        with pytest.raises(OperationalError):
+            servicio_firmas.ServicioFirmas(db).formalizar(convenio_id, gestor)
+
+    # La sesión quedó recuperada: se puede volver a consultar sin reabrirla.
+    db.expire_all()
+    convenio = db.get(Convenio, convenio_id)
+    assert convenio.codigo is None
+    assert convenio.estado == EstadoConvenio.EN_TRAMITE.value
+    assert convenio.activado_en is None
+    assert db.get(ProcesoFirmasConvenio, proceso_id).estado == estado_proceso_antes
+    assert db.scalar(select(func.count()).select_from(Auditoria)) == auditorias_antes
+    contador = db.scalar(
+        select(ContadorCodigoConvenio).where(ContadorCodigoConvenio.anio == ANIO)
+    )
+    assert contador is None or contador.ultimo_consecutivo == 0
+
+
+def test_ca02_tras_el_fallo_la_formalizacion_puede_reintentarse(
+    client, db, escenario_final, monkeypatch, gestor
+):
+    """La sesión no queda inservible: el reintento funciona."""
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    convenio_id = escenario_final["convenio"].id
+
+    def falla_la_reserva(*_args, **_kwargs):
+        raise OperationalError("SELECT ...", {}, Exception("candado agotado"))
+
+    with monkeypatch.context() as inyeccion:
+        inyeccion.setattr(servicio_firmas, "asignar_codigo", falla_la_reserva)
+        with pytest.raises(OperationalError):
+            servicio_firmas.ServicioFirmas(db).formalizar(convenio_id, gestor)
+
+    servicio_firmas.ServicioFirmas(db).formalizar(convenio_id, gestor)
+
+    db.expire_all()
+    convenio = db.get(Convenio, convenio_id)
+    assert convenio.codigo == PRIMER_CODIGO
+    assert convenio.estado == EstadoConvenio.VIGENTE.value
 
 
 # --- CA-09: trazabilidad ------------------------------------------------

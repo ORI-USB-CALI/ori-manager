@@ -43,7 +43,7 @@ creación. En la práctica quedaba nulo, con dos consecuencias:
 | RN-02 | La generación y la persistencia son del backend. |
 | RN-03 | Nomenclatura `USB-ORI-AAAA-NNNNN`. |
 | RN-04 | `USB-ORI` es prefijo fijo (`PREFIJO_INSTITUCIONAL`). |
-| RN-05 | `AAAA` es el año de formalización en `America/Bogota`, vía `fecha_actual_dominio()`. **No** se deriva de `datetime.now(UTC)`: a las 23:00 del 31 de diciembre en Bogotá, UTC ya cambió de año. |
+| RN-05 | `AAAA` es el año de formalización en `America/Bogota`. `formalizar()` toma **un único instante** con `instante_actual_dominio()` y de él derivan tanto los hitos que persiste como el año del código, así que no pueden discrepar. Con dos lecturas del reloj, el 31 de diciembre a las 23:59 en Bogotá podían caer a cada lado del cambio de año. |
 | RN-06 | `NNNNN` es consecutivo anual, mínimo cinco dígitos con ceros a la izquierda. |
 | RN-07 | El consecutivo se reinicia cada año y es compartido por convenios marco, específicos, nacionales, internacionales, manuales y derivados de solicitudes. |
 | RN-08 | El código es único (restricción en PostgreSQL), persistente e inmodificable por operaciones ordinarias. |
@@ -117,10 +117,16 @@ heredados que aún no pasaron por la regularización.
 
 En el documento, la identificación distingue los dos casos:
 
-| Modo | Etiqueta | Valor |
+| Situación | Etiqueta | Valor |
 |---|---|---|
-| OFICIAL | `Código oficial` | `USB-ORI-2026-00001` |
-| BORRADOR | `Identificación provisional` | `Convenio provisional #41` |
+| Formalizado | `Código oficial` | `USB-ORI-2026-00001` |
+| Sin formalizar, con código registrado | `Código registrado (sin formalizar)` | el código que tenga |
+| Sin formalizar, sin código | `Identificación provisional` | `Convenio provisional #41` |
+
+Son tres situaciones distintas y el documento no las confunde: tener código no
+prueba que el convenio esté formalizado. Un código cargado a mano de antes de
+CA-05 se muestra, porque identifica al convenio, pero no se rotula como
+oficial ni se oculta tras la referencia provisional.
 
 La decide `ConvenioPdfDTO.identificacion()`, para que el PDF y el Excel digan
 lo mismo. No se agregaron campos al DTO ni a los schemas de lectura: la

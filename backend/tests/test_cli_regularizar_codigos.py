@@ -29,7 +29,7 @@ def entorno(monkeypatch):
         sesiones.append(sesion)
         yield sesion
 
-    regularizar = Mock(return_value=ResultadoRegularizacion((), (), False))
+    regularizar = Mock(return_value=ResultadoRegularizacion((), (), (), False))
     pausa = Mock()
     monkeypatch.setattr(cli, "SessionLocal", nueva_sesion)
     monkeypatch.setattr(cli, "regularizar_codigos", regularizar)
@@ -92,7 +92,10 @@ def test_la_ejecucion_real_solo_se_permite_en_desarrollo_y_pruebas(
 ):
     regularizar, sesiones, _ = entorno
     monkeypatch.setattr(cli.settings, "app_env", app_env)
-    argumentos = ["--simular"] if simular else []
+    monkeypatch.setattr(cli.settings, "database_host", "localhost")
+    # Una ejecución real exige además identidad autorizada (corrección 4); se
+    # pasa para aislar aquí la guarda de entorno.
+    argumentos = ["--simular"] if simular else ["--autorizado-por", "1"]
 
     permitida = simular or app_env in {"development", "test"}
     if permitida:
@@ -128,7 +131,7 @@ def test_un_rechazo_de_entorno_no_toca_la_base(
     )
 
     with pytest.raises(SystemExit) as salida:
-        cli.main([])
+        cli.main(["--autorizado-por", "1"])
 
     assert salida.value.code == 2
     capsys.readouterr()
@@ -140,6 +143,78 @@ def test_un_rechazo_de_entorno_no_toca_la_base(
         db.scalar(select(func.count()).select_from(ContadorCodigoConvenio))
         == contadores_antes
     )
+
+
+# --- Corrección 4: el destino real de la conexión -----------------------
+
+
+@pytest.mark.parametrize(
+    "host", ["localhost", "127.0.0.1", "::1", "db", "  DB  ", "LocalHost"]
+)
+def test_un_destino_local_permite_la_ejecucion_real(entorno, monkeypatch, host):
+    regularizar, _, _ = entorno
+    monkeypatch.setattr(cli.settings, "app_env", "development")
+    monkeypatch.setattr(cli.settings, "database_host", host)
+
+    assert cli.main(["--autorizado-por", "1"]) == 0
+    assert regularizar.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "db.abcdefgh.supabase.co",
+        "ori-manager-db.onrender.com",
+        "10.0.0.5",
+        "localhost.evil.example",
+        "",
+    ],
+)
+def test_un_destino_remoto_bloquea_la_ejecucion_real(
+    entorno, monkeypatch, capsys, host
+):
+    """La guarda de entorno no basta: se comprueba a dónde se escribiría.
+
+    Un APP_ENV mal configurado como development no debe alcanzar para escribir
+    sobre una base administrada.
+    """
+    regularizar, sesiones, _ = entorno
+    monkeypatch.setattr(cli.settings, "app_env", "development")
+    monkeypatch.setattr(cli.settings, "database_host", host)
+
+    with pytest.raises(SystemExit) as salida:
+        cli.main(["--autorizado-por", "1"])
+
+    assert salida.value.code == 2
+    error = capsys.readouterr().err
+    assert sesiones == []
+    assert regularizar.call_count == 0
+    # El mensaje nombra el host, nunca la URL completa ni la contraseña.
+    assert cli.settings.database_password.get_secret_value() not in error
+    assert "postgresql" not in error
+
+
+def test_un_destino_remoto_no_impide_simular(entorno, monkeypatch):
+    regularizar, _, _ = entorno
+    monkeypatch.setattr(cli.settings, "app_env", "development")
+    monkeypatch.setattr(cli.settings, "database_host", "db.abc.supabase.co")
+
+    assert cli.main(["--simular"]) == 0
+    assert regularizar.call_count == 1
+
+
+def test_la_ejecucion_real_exige_identidad_autorizada(entorno, monkeypatch, capsys):
+    regularizar, sesiones, _ = entorno
+    monkeypatch.setattr(cli.settings, "app_env", "test")
+    monkeypatch.setattr(cli.settings, "database_host", "localhost")
+
+    with pytest.raises(SystemExit) as salida:
+        cli.main([])
+
+    assert salida.value.code == 2
+    assert "--autorizado-por" in capsys.readouterr().err
+    assert sesiones == []
+    assert regularizar.call_count == 0
 
 
 # --- Autorización ---------------------------------------------------------
@@ -182,31 +257,34 @@ def test_sin_autorizante_no_se_inventa_uno(db):
 def test_reintenta_un_error_transitorio(entorno, monkeypatch):
     regularizar, _, pausa = entorno
     monkeypatch.setattr(cli.settings, "app_env", "test")
+    monkeypatch.setattr(cli.settings, "database_host", "localhost")
     regularizar.side_effect = [
         error_sql("40P01"),
-        ResultadoRegularizacion((), (), False),
+        ResultadoRegularizacion((), (), (), False),
     ]
 
-    assert cli.main([]) == 0
+    assert cli.main(["--autorizado-por", "1"]) == 0
     assert [llamada.args[0] for llamada in pausa.call_args_list] == [2]
 
 
 def test_no_reintenta_un_error_permanente(entorno, monkeypatch):
     regularizar, _, pausa = entorno
     monkeypatch.setattr(cli.settings, "app_env", "test")
+    monkeypatch.setattr(cli.settings, "database_host", "localhost")
     regularizar.side_effect = error_sql("42P01")
 
-    assert cli.main([]) == 1
+    assert cli.main(["--autorizado-por", "1"]) == 1
     assert pausa.call_count == 0
 
 
 def test_agota_los_reintentos_y_no_expone_secretos(entorno, monkeypatch, caplog):
     regularizar, _, pausa = entorno
     monkeypatch.setattr(cli.settings, "app_env", "test")
+    monkeypatch.setattr(cli.settings, "database_host", "localhost")
     regularizar.side_effect = error_sql("40P01")
 
     with caplog.at_level("ERROR"):
-        assert cli.main([]) == 1
+        assert cli.main(["--autorizado-por", "1"]) == 1
 
     assert [llamada.args[0] for llamada in pausa.call_args_list] == [2, 4]
     assert "secreto" not in caplog.text

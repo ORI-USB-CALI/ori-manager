@@ -4,9 +4,15 @@ Procedimiento autorizado de HT-06 CA-08: asigna el código institucional a los
 convenios ya formalizados que quedaron sin él, de antes de que la formalización
 lo generara sola.
 
-La ejecución real está restringida a `development` y `test`. Aplicarla sobre
-Staging o Producción requiere la validación institucional de la política de año
-y una autorización explícita que todavía no existe.
+Una ejecución real exige tres condiciones independientes: entorno
+`development` o `test`, conexión apuntando a una base local, e identidad del
+ADMINISTRADOR_ORI que la autoriza. Comprobar el destino de la conexión y no
+solo el nombre del entorno evita que un `APP_ENV` mal configurado alcance a
+escribir sobre una base administrada.
+
+Aplicarla sobre Staging o Producción requiere además la validación
+institucional de la política de año y una autorización explícita que todavía
+no existe. La simulación no tiene ninguna de estas restricciones.
 """
 
 import argparse
@@ -25,6 +31,17 @@ from backend.services.regularizacion_codigos import regularizar_codigos
 logger = logging.getLogger(__name__)
 
 ENTORNOS_PERMITIDOS = {"development", "test"}
+
+# Destinos en los que se admite una ejecución real. `db` es el servicio de la
+# base en el compose del Dev Container. Una base administrada (Supabase) nunca
+# aparece aquí, así que un `APP_ENV` mal configurado no alcanza para escribir
+# sobre datos institucionales: hace falta además que la conexión apunte a una
+# base local.
+DESTINOS_PERMITIDOS = frozenset({"localhost", "127.0.0.1", "::1", "db"})
+
+
+def _destino_es_local(host: str) -> bool:
+    return host.strip().lower() in DESTINOS_PERMITIDOS
 
 
 def _anio(valor: str) -> int:
@@ -64,12 +81,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--intentos", type=int, choices=range(1, 4), default=3)
     args = parser.parse_args(argv)
-    if not args.simular and settings.app_env not in ENTORNOS_PERMITIDOS:
-        parser.error(
-            "Las ejecuciones reales solo están permitidas en development o test. "
-            "La regularización sobre datos reales exige la validación "
-            "institucional de la política de año; utiliza --simular."
-        )
+    if not args.simular:
+        # Tres condiciones independientes para escribir. Ninguna sustituye a
+        # las otras: el entorno declara la intención, el destino comprueba
+        # dónde se escribiría de verdad, y la identidad deja constancia de
+        # quién lo autorizó.
+        if settings.app_env not in ENTORNOS_PERMITIDOS:
+            parser.error(
+                "Las ejecuciones reales solo están permitidas en development o "
+                "test. La regularización sobre datos reales exige la validación "
+                "institucional de la política de año; utiliza --simular."
+            )
+        if not _destino_es_local(settings.database_host):
+            # Solo el host, nunca la URL de conexión ni la contraseña.
+            parser.error(
+                "La conexión no apunta a una base local, así que no se ejecuta "
+                f"aunque el entorno sea '{settings.app_env}'. Destino "
+                f"configurado: '{settings.database_host}'. Permitidos: "
+                f"{', '.join(sorted(DESTINOS_PERMITIDOS))}. Utiliza --simular."
+            )
+        if args.autorizado_por is None:
+            parser.error(
+                "Una ejecución real exige --autorizado-por con el id del "
+                "ADMINISTRADOR_ORI que la autoriza, para que quede registrado "
+                "como originador. Una simulación no lo necesita."
+            )
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
@@ -87,10 +123,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             logger.info(
                 "regularizacion_completa intento=%s asignados=%s "
-                "sin_fecha_confiable=%s anio_politica=%s simulado=%s",
+                "sin_fecha_confiable=%s inconsistentes=%s anio_politica=%s "
+                "simulado=%s",
                 intento,
                 len(resultado.asignados),
                 len(resultado.sin_fecha_confiable),
+                len(resultado.inconsistentes),
                 args.anio_politica,
                 resultado.simulado,
             )

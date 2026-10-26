@@ -21,6 +21,7 @@ Contexto funcional en
 |---|---|
 | Candidatos | Convenios con `codigo` nulo **y** formalizados, usando el mismo predicado SQL que la consulta global (`filtro_convenio_formalizado()`: `fecha_firma` no nula y estado distinto de `EN_TRAMITE`/`CANCELADO`). |
 | Códigos existentes | Nunca se sobrescriben ni se reasignan (RN-13). Un convenio con código no entra siquiera como candidato. |
+| Códigos en blanco | Una cadena vacía o de solo espacios **no es un código**: no identifica nada y el validador de exportación la trata como faltante, así que el convenio quedaría sin poder emitir documento oficial y sin ser candidato a recibir uno. Se normaliza asignándole un código real. Un código con espacios alrededor sigue siendo un código y no se toca. |
 | Idempotencia | Repetir el procedimiento no asigna nada ni consume consecutivos, porque solo mira `codigo IS NULL`. |
 | Orden | Se bloquea por `id` (igual que la conciliación de estados, para fijar un orden único de candados) y se **asigna** en orden cronológico de formalización, de modo que el consecutivo de cada año siga la historia real. El resultado es el mismo en cada ejecución. |
 | Transacción | Es una sola. Confirma todo o revierte todo; un error no deja asignaciones parciales. |
@@ -87,6 +88,17 @@ Los convenios identificados para revisión no quedan en la base: se reportan en
 el log con `anomalia=SIN_FECHA_DE_FORMALIZACION_VERIFICABLE` y
 `accion=revisar_manualmente`.
 
+El procedimiento diagnostica además, sin escribir nada, los convenios con
+evidencia de formalización (`activado_en` o proceso de firmas completado) pero
+sin `fecha_firma`, que el predicado de formalizado excluye. Se reportan como
+`anomalia=FORMALIZADO_SIN_FECHA_DE_FIRMA`. **Ese estado no es alcanzable** por
+la aplicación ni por las migraciones: `fecha_firma` solo la escribe
+`formalizar()`, ningún schema de actualización la expone y el backfill de
+`activado_en` en `e77280c6486a` la exige. Solo una manipulación directa de la
+base podría producirlo, y entonces el convenio quedaría invisible para la
+regularización; se reporta en lugar de ampliar el predicado de formalizado,
+que cambiaría el significado de «formalizado» para todo el sistema.
+
 ## Invocación
 
 ```bash
@@ -95,10 +107,23 @@ python -m backend.cli.regularizar_codigos_convenio --simular
 
 | Argumento | Efecto |
 |---|---|
-| `--simular` | Calcula los códigos que asignaría, bajo los mismos candados, y revierte. No deja códigos, ni consecutivos consumidos, ni auditoría. |
+| `--simular` | Calcula los códigos que asignaría, bajo los mismos candados, y revierte. No deja códigos, ni consecutivos consumidos, ni auditoría. Sin restricciones. |
 | `--anio-politica AAAA` | Fuerza el año de todos los códigos. Cuatro dígitos entre 1900 y 2999. |
-| `--autorizado-por ID` | Id del `ADMINISTRADOR_ORI` que autoriza; queda como originador de la ejecución automática. |
+| `--autorizado-por ID` | Id del `ADMINISTRADOR_ORI` que autoriza; queda como originador de la ejecución automática. **Obligatorio en ejecuciones reales.** |
 | `--intentos N` | Entre 1 y 3; por omisión 3. |
+
+### Condiciones de una ejecución real
+
+Son tres, independientes, y ninguna sustituye a las otras. Una simulación no
+necesita ninguna.
+
+1. **Entorno** `development` o `test` (`APP_ENV`). Declara la intención.
+2. **Destino local**: el host de la conexión debe ser `localhost`, `127.0.0.1`,
+   `::1` o `db`. Comprueba dónde se escribiría de verdad, de modo que un
+   `APP_ENV` mal configurado no alcance para modificar una base administrada.
+   El mensaje de rechazo nombra solo el host, nunca la URL ni la contraseña.
+3. **Identidad**: `--autorizado-por` con un `ADMINISTRADOR_ORI` existente, que
+   queda como originador humano de una ejecución declarada automática.
 
 Códigos de salida: `0` éxito, `1` fallo tras los reintentos, `2` argumentos o
 entorno rechazados.

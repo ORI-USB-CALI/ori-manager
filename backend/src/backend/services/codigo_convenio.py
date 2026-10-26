@@ -130,6 +130,18 @@ def siguiente_consecutivo(db: Session, anio: int) -> int:
     return consecutivo
 
 
+def tiene_codigo(convenio: Convenio) -> bool:
+    """Si el convenio lleva un código institucional de verdad.
+
+    Una cadena vacía o de espacios no es un código: no identifica nada y el
+    validador de exportación la trata como ausente, así que un convenio con ese
+    valor no podría emitir documento oficial ni recibir un código nuevo. Se
+    considera ausente para poder asignarle uno, sin que eso toque ningún código
+    real (RN-13).
+    """
+    return bool(convenio.codigo and convenio.codigo.strip())
+
+
 def asignar_codigo(db: Session, convenio: Convenio, anio: int) -> str:
     """Asigna el código del año indicado, o conserva el que el convenio ya tenga.
 
@@ -137,7 +149,7 @@ def asignar_codigo(db: Session, convenio: Convenio, anio: int) -> str:
     consecutivo: ni al cambiar de estado, ni al exportar, ni al repetir la
     regularización (CA-04, RN-08, RN-13).
     """
-    if convenio.codigo is not None:
+    if tiene_codigo(convenio):
         return convenio.codigo
     convenio.codigo = formatear_codigo(anio, siguiente_consecutivo(db, anio))
     return convenio.codigo
