@@ -174,3 +174,19 @@ class EstadoActividadConvenio(StrEnum):
     EN_CURSO = "EN_CURSO"
     REALIZADA = "REALIZADA"
     CANCELADA = "CANCELADA"
+
+
+class CodigoGuia(StrEnum):
+    """HU-38/HU-39. Guías cuyo estado se conserva por usuario (RN-06)."""
+
+    ONBOARDING_INICIAL = "ONBOARDING_INICIAL"
+    GUIA_RADICACION = "GUIA_RADICACION"
+
+
+class EstadoGuia(StrEnum):
+    """HU-38 RN-02. PENDIENTE no se persiste: la ausencia de registro lo
+    representa (RN-03), así que la tabla solo guarda estados finales."""
+
+    PENDIENTE = "PENDIENTE"
+    COMPLETADO = "COMPLETADO"
+    OMITIDO = "OMITIDO"
