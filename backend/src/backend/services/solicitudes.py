@@ -35,7 +35,7 @@ from backend.schemas.solicitud import (
     SolicitudCrear,
     VersionSolicitudHistorialLeer,
 )
-from backend.services.bitacora import describir_accion
+from backend.services.bitacora import describir_accion, describir_cambios_automaticos
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -301,7 +301,13 @@ class ServicioSolicitudes:
             )
         instante = datetime.now(UTC)
         describir_accion(
-            self.db, actor, ACCION_POR_DECISION[estado], instante=instante
+            self.db,
+            actor,
+            ACCION_POR_DECISION[estado],
+            instante=instante,
+            evento=f"SOLICITUD_{estado.value}",
+            # El solicitante es titular de la solicitud, no responsable de la
+            # decisión de ORI; no existe una asignación institucional verificable.
         )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
@@ -558,13 +564,20 @@ class ServicioSolicitudes:
         if errores:
             raise SolicitudIncompleta(errores)
         instante = datetime.now(UTC)
+        reradicacion = solicitud.estado == EstadoSolicitud.DEVUELTA.value
         describir_accion(
             self.db,
             usuario,
             "Volvió a radicar la solicitud corregida"
-            if solicitud.estado == EstadoSolicitud.DEVUELTA.value
+            if reradicacion
             else "Radicó la solicitud",
             instante=instante,
+            evento="SOLICITUD_RERADICADA" if reradicacion else "SOLICITUD_RADICADA",
+            responsable_id=solicitud.solicitante_id,
+        )
+        describir_cambios_automaticos(
+            self.db, solicitud, "estado", "fecha_radicacion", "fecha_recibido_ori",
+            "decidida_por_id", "fecha_decision",
         )
         solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante

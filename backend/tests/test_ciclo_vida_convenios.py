@@ -8,13 +8,14 @@ from sqlalchemy import delete, event, func, select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio, EstadoSolicitud, TipoSolicitante
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.transicion_estado_convenio import TransicionEstadoConvenio
 from backend.models.usuario import Usuario
-from backend.services import renovaciones
+from backend.services import vigencia
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.ciclo_vida_convenios import conciliar_estados
 from backend.services.renovaciones import listar_seguimiento_renovaciones
@@ -152,6 +153,45 @@ def test_simulacion_no_persiste(db, preparar):
     assert db.scalar(select(func.count()).select_from(TransicionEstadoConvenio)) == 0
 
 
+def test_conciliacion_real_queda_en_la_bitacora_sin_usuario_ficticio(db, preparar):
+    """HT-09, CA-03: el cambio automático queda registrado, sin usuario ni
+    un valor de ejecución inventado a medias (RN-07). Se filtra por el
+    evento propio de la conciliación porque crear el convenio de prueba ya
+    deja su propia fila humana en la bitácora (preparar fija el estado
+    inicial), y no es lo que esta prueba quiere verificar."""
+    convenio = preparar(dias=-1)
+    conciliar_estados(db, HOY)
+
+    filas = db.scalars(
+        select(Auditoria).where(
+            Auditoria.entidad == "convenio",
+            Auditoria.registro_id == convenio.id,
+            Auditoria.evento == "CONCILIACION_ESTADO_AUTOMATICA",
+        )
+    ).all()
+    assert filas
+    for fila in filas:
+        assert fila.usuario_id is None
+        assert fila.rol is None
+        assert fila.ejecucion == "AUTOMATICA"
+
+
+def test_simulacion_no_deja_registros_en_la_bitacora(db, preparar):
+    convenio = preparar(dias=-1)
+    conciliar_estados(db, HOY, simular=True)
+
+    total = db.scalar(
+        select(func.count())
+        .select_from(Auditoria)
+        .where(
+            Auditoria.entidad == "convenio",
+            Auditoria.registro_id == convenio.id,
+            Auditoria.evento == "CONCILIACION_ESTADO_AUTOMATICA",
+        )
+    )
+    assert total == 0
+
+
 def test_error_revierte_estados_y_bitacora(db, preparar, monkeypatch):
     convenios = [preparar(dias=-1), preparar(dias=30)]
     commit = db.commit
@@ -245,7 +285,7 @@ def test_fecha_por_defecto_usa_bogota(db, preparar, monkeypatch):
             assert zona.key == "America/Bogota"
             return datetime(2026, 10, 9, 2, 0, tzinfo=UTC).astimezone(zona)
 
-    monkeypatch.setattr(renovaciones, "datetime", Reloj)
+    monkeypatch.setattr(vigencia, "datetime", Reloj)
     convenio = preparar(dias=0)
     assert conciliar_estados(db).fecha_referencia == HOY
     assert convenio.estado == "POR_VENCER"

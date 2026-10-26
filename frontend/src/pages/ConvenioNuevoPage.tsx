@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useAliados, type Convenio } from './epica02'
+import { fechaHoyLocal, validarVigencia } from './vigencia'
 
 export function ConvenioNuevoPage() {
   const navigate = useNavigate()
@@ -13,12 +14,18 @@ export function ConvenioNuevoPage() {
   const aliados = useAliados(true)
   const [objeto, setObjeto] = useState('')
   const [aliadoId, setAliadoId] = useState('')
+  // HT-08: vigencia opcional; si se informa, se valida antes de enviar.
+  const [fechaInicio, setFechaInicio] = useState('')
+  const [fechaVencimiento, setFechaVencimiento] = useState('')
+  const [errores, setErrores] = useState<Record<string, string>>({})
   const crear = useMutation({
     mutationFn: () => apiFetch<Convenio>('/convenios/manual', {
       method: 'POST',
       body: JSON.stringify({
         objeto: objeto.trim() || null,
         aliado_id: aliadoId ? Number(aliadoId) : null,
+        fecha_inicio: fechaInicio || null,
+        fecha_vencimiento: fechaVencimiento || null,
       }),
     }),
     onSuccess: async (convenio) => {
@@ -33,6 +40,9 @@ export function ConvenioNuevoPage() {
 
   function guardar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
+    const invalidas = validarVigencia(fechaInicio || null, fechaVencimiento || null, fechaHoyLocal())
+    setErrores(invalidas)
+    if (Object.keys(invalidas).length > 0) return
     if (!crear.isPending) crear.mutate()
   }
 
@@ -54,6 +64,13 @@ export function ConvenioNuevoPage() {
               <option key={aliado.id} value={aliado.id}>{aliado.nombre}</option>
             ))}
           </select>
+        </label>
+        <label className="form-group">Fecha de inicio de vigencia (opcional)
+          <input className="form-control" name="fecha_inicio" type="date" value={fechaInicio} onChange={(evento) => setFechaInicio(evento.target.value)} />
+        </label>
+        <label className="form-group">Fecha de vencimiento (opcional)
+          <input className="form-control" name="fecha_vencimiento" type="date" value={fechaVencimiento} aria-invalid={Boolean(errores.fecha_vencimiento)} onChange={(evento) => setFechaVencimiento(evento.target.value)} />
+          {errores.fecha_vencimiento && <span className="form-error" role="alert">{errores.fecha_vencimiento}</span>}
         </label>
         {aliados.isError && <p className="alert-error" role="alert">No se pudieron cargar los aliados. Puedes guardar sin seleccionar uno.</p>}
         <div className="page-toolbar">

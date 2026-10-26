@@ -9,7 +9,7 @@ from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
 from backend.models.usuario import Usuario
-from backend.services import alertas_vencimiento
+from backend.services import vigencia
 from backend.services.alertas_vencimiento import (
     ProximoVencimiento,
     RangoVencimiento,
@@ -214,7 +214,10 @@ def test_resultado_identifica_convenio_sin_codigo(db, crear_alertable) -> None:
     )
 
 
-def test_fecha_por_defecto_usa_zona_horaria_de_bogota(db, monkeypatch) -> None:
+def test_fecha_por_defecto_usa_zona_horaria_de_bogota(
+    db, crear_alertable, monkeypatch
+) -> None:
+    convenio = crear_alertable(dias=0)
     zonas_recibidas = []
 
     class FechaHoraFija:
@@ -223,11 +226,15 @@ def test_fecha_por_defecto_usa_zona_horaria_de_bogota(db, monkeypatch) -> None:
             zonas_recibidas.append(zona)
             return datetime(2026, 10, 7, 23, 59, tzinfo=zona)
 
-    monkeypatch.setattr(alertas_vencimiento, "datetime", FechaHoraFija)
+    monkeypatch.setattr(vigencia, "datetime", FechaHoraFija)
 
-    assert ServicioAlertasVencimiento(db).listar_proximos_vencimientos() == []
-    assert zonas_recibidas == [alertas_vencimiento.ZONA_HORARIA_DOMINIO]
-    assert alertas_vencimiento.ZONA_HORARIA_DOMINIO.key == "America/Bogota"
+    resultados = ServicioAlertasVencimiento(db).listar_proximos_vencimientos()
+    resultado = next(item for item in resultados if item.convenio_id == convenio.id)
+
+    assert resultado.dias_restantes == 0
+    assert resultado.rango_vencimiento == RangoVencimiento.DIAS_0_30
+    assert zonas_recibidas == [vigencia.ZONA_HORARIA_DOMINIO]
+    assert vigencia.ZONA_HORARIA_DOMINIO.key == "America/Bogota"
 
 
 def test_filtro_de_decisiones_y_renovaciones_usa_una_sola_consulta(
@@ -239,6 +246,8 @@ def test_filtro_de_decisiones_y_renovaciones_usa_una_sola_consulta(
     hijo.convenio_origen_id = con_hijo.id
     hijo.numero_renovacion = 1
     db.commit()
+    ids_pendientes = {c.id for c in pendientes}
+    ids_creados = ids_pendientes | {con_hijo.id, hijo.id}
     sentencias = []
 
     def registrar_consulta(conn, cursor, statement, parameters, context, executemany):
@@ -253,6 +262,8 @@ def test_filtro_de_decisiones_y_renovaciones_usa_una_sola_consulta(
     finally:
         event.remove(conexion, "before_cursor_execute", registrar_consulta)
 
-    assert {item.convenio_id for item in resultados} == {c.id for c in pendientes}
+    assert {
+        item.convenio_id for item in resultados if item.convenio_id in ids_creados
+    } == ids_pendientes
     assert len(sentencias) == 1
     assert sentencias[0].lstrip().upper().startswith("SELECT")

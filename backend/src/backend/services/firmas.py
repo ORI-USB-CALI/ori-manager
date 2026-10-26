@@ -33,15 +33,19 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.services.aliados import ErrorAliado, resolver_aliado_para_convenio
-from backend.services.bitacora import describir_accion
+from backend.services.bitacora import describir_accion, describir_cambios_automaticos
+from backend.services.codigo_convenio import asignar_codigo
 from backend.services.convenios import (
     ConfiguracionConvenioInvalida,
     ConflictoVersionConvenio,
     ConvenioNoEncontrado,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
+    contexto_auditoria,
+    exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
+from backend.services.vigencia import instante_actual_dominio
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
@@ -638,7 +642,11 @@ class ServicioFirmas:
             raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
 
         describir_accion(
-            self.db, usuario, "Canceló el proceso de firmas por un cambio sustancial"
+            self.db,
+            usuario,
+            "Canceló el proceso de firmas por un cambio sustancial",
+            evento="PROCESO_FIRMAS_CANCELADO",
+            **contexto_auditoria(convenio),
         )
         ahora = datetime.now(UTC)
         historial = HistorialEtapa(
@@ -703,6 +711,10 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 "El convenio no está en aprobación de firmas"
             )
+        # HT-08: no se activa un convenio cuya vigencia ya terminó. Los CA hablan
+        # de creación/elaboración; extenderlo a la formalización es una decisión
+        # del desarrollador pendiente de revisión por el Líder Técnico (ver PR).
+        exigir_vigencia_valida(convenio.fecha_inicio, convenio.fecha_vencimiento)
 
         procesos = list(
             self.db.scalars(
@@ -915,7 +927,23 @@ class ServicioFirmas:
                 raise RevisionNoDisponible(
                     "El estado del convenio padre no permite formalizar la renovación"
                 )
-        ahora = datetime.now(UTC)
+        # Antes de mover la etapa, para que la bitácora registre aquella en la
+        # que se tomó la decisión y no la de destino (HT-09, RN-04).
+        describir_accion(
+            self.db,
+            usuario,
+            "Formalizó el convenio tras completar las siete firmas obligatorias",
+            evento="CONVENIO_FORMALIZADO",
+            **contexto_auditoria(convenio),
+        )
+        # HT-06, RN-05: un único instante de referencia para toda la
+        # formalización. El año institucional sale de esa misma lectura, ya en
+        # la zona del dominio. Con dos lecturas distintas del reloj —una en UTC
+        # para los hitos y otra para el año— el 31 de diciembre a las 23:59 en
+        # Bogotá podían caer a cada lado del cambio de año y el código quedaba
+        # con un año distinto al de su propia formalización.
+        ahora = instante_actual_dominio()
+        anio_institucional = ahora.year
         historial = HistorialEtapa(
             convenio_id=convenio.id,
             etapa_origen_id=convenio.etapa_actual_id,
@@ -937,6 +965,18 @@ class ServicioFirmas:
         ).date()
         convenio.etapa_actual = etapa_seguimiento
         try:
+            # HT-06, CA-02 y RN-15: el código se asigna dentro del alcance
+            # protegido, no antes. Reservar el consecutivo consulta la base y
+            # puede fallar —candado agotado, interbloqueo, caída de conexión—,
+            # y fuera del `try` esa excepción salía sin revertir, dejando la
+            # transacción abortada a merced de quien cerrara la sesión.
+            # La reserva va lo más tarde posible y siempre después del candado
+            # del convenio, para fijar un orden único de bloqueo.
+            asignar_codigo(self.db, convenio, anio_institucional)
+            # El código es un efecto automático de una formalización humana: la
+            # acción conserva su originador y el campo queda marcado como
+            # automático (HT-09, CA-03).
+            describir_cambios_automaticos(self.db, convenio, "codigo")
             if padre is not None and padre.estado != EstadoConvenio.RENOVADO.value:
                 padre.estado = EstadoConvenio.RENOVADO.value
             resolver_aliado_para_convenio(self.db, convenio)

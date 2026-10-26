@@ -61,7 +61,7 @@ def _devolver_y_corregir_ronda_1(
         f"{base}/elaboracion",
         json={
             "contenido": _contenido_editado(elaboracion["contenido"], "Corrección"),
-            "expected_version": elaboracion["version_actual"],
+            "expected_revision": elaboracion["revision_borrador"],
         },
     ).status_code == 200
     assert client.post(f"{base}/elaboracion/finalizar").status_code == 200

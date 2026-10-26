@@ -72,8 +72,9 @@ class ConvenioExcelExportService:
     def _escribir_datos_generales(self, hoja: Worksheet, dto: ConvenioPdfDTO) -> None:
         inicio = _escribir_marca(hoja, dto)
         _escribir_cabecera(hoja, inicio, ["Campo", "Valor"])
+        etiqueta_identificacion, valor_identificacion = dto.identificacion()
         filas: list[tuple[str, object]] = [
-            ("Código del convenio", dto.codigo),
+            (etiqueta_identificacion, valor_identificacion),
             ("Consecutivo de la solicitud", dto.solicitud_consecutivo),
             ("Tipo de convenio", dto.tipo_convenio),
             ("Estado", dto.estado),

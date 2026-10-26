@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
+from backend.models.enums import ContextoVersionConvenio
 from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.historial_etapa import HistorialEtapa
@@ -21,6 +22,7 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
+from backend.services.convenios import ServicioConvenios
 from backend.services.pdf_convenio import ServicioPdfConvenio
 from backend.services.validador_exportacion_convenio import ConvenioExportValidator
 
@@ -42,7 +44,6 @@ def manual_documentado(client, db, gestor):
     db.flush()
     respuesta = client.post("/api/convenios/manual", json={
         "aliado_id": aliado.id,
-        "codigo": f"MAN-{uuid4().hex[:8].upper()}",
         "objeto": "Cooperación académica desde la ORI",
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
@@ -53,8 +54,13 @@ def manual_documentado(client, db, gestor):
     })
     assert respuesta.status_code == 201, respuesta.text
     convenio_id = respuesta.json()["id"]
+    # HT-06, CA-05: el código no entra por el contrato de creación. Se fija
+    # sobre el modelo porque estas pruebas comparan el documento oficial con un
+    # código conocido, sin recorrer la formalización completa.
+    db.get(Convenio, convenio_id).codigo = f"MAN-{uuid4().hex[:8].upper()}"
+    db.commit()
     guardado = client.patch(f"/api/convenios/{convenio_id}/elaboracion", json={
-        "expected_version": respuesta.json()["version_actual"],
+        "expected_revision": 0,
         "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
             {"type": "text", "text": "Cláusula documental de auditoría"},
         ]}]},
@@ -64,14 +70,21 @@ def manual_documentado(client, db, gestor):
     return db.get(Convenio, convenio_id)
 
 
+def _versionar_avance(db, convenio, gestor) -> VersionConvenio:
+    """El avance guardado se vuelve versión formal al enviarse a revisión (HT-13)."""
+    version = ServicioConvenios(db)._crear_version(
+        convenio, convenio.borrador.contenido, gestor,
+        ContextoVersionConvenio.FINALIZACION,
+    )
+    db.delete(convenio.borrador)
+    return version
+
+
 @pytest.fixture
 def manual_formalizado(db, gestor, manual_documentado):
     """Estado persistido de exportación oficial, sin crear una solicitud."""
     convenio = manual_documentado
-    version = db.scalar(select(VersionConvenio).where(
-        VersionConvenio.convenio_id == convenio.id,
-        VersionConvenio.numero == convenio.version_actual,
-    ))
+    version = _versionar_avance(db, convenio, gestor)
     revision = RevisionConvenio(
         convenio_id=convenio.id, tipo="FINAL", version_convenio_id=version.id,
         estado="RESUELTA", resultado="APROBADA",
@@ -169,7 +182,12 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
             {"type": "text", "text": clausula},
         ]}]}
         if modo == "BORRADOR":
+            # HT-06: el modo lo decide la formalización, así que devolver el
+            # convenio a documento de trabajo exige también deshacer su estado,
+            # no solo la etapa.
             convenio.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == "ELABORACION"))
+            convenio.estado = "EN_TRAMITE"
+            convenio.fecha_firma = None
         db.commit()
         db.expire_all()
     antes = _conteos(db)
@@ -235,9 +253,11 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
 @pytest.mark.parametrize("etapa", ["ELABORACION", "REVISION_JURIDICA"])
 @pytest.mark.parametrize("formato", ["pdf", "excel"])
 def test_manual_sin_aliado_reporta_validacion_controlada(
-    client, db, manual_documentado, etapa, formato,
+    client, db, gestor, manual_documentado, etapa, formato,
 ):
     convenio = manual_documentado
+    if etapa != "ELABORACION":
+        _versionar_avance(db, convenio, gestor)
     convenio.aliado_id = None
     convenio.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == etapa))
     db.commit()
@@ -246,10 +266,10 @@ def test_manual_sin_aliado_reporta_validacion_controlada(
     respuesta = client.get(f"/api/convenios/{convenio.id}/exportar", params={"formato": formato})
     assert respuesta.status_code == 422, respuesta.text
     assert respuesta.json()["error"] == "CONVENIO_INCOMPLETO"
-    esperados = ["entidad_participante"]
-    if etapa == "REVISION_JURIDICA":
-        esperados.extend(["representante_legal_institucion", "representante_legal_entidad"])
-    assert respuesta.json()["campos_faltantes"] == esperados
+    # HT-06, CA-07: en revisión jurídica el convenio sigue en trámite, así que
+    # emite documento de trabajo y no se le exigen los representantes legales
+    # del documento oficial. Antes esa etapa emitía en modo oficial.
+    assert respuesta.json()["campos_faltantes"] == ["entidad_participante"]
     assert _conteos(db) == antes
 
 
@@ -286,10 +306,8 @@ def test_manual_no_exporta_documento_vacio_o_invalido(
     client, db, manual_documentado, formato, contenido, faltante,
 ):
     convenio = manual_documentado
-    version = db.scalar(select(VersionConvenio).where(
-        VersionConvenio.convenio_id == convenio.id, VersionConvenio.numero == convenio.version_actual,
-    ))
-    version.contenido = contenido
+    # En Elaboración se exporta el avance guardado.
+    convenio.borrador.contenido = contenido
     db.commit()
     db.expire_all()
     respuesta = client.get(f"/api/convenios/{convenio.id}/exportar", params={"formato": formato})

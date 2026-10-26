@@ -40,7 +40,7 @@ from backend.services.convenios import ConvenioNoEncontrado
 from backend.services.validador_exportacion_convenio import (
     modo_emision,
     proceso_firmas_de_version,
-    version_contractual,
+    version_exportable,
 )
 
 # Los antecedentes exclusivos de solicitudes no están pendientes de completar
@@ -153,6 +153,7 @@ class ServicioPdfConvenio:
                 joinedload(Convenio.unidad_organizacional),
                 joinedload(Convenio.creado_por),
                 selectinload(Convenio.versiones).joinedload(VersionConvenio.autor),
+                selectinload(Convenio.borrador),
                 selectinload(Convenio.procesos_firmas).selectinload(
                     ProcesoFirmasConvenio.firmas
                 ),
@@ -174,9 +175,10 @@ class ServicioPdfConvenio:
             else INFORMACION_NO_DISPONIBLE
         )
 
-        # Solo la versión que indica el convenio y los firmantes del proceso de
-        # esa versión: lo mismo que validó ConvenioExportValidator.
-        version = version_contractual(convenio)
+        # Solo la versión que indica el convenio (o el avance guardado, si es un
+        # borrador) y los firmantes del proceso de esa versión: lo mismo que
+        # validó ConvenioExportValidator.
+        version = version_exportable(convenio)
         secciones: list[SeccionContenidoDTO] = []
         if version is not None and version.contenido:
             secciones = self._extraer_secciones_contenido(version.contenido)
@@ -483,10 +485,16 @@ class ServicioPdfConvenio:
             )
         )
 
+        etiqueta_identificacion, valor_identificacion = dto.identificacion()
         filas = [
             [
-                Paragraph("<b>Código oficial:</b>", estilos["tabla_header"]),
-                Paragraph(_e(_o_no_disponible(dto.codigo)), estilos["tabla_celda"]),
+                Paragraph(
+                    f"<b>{_e(etiqueta_identificacion)}:</b>", estilos["tabla_header"]
+                ),
+                Paragraph(
+                    _e(_o_no_disponible(valor_identificacion)),
+                    estilos["tabla_celda"],
+                ),
                 Paragraph("<b>Solicitud origen:</b>", estilos["tabla_header"]),
                 Paragraph(_e(dto.solicitud_consecutivo), estilos["tabla_celda"]),
             ],

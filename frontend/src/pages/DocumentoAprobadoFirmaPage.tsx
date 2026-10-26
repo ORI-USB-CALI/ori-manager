@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { referenciaConvenio } from './epica02'
 
 interface DocumentoAprobadoFirma {
   convenio_id: number
@@ -44,7 +45,7 @@ export function DocumentoAprobadoFirmaPage() {
       <header className="documento-aprobado-cabecera">
         <div>
           <h1>Documento aprobado para firma</h1>
-          <p>{datos.codigo_convenio ?? `Convenio #${datos.convenio_id}`}</p>
+          <p>{referenciaConvenio(datos.codigo_convenio, datos.convenio_id)}</p>
         </div>
         <strong>Versión {datos.version_numero}</strong>
       </header>

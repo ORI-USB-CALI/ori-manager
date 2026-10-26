@@ -47,12 +47,16 @@ class ConvenioCamposEditables(BaseModel):
 
 
 class ConvenioCrear(BaseModel):
-    """Datos públicos de creación desde solicitud; los metadatos los fija el servidor."""
+    """Datos públicos de creación desde solicitud; los metadatos los fija el servidor.
+
+    HT-06, CA-05: `codigo` ya no se acepta. El código institucional lo genera
+    el backend al formalizar (RN-01, RN-02) y `extra="forbid"` hace que un
+    cliente que lo envíe reciba 422 en lugar de que se ignore en silencio.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     solicitud_id: int
-    codigo: str | None = Field(default=None, max_length=40)
     tipo_convenio_id: int | None = None
     objeto: str = Field(min_length=1)
     alcance: AlcanceConvenio | None = None
@@ -64,11 +68,13 @@ class ConvenioCrear(BaseModel):
 
 
 class ConvenioCrearManual(BaseModel):
-    """Datos públicos de creación en Elaboración, sin metadatos de renovación o firma."""
+    """Datos públicos de creación en Elaboración, sin metadatos de renovación o firma.
+
+    HT-06, CA-05: `codigo` ya no se acepta, igual que en `ConvenioCrear`.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    codigo: str | None = Field(default=None, max_length=40)
     tipo_convenio_id: int | None = None
     aliado_id: int | None = Field(default=None, ge=1)
     objeto: str | None = None
@@ -97,13 +103,17 @@ class ConvenioElaboracionActualizar(BaseModel):
 
 
 class ConvenioElaboracionGuardar(ConvenioElaboracionActualizar):
+    """Guardar avance: persiste el borrador sin crear una versión formal."""
+
     contenido: dict[str, Any]
-    expected_version: int = Field(ge=0)
+    # Revisión del borrador con la que se abrió el editor (0 si aún no hay
+    # borrador). Si otra persona guardó antes, la operación responde 409.
+    expected_revision: int = Field(ge=0)
 
 
 class ConvenioElaboracionFinalizar(ConvenioElaboracionActualizar):
     contenido: dict[str, Any] | None = None
-    expected_version: int | None = Field(default=None, ge=0)
+    expected_revision: int | None = Field(default=None, ge=0)
 
 
 class UsuarioResumen(BaseModel):
@@ -255,6 +265,9 @@ class ConvenioElaboracionLeer(ConvenioLeer):
     unidad_organizacional: UnidadOrganizacionalResumen | None
     plantilla_origen: PlantillaConvenioResumen | None
     contenido: dict[str, Any] | None
+    # Estado del borrador de trabajo, independiente de version_actual (HT-13).
+    revision_borrador: int = 0
+    borrador_guardado_en: datetime | None = None
 
 
 class CampoFaltante(BaseModel):

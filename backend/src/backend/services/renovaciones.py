@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from secrets import token_hex
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -30,9 +29,10 @@ from backend.services.convenios import (
     ConvenioNoEncontrado,
     DatosRenovacion,
     ServicioConvenios,
+    contexto_auditoria,
 )
+from backend.services.vigencia import fecha_actual_dominio
 
-ZONA_HORARIA_DOMINIO = ZoneInfo("America/Bogota")
 DIAS_VENTANA_RENOVACION = 120
 ESTADOS_ELEGIBLES_RENOVACION = frozenset(
     (EstadoConvenio.VIGENTE.value, EstadoConvenio.POR_VENCER.value)
@@ -82,10 +82,6 @@ class SeguimientoRenovacion:
     codigo_renovacion: str | None
     numero_renovacion: int | None
     etapa_renovacion: str | None
-
-
-def fecha_actual_dominio() -> date:
-    return datetime.now(ZONA_HORARIA_DOMINIO).date()
 
 
 def es_elegible_para_renovacion(
@@ -294,7 +290,17 @@ class ServicioRenovaciones:
                 "duracion_meses": origen.duracion_meses,
             }
             numero_renovacion = (origen.numero_renovacion or 0) + 1
-            describir_accion(self.db, usuario, "Inició la renovación del convenio")
+            describir_accion(
+                self.db,
+                usuario,
+                "Inició la renovación del convenio",
+                evento="RENOVACION_INICIADA",
+                # La operación crea al hijo en Elaboración, versión inicial 1,
+                # con responsable explícito en su historial de entrada.
+                etapa="ELABORACION",
+                version=1,
+                responsable_id=usuario.id,
+            )
             if origen.origen == OrigenConvenio.MANUAL_ORI.value:
                 hijo = servicio._crear_manual_en_transaccion(
                     ConvenioCrearManual(
@@ -354,7 +360,13 @@ class ServicioRenovaciones:
                 EstadoSeguimientoRenovacion.PENDIENTE_DE_DECISION
             ):
                 raise ConvenioNoEditable("El convenio no está pendiente de decisión de renovación")
-            describir_accion(self.db, usuario, "Decidió no renovar el convenio")
+            describir_accion(
+                self.db,
+                usuario,
+                "Decidió no renovar el convenio",
+                evento="NO_RENOVACION_REGISTRADA",
+                **contexto_auditoria(origen),
+            )
             decision = DecisionNoRenovacion(
                 convenio_id=origen.id,
                 fecha_vencimiento_origen=origen.fecha_vencimiento,

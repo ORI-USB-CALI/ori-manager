@@ -10,8 +10,24 @@ from pydantic import BaseModel, ConfigDict, Field
 INFORMACION_NO_DISPONIBLE = "Información no disponible"
 
 
-# Marca visible de los documentos generados en etapa de elaboración.
+# Marca visible de los documentos de trabajo, antes de formalizar el convenio.
 MARCA_BORRADOR = "BORRADOR — NO FORMALIZADO"
+
+# HT-06, CA-01 y CA-07: el documento de trabajo no anuncia un "código oficial"
+# que todavía no existe. Lleva una referencia provisional, derivada del
+# identificador interno del convenio (RN-10), distinguible del código
+# institucional aprobado.
+ETIQUETA_CODIGO_OFICIAL = "Código oficial"
+ETIQUETA_REFERENCIA_PROVISIONAL = "Identificación provisional"
+# Un convenio sin formalizar puede llevar un código cargado a mano de antes de
+# que CA-05 cerrara el contrato de creación. Se muestra, porque identifica al
+# convenio, pero con una etiqueta que no lo presenta como código oficial: tener
+# código no es prueba de formalización.
+ETIQUETA_CODIGO_SIN_FORMALIZAR = "Código registrado (sin formalizar)"
+
+
+def referencia_provisional(convenio_id: int) -> str:
+    return f"Convenio provisional #{convenio_id}"
 
 
 class FormatoExportacion(StrEnum):
@@ -90,3 +106,24 @@ class ConvenioPdfDTO(BaseModel):
 
     # Firmantes oficiales
     firmantes: list[FirmantePdfDTO] = Field(default_factory=list)
+
+    def identificacion(self) -> tuple[str, str | None]:
+        """Etiqueta y valor con que el documento identifica al convenio.
+
+        Vive aquí para que el PDF y el Excel digan lo mismo. Distingue tres
+        situaciones, que no son la misma (HT-06, CA-01, CA-06 y CA-07):
+
+        1. Formalizado: lleva su código institucional, rotulado como oficial.
+        2. Sin formalizar pero con código registrado: se muestra el código,
+           porque identifica al convenio, con una etiqueta que no lo presenta
+           como oficial. Tener código no prueba que esté formalizado.
+        3. Sin formalizar y sin código: referencia provisional derivada del
+           identificador interno.
+        """
+        if self.modo_emision is ModoEmision.OFICIAL:
+            return ETIQUETA_CODIGO_OFICIAL, self.codigo
+        if self.codigo and self.codigo.strip():
+            return ETIQUETA_CODIGO_SIN_FORMALIZAR, self.codigo
+        return ETIQUETA_REFERENCIA_PROVISIONAL, referencia_provisional(
+            self.convenio_id
+        )

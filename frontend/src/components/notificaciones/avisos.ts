@@ -1,5 +1,6 @@
 import type { AlertaVencimiento, RangoVencimiento } from '../../pages/alertasVencimiento'
 import type { Notificacion, TipoNotificacion } from '../../pages/notificaciones'
+import { referenciaConvenio } from '../../pages/epica02'
 
 type Variante = 'danger' | 'warning' | 'info' | 'neutral'
 
@@ -93,7 +94,7 @@ export function adaptarVencimiento(alerta: AlertaVencimiento): Aviso {
     entidad: {
       tipo: 'CONVENIO',
       id: alerta.convenio_id,
-      identificacion: alerta.codigo?.trim() || alerta.objeto?.trim() || `Convenio #${alerta.convenio_id}`,
+      identificacion: alerta.codigo?.trim() || alerta.objeto?.trim() || referenciaConvenio(null, alerta.convenio_id),
     },
     fecha: { valor: alerta.fecha_vencimiento, etiqueta: 'Vence', formato: 'fecha' },
     estadoAtencion: 'pendiente',
