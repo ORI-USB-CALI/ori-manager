@@ -1,0 +1,97 @@
+name: HT-10 - Simulacion de conciliacion Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ht10-conciliacion-staging
+  cancel-in-progress: false
+
+jobs:
+  simulacion:
+    name: Simular conciliacion Staging
+    if: ${{ github.repository == 'ORI-USB-CALI/ori-manager' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: backend
+
+    steps:
+      - name: Verificar habilitacion
+        working-directory: .
+        env:
+          HABILITADA: ${{ vars.CONCILIACION_HT10_SIMULACION_HABILITADA }}
+        run: |
+          set -euo pipefail
+          if [[ "$HABILITADA" != "true" ]]; then
+            echo "::error::Simulacion HT-10 no habilitada en Staging."
+            exit 1
+          fi
+
+      - name: Checkout del codigo validado
+        uses: actions/checkout@v7
+        with:
+          ref: aa72c2472895f39567219da7de7ac19eea37de14
+          persist-credentials: false
+
+      - name: Preparar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Preparar uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.12.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Instalar dependencias
+        run: uv sync --frozen --no-dev
+
+      - name: Ejecutar simulacion
+        env:
+          APP_ENV: staging
+          DATABASE_HOST: ${{ secrets.CONCILIACION_DATABASE_HOST }}
+          DATABASE_PORT: ${{ secrets.CONCILIACION_DATABASE_PORT }}
+          DATABASE_NAME: ${{ secrets.CONCILIACION_DATABASE_NAME }}
+          DATABASE_USER: ${{ secrets.CONCILIACION_DATABASE_USER }}
+          DATABASE_PASSWORD: ${{ secrets.CONCILIACION_DATABASE_PASSWORD }}
+          DATABASE_SSLMODE: require
+          HOST_APROBADO: ${{ vars.CONCILIACION_HT10_HOST_STAGING_APROBADO }}
+        run: |
+          set -euo pipefail
+
+          for variable in \
+            DATABASE_HOST \
+            DATABASE_PORT \
+            DATABASE_NAME \
+            DATABASE_USER \
+            DATABASE_PASSWORD
+          do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Configuracion requerida ausente: $variable"
+              exit 1
+            fi
+          done
+
+          if [[ -z "$HOST_APROBADO" || "$DATABASE_HOST" != "$HOST_APROBADO" ]]; then
+            echo "::error::Destino PostgreSQL no autorizado para Staging."
+            exit 1
+          fi
+
+          echo "Ejecutando conciliacion en modo simulacion."
+
+          uv run --no-sync python \
+            -m backend.cli.conciliar_convenios \
+            --simular \
+            --intentos 1
+
+          echo "Simulacion finalizada sin persistir transiciones."
