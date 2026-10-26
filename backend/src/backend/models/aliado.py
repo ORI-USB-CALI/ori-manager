@@ -40,6 +40,11 @@ class Aliado(Base):
             "btrim(sector_economico) != '')",
             name="ck_aliado_empresa_sector_economico",
         ),
+        CheckConstraint(
+            "digito_verificacion IS NULL OR (tipo_identificacion = 'NIT' "
+            "AND digito_verificacion ~ '^[0-9]$')",
+            name="ck_aliado_digito_verificacion",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -47,7 +52,10 @@ class Aliado(Base):
     tipo: Mapped[str] = mapped_column(String(22), nullable=False)
     sector_economico: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tipo_identificacion: Mapped[str] = mapped_column(String(33), nullable=False)
+    # HT-14: para NIT y cédula se guarda solo la base, que es la clave de
+    # búsqueda del aliado; el DV del NIT va aparte.
     identificacion: Mapped[str] = mapped_column(String(40), nullable=False)
+    digito_verificacion: Mapped[str | None] = mapped_column(String(1), nullable=True)
     pais_id: Mapped[int | None] = mapped_column(ForeignKey("pais.id"), nullable=True)
     ciudad: Mapped[str | None] = mapped_column(String(120), nullable=True)
     direccion: Mapped[str | None] = mapped_column(String(200), nullable=True)
