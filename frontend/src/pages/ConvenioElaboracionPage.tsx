@@ -6,13 +6,7 @@ import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
-import {
-  type ElaboracionConvenio,
-  useCatalogosElaboracion,
-  useElaboracionConvenio,
-  useVersionesConvenio,
-  useAliados,
-} from './epica02'
+import { type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia } from './vigencia'
 
@@ -330,7 +324,7 @@ export function ConvenioElaboracionPage() {
   return (
     <>
       <section className="header-banner">
-        <h1>Proyecto de convenio {datos.codigo ?? `#${datos.id}`}</h1>
+        <h1>Proyecto de convenio {referenciaConvenio(datos.codigo, datos.id)}</h1>
         <p>
           <span className="badge">{datos.etapa_actual?.nombre ?? datos.estado}</span>
           {' · '}Versión formal {datos.version_actual} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}

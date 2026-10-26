@@ -44,8 +44,14 @@ oficial mantiene además sus requisitos de código, vigencia, tipo y representan
 de la versión contractual. Un manual sin aliado devuelve HTTP 422 con
 `CONVENIO_INCOMPLETO` y `entidad_participante`; la ausencia legítima de solicitud
 no es un campo pendiente. Para `SOLICITUD` se conservan los antecedentes y la
-contraparte propuesta cuando corresponda. Los permisos y el modo de emisión
-permanecen sin cambios.
+contraparte propuesta cuando corresponda. Los permisos permanecen sin cambios.
+
+> **Actualizado por HT-06.** El modo de emisión cambió: era borrador solo en la
+> etapa de elaboración y ahora lo es en todo convenio no formalizado. En
+> consecuencia, un manual sin aliado en revisión jurídica reporta únicamente
+> `entidad_participante`, sin los representantes legales que antes exigía por
+> emitir en modo oficial. Ver
+> [HT-06 — Código institucional del convenio](ht-06-codigo-convenio.md).
 
 Regresión automática: `backend/tests/test_hu10_exportacion.py`, con archivos PDF
 y Excel reales, ambos orígenes, borrador/oficial, validación de faltantes y

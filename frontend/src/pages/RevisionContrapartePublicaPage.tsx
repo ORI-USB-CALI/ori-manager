@@ -258,6 +258,10 @@ export function RevisionContrapartePublicaPage() {
         <section className="card revision-publica-resumen" aria-labelledby="datos-convenio-titulo">
           <h2 id="datos-convenio-titulo">Datos de la elaboración de convenio</h2>
           <dl className="proyecto-datos">
+            {/* HT-06: la vista pública de la contraparte no recibe el
+                identificador interno del convenio (enlace con token, sin
+                sesión), así que aquí no se usa `referenciaConvenio`: no hay un
+                id que mostrar y exponerlo sería filtrar datos internos. */}
             <dt>Código</dt><dd>{revision.codigo_convenio ?? 'En asignación'}</dd>
             <dt>Contraparte</dt><dd>{revision.contraparte ?? '—'}</dd>
             <dt>Versión recibida</dt><dd>{revision.version_numero}</dd>

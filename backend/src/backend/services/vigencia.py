@@ -15,8 +15,19 @@ MOTIVO_VENCIMIENTO_PASADO = "No puede ser anterior a la fecha actual"
 MOTIVO_INICIO_POSTERIOR = "Debe ser igual o posterior a la fecha de inicio"
 
 
+def instante_actual_dominio() -> datetime:
+    """Instante actual con la zona del dominio.
+
+    Lo usa quien necesita un único punto de referencia temporal para toda una
+    operación: la fecha que persiste y el año que deriva de ella salen de la
+    misma lectura del reloj, así que no pueden caer a cada lado de un cambio
+    de año.
+    """
+    return datetime.now(ZONA_HORARIA_DOMINIO)
+
+
 def fecha_actual_dominio() -> date:
-    return datetime.now(ZONA_HORARIA_DOMINIO).date()
+    return instante_actual_dominio().date()
 
 
 def validar_vigencia(

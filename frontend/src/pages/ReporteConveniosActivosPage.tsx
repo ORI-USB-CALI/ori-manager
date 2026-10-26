@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
 import { useSesion } from '../auth/sesion'
+import { referenciaConvenio } from './epica02'
 import {
   URL_DESCARGA_REPORTE_EXCEL,
   URL_DESCARGA_REPORTE_PDF,
@@ -9,7 +10,7 @@ import {
 } from './reportes'
 
 function identificacion(convenio: ConvenioReporteActivo): string {
-  return convenio.codigo?.trim() || `Convenio #${convenio.id}`
+  return referenciaConvenio(convenio.codigo, convenio.id)
 }
 
 function formatearFecha(fecha: string | null): string {

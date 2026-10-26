@@ -587,8 +587,10 @@ def test_contrato_http_creacion_solicitud_tiene_lista_publica_explicita(client):
     esquema = openapi["components"]["schemas"][referencia.rsplit("/", 1)[-1]]
     assert esquema["additionalProperties"] is False
     assert set(esquema["required"]) == {"solicitud_id", "objeto"}
+    # HT-06, CA-05: `codigo` salió del contrato de creación; lo genera el
+    # backend al formalizar y un payload que lo envíe recibe 422.
     assert set(esquema["properties"]) == {
-        "solicitud_id", "codigo", "tipo_convenio_id", "objeto", "alcance",
+        "solicitud_id", "tipo_convenio_id", "objeto", "alcance",
         "unidad_organizacional_id", "implicacion_financiera", "fecha_inicio",
         "fecha_vencimiento", "duracion_meses",
     }
@@ -636,7 +638,6 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
     solicitud = crear_solicitud(gestor)
     datos = {
         **_payload_convenio(solicitud.id),
-        "codigo": f"CONV-PUBLICO-{gestor.id}",
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "unidad_organizacional_id": None,
         "implicacion_financiera": "Sin costo",

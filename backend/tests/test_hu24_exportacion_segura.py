@@ -113,9 +113,12 @@ def test_revisor_ori_con_revision_juridica_elegible_supera_el_alcance(
 
     respuesta = _exportar(client, convenio_listo.id)
 
-    # Dentro de su alcance llega a la validación (el convenio está incompleto).
-    assert respuesta.status_code == 422
-    assert respuesta.json()["error"] == "CONVENIO_INCOMPLETO"
+    # Dentro de su alcance la petición pasa el control de alcance y se atiende.
+    # HT-06, CA-07: el convenio sigue en trámite, así que recibe un documento de
+    # trabajo. Antes esta etapa emitía en modo oficial y el convenio incompleto
+    # respondía 422; lo que esta prueba vigila es el alcance, no la validación.
+    assert respuesta.status_code == 200, respuesta.text
+    assert "BORRADOR" in respuesta.headers["content-disposition"]
 
 
 def test_administrador_ori_exporta_cualquier_convenio(

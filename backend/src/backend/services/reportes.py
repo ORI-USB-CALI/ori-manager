@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio
+from backend.schemas.exportacion import referencia_provisional
 
 # HU-34, CA-01: "activo" es el convenio cuya ejecución sigue en curso hoy,
 # alineado con el ciclo de vida de PR #111. VIGENTE y POR_VENCER son los
@@ -91,10 +92,17 @@ class ServicioReportes:
 
 
 def identificacion(convenio_id: int, codigo: str | None) -> str:
-    """CA-02: identificación consistente en pantalla, PDF y Excel. Nunca se
-    deja un "—" como único identificador: si no hay código asignado todavía,
-    se usa el id del convenio."""
-    return codigo if codigo else f"Convenio #{convenio_id}"
+    """CA-02 de HU-34: identificación consistente en pantalla, PDF y Excel.
+
+    Nunca se deja un "—" como único identificador: si no hay código asignado
+    todavía, se usa la referencia provisional derivada del id del convenio.
+
+    HT-06: la redacción la fija `referencia_provisional`, la misma que usan el
+    documento del convenio y la interfaz. Antes era un texto propio de este
+    módulo, y al unificar la interfaz la pantalla y el reporte descargado
+    dejaban de coincidir, que es justo lo que este CA-02 prohíbe.
+    """
+    return codigo if codigo else referencia_provisional(convenio_id)
 
 
 def _contraparte(convenio: Convenio) -> str | None:

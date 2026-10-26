@@ -47,12 +47,16 @@ class ConvenioCamposEditables(BaseModel):
 
 
 class ConvenioCrear(BaseModel):
-    """Datos públicos de creación desde solicitud; los metadatos los fija el servidor."""
+    """Datos públicos de creación desde solicitud; los metadatos los fija el servidor.
+
+    HT-06, CA-05: `codigo` ya no se acepta. El código institucional lo genera
+    el backend al formalizar (RN-01, RN-02) y `extra="forbid"` hace que un
+    cliente que lo envíe reciba 422 en lugar de que se ignore en silencio.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     solicitud_id: int
-    codigo: str | None = Field(default=None, max_length=40)
     tipo_convenio_id: int | None = None
     objeto: str = Field(min_length=1)
     alcance: AlcanceConvenio | None = None
@@ -64,11 +68,13 @@ class ConvenioCrear(BaseModel):
 
 
 class ConvenioCrearManual(BaseModel):
-    """Datos públicos de creación en Elaboración, sin metadatos de renovación o firma."""
+    """Datos públicos de creación en Elaboración, sin metadatos de renovación o firma.
+
+    HT-06, CA-05: `codigo` ya no se acepta, igual que en `ConvenioCrear`.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    codigo: str | None = Field(default=None, max_length=40)
     tipo_convenio_id: int | None = None
     aliado_id: int | None = Field(default=None, ge=1)
     objeto: str | None = None
