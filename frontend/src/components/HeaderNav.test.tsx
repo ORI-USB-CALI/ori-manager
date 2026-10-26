@@ -1,9 +1,10 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { HeaderNav, type EnlaceNav } from './HeaderNav'
+import { crearNavegacion } from '../app/navigation'
+import { HeaderNav, type ElementoNav, type EnlaceNav } from './HeaderNav'
 
 afterEach(() => {
   cleanup()
@@ -34,7 +35,7 @@ const enlacesSolicitante: EnlaceNav[] = [
   { to: '/solicitudes', label: 'Mis solicitudes' },
 ]
 
-function renderNav(enlaces: EnlaceNav[], rutaInicial = '/') {
+function renderNav(enlaces: ElementoNav[], rutaInicial = '/') {
   return render(
     <MemoryRouter initialEntries={[rutaInicial]}>
       <Routes>
@@ -60,6 +61,105 @@ describe('HeaderNav — por rol', () => {
     expect(screen.getByRole('link', { name: 'Mis solicitudes' })).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Usuarios' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Bitácora' })).toBeNull()
+  })
+})
+
+describe('HeaderNav — secciones agrupadas', () => {
+  const navegacion = crearNavegacion(() => true)
+
+  it('agrupa Crear convenio manual y administración y conserva los enlaces existentes', async () => {
+    renderNav(navegacion)
+    const usuario = userEvent.setup()
+    expect(navegacion.map(({ label }) => label)).toEqual([
+      'Inicio', 'Aliados', 'Solicitudes', 'Convenios', 'Renovaciones', 'Reportes', 'Estadísticas', 'Administración',
+    ])
+    expect(screen.queryByRole('link', { name: 'Crear convenio manual' })).toBeNull()
+    await usuario.click(screen.getByRole('button', { name: 'Convenios' }))
+    const grupo = screen.getByRole('button', { name: 'Convenios' }).parentElement!
+    expect(within(grupo).getByRole('link', { name: 'Crear convenio manual' }).getAttribute('href')).toBe('/convenios/nuevo')
+    expect(within(grupo).getByRole('link', { name: 'Revisiones jurídicas' })).toBeTruthy()
+    await usuario.click(screen.getByRole('button', { name: 'Administración' }))
+    expect(screen.queryByRole('link', { name: 'Crear convenio manual' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Usuarios' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Bitácora' })).toBeTruthy()
+  })
+
+  it.each([
+    ['/convenios', 'Consulta de convenios'],
+    ['/convenios/?pagina=2', 'Consulta de convenios'],
+    ['/convenios/tablero', 'Tablero de convenios'],
+    ['/convenios/tablero/', 'Tablero de convenios'],
+    ['/convenios/nuevo', 'Crear convenio manual'],
+    ['/convenios/42/historial', 'Consulta de convenios'],
+    ['/revisiones-juridicas', 'Revisiones jurídicas'],
+    ['/reportes/estadisticas-convenios', 'Estadísticas'],
+    ['/admin/bitacora', 'Bitácora'],
+    ['/ori/solicitudes/42/historial', 'Solicitudes recibidas'],
+    ['/solicitudes/42', 'Mis solicitudes'],
+  ])('activa solo %s → %s', (ruta, etiqueta) => {
+    renderNav(navegacion, ruta)
+    const activos = document.querySelectorAll('a[aria-current="page"]')
+    expect(activos).toHaveLength(1)
+    expect(activos[0].textContent).toBe(etiqueta)
+  })
+
+  it('omite grupos vacíos y solo incluye opciones autorizadas', async () => {
+    renderNav(crearNavegacion((permiso) => permiso === 'solicitudes.ver_propias'))
+    const usuario = userEvent.setup()
+    expect(screen.queryByRole('button', { name: 'Convenios' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Administración' })).toBeNull()
+    await usuario.click(screen.getByRole('button', { name: 'Solicitudes' }))
+    expect(screen.getByRole('link', { name: 'Mis solicitudes' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Solicitudes recibidas' })).toBeNull()
+  })
+
+  it('abre con teclado, recorre enlaces con Tab y Escape devuelve foco al grupo antes de cerrar el menú móvil', async () => {
+    renderNav(navegacion)
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Abrir menú de navegación' }))
+    const boton = screen.getByRole('button', { name: 'Convenios' })
+    boton.focus()
+    await usuario.keyboard('{Enter}')
+    expect(boton.getAttribute('aria-expanded')).toBe('true')
+    expect(document.getElementById(boton.getAttribute('aria-controls')!)?.hidden).toBe(false)
+    await usuario.tab()
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Consulta de convenios' }))
+    await usuario.keyboard('{Escape}')
+    expect(document.activeElement).toBe(boton)
+    expect(boton.getAttribute('aria-expanded')).toBe('false')
+    await usuario.keyboard('{Escape}')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Abrir menú de navegación' }))
+  })
+
+  it('cierra el submenú al salir con Tab y al hacer clic fuera', async () => {
+    renderNav(navegacion)
+    const usuario = userEvent.setup()
+    const boton = screen.getByRole('button', { name: 'Administración' })
+    await usuario.click(boton)
+    screen.getByRole('link', { name: 'Bitácora' }).focus()
+    await usuario.tab()
+    expect(boton.getAttribute('aria-expanded')).toBe('false')
+    await usuario.click(boton)
+    await usuario.click(document.body)
+    expect(boton.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('cierra al elegir la ruta activa y al navegar con Atrás/Adelante', async () => {
+    const router = createMemoryRouter([{ path: '*', element: <HeaderNav enlaces={navegacion} /> }], {
+      initialEntries: ['/', '/convenios/tablero'],
+    })
+    render(<RouterProvider router={router} />)
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Convenios' }))
+    await usuario.click(screen.getByRole('link', { name: 'Tablero de convenios' }))
+    expect(screen.getByRole('button', { name: 'Convenios' }).getAttribute('aria-expanded')).toBe('false')
+    await usuario.click(screen.getByRole('button', { name: 'Convenios' }))
+    await act(() => router.navigate(-1))
+    expect(screen.getByRole('button', { name: 'Convenios' }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('link', { name: 'Inicio' }).getAttribute('aria-current')).toBe('page')
+    await act(() => router.navigate(1))
+    expect(screen.getByRole('button', { name: 'Convenios' }).getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('a[aria-current="page"]')?.textContent).toBe('Tablero de convenios')
   })
 })
 
