@@ -338,6 +338,34 @@ a:hover {
   text-decoration: none;
 }
 
+.navbar-menu {
+  display: contents;
+}
+
+.navbar-menu-boton {
+  display: none;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: white;
+  color: var(--text-primary);
+}
+
+.navbar-menu-boton:hover {
+  background: #f1f5f9;
+}
+
+.navbar-menu-boton svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 .navbar-links {
   display: flex;
   flex: 1;
@@ -2541,15 +2569,34 @@ a:hover {
     padding: 12px 16px;
   }
 
-  .navbar-links {
+  .navbar-menu-boton {
+    display: inline-flex;
+    order: 2;
+  }
+
+  .user-profile {
     order: 3;
+  }
+
+  /* HT-04: por debajo del punto de quiebre, la navegación se colapsa
+     detrás del botón de menú en vez de desbordar o hacer scroll
+     horizontal. El panel ocupa todo el ancho, en columna, y solo aparece
+     con .navbar-links-abierto (ver HeaderNav.tsx). */
+  .navbar-links {
+    order: 4;
     width: 100%;
-    min-width: 0;
-    overflow-x: auto;
+    flex-direction: column;
+    gap: 2px;
+    display: none;
+  }
+
+  .navbar-links-abierto {
+    display: flex;
   }
 
   .navbar-links a {
-    flex: 0 0 auto;
+    width: 100%;
+    padding: 10px 12px;
   }
 
   .user-email {
