@@ -1,18 +1,22 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { Link, Navigate, Outlet, useMatches, useNavigate } from 'react-router-dom'
 
 import { useSesion } from '../auth/sesion'
 import { BandejaNotificaciones } from '../components/BandejaNotificaciones'
 import { CentroNotificaciones } from '../components/CentroNotificaciones'
-import { HeaderNav, type EnlaceNav } from '../components/HeaderNav'
+import { HeaderNav } from '../components/HeaderNav'
 import { useCentroNotificaciones } from '../pages/centroNotificaciones'
 import { useNotificacionesTiempoReal } from '../pages/notificaciones'
 import { apiFetch } from './api'
+import { crearNavegacion } from './navigation'
 
 export function AppLayout() {
   const { sesion, cargando, error, puede } = useSesion()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const paginaAmplia = useMatches().some((ruta) =>
+    (ruta.handle as { layout?: string } | undefined)?.layout === 'wide',
+  )
   const centro = useCentroNotificaciones()
   useNotificacionesTiempoReal(Boolean(sesion))
   const logout = useMutation({
@@ -36,27 +40,13 @@ export function AppLayout() {
   }
   if (!sesion) return <Navigate to="/login" replace />
 
-  const enlaces: EnlaceNav[] = [
-    { to: '/', label: 'Inicio', end: true },
-    puede('aliados.ver') && { to: '/aliados', label: 'Aliados' },
-    puede('solicitudes.ver_recibidas') && { to: '/ori/solicitudes', label: 'Solicitudes recibidas' },
-    puede('convenios.ver') && { to: '/convenios', label: 'Consulta de convenios' },
-    puede('convenios.crear') && { to: '/convenios/nuevo', label: 'Crear convenio manual' },
-    puede('convenios.ver') && { to: '/convenios/tablero', label: 'Tablero de convenios' },
-    puede('convenios.gestionar_renovaciones') && { to: '/renovaciones', label: 'Renovaciones' },
-    puede('convenios.ver_reportes') && { to: '/reportes/convenios-activos', label: 'Reportes' },
-    puede('convenios.ver_reportes') && { to: '/reportes/estadisticas-convenios', label: 'Estadísticas' },
-    puede('convenios.revisar') && { to: '/revisiones-juridicas', label: 'Revisiones jurídicas' },
-    puede('solicitudes.ver_propias') && { to: '/solicitudes', label: 'Mis solicitudes' },
-    puede('usuarios.ver') && { to: '/admin/usuarios', label: 'Usuarios' },
-    puede('auditoria.ver') && { to: '/admin/bitacora', label: 'Bitácora' },
-  ].filter((enlace): enlace is EnlaceNav => Boolean(enlace))
+  const enlaces = crearNavegacion(puede)
 
   return (
     <div className="app-shell">
       <header className="navbar">
-        <Link to="/" className="navbar-brand">
-          ORI<span className="navbar-brand-extra"> · Sistema de Gestión</span>
+        <Link to="/" className="navbar-brand" aria-label="ORI Manager — Inicio">
+          ORI Manager
         </Link>
 
         <HeaderNav enlaces={enlaces} />
@@ -94,7 +84,7 @@ export function AppLayout() {
         </p>
       )}
 
-      <main className="page">
+      <main className={`page${paginaAmplia ? ' page-wide' : ''}`}>
         <Outlet />
       </main>
 

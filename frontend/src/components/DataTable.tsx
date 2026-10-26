@@ -35,7 +35,7 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="table-container">
+    <div className="table-container" role="region" aria-label={label} tabIndex={0}>
       <table className="table" aria-label={label}>
         <thead>
           <tr>

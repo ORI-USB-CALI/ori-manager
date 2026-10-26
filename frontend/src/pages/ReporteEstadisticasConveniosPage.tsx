@@ -111,13 +111,14 @@ export function ReporteEstadisticasConveniosPage() {
       </section>
 
       <form
-        className="table-filters-grid card"
+        className="table-filters-grid table-filters card"
         onSubmit={(evento) => evento.preventDefault()}
         aria-label="Filtros del reporte estadístico"
       >
-        <label>
+        <label className="form-group">
           Estado del convenio
           <select
+            className="form-control select"
             value={estado}
             onChange={(evento) => setEstado(evento.target.value as EstadoConvenio | '')}
           >
@@ -130,9 +131,10 @@ export function ReporteEstadisticasConveniosPage() {
           </select>
         </label>
 
-        <label>
+        <label className="form-group">
           Estado del aliado
           <select
+            className="form-control select"
             value={aliadoActivo}
             onChange={(evento) => setAliadoActivo(evento.target.value as '' | 'true' | 'false')}
           >
@@ -142,9 +144,10 @@ export function ReporteEstadisticasConveniosPage() {
           </select>
         </label>
 
-        <label>
+        <label className="form-group">
           Tipo de aliado
           <select
+            className="form-control select"
             value={tipoAliado}
             onChange={(evento) => setTipoAliado(evento.target.value as TipoAliado | '')}
           >
@@ -157,9 +160,10 @@ export function ReporteEstadisticasConveniosPage() {
           </select>
         </label>
 
-        <label>
+        <label className="form-group">
           País
           <input
+            className="form-control"
             type="text"
             value={pais}
             placeholder="Nombre del país"
@@ -169,27 +173,29 @@ export function ReporteEstadisticasConveniosPage() {
       </form>
 
       <div className="page-toolbar">
-        {descargasDeshabilitadas ? (
-          <>
-            <button type="button" className="btn btn-outline" disabled>Descargar PDF</button>
-            <button type="button" className="btn btn-outline" disabled>Descargar Excel</button>
-          </>
-        ) : (
-          <>
-            <a
-              className="btn btn-outline"
-              href={urlDescargaEstadisticasConvenios('pdf', filtros)}
-            >
-              Descargar PDF
-            </a>
-            <a
-              className="btn btn-outline"
-              href={urlDescargaEstadisticasConvenios('excel', filtros)}
-            >
-              Descargar Excel
-            </a>
-          </>
-        )}
+        <div className="page-toolbar-group">
+          {descargasDeshabilitadas ? (
+            <>
+              <button type="button" className="btn btn-outline" disabled>Descargar PDF</button>
+              <button type="button" className="btn btn-outline" disabled>Descargar Excel</button>
+            </>
+          ) : (
+            <>
+              <a
+                className="btn btn-outline"
+                href={urlDescargaEstadisticasConvenios('pdf', filtros)}
+              >
+                Descargar PDF
+              </a>
+              <a
+                className="btn btn-outline"
+                href={urlDescargaEstadisticasConvenios('excel', filtros)}
+              >
+                Descargar Excel
+              </a>
+            </>
+          )}
+        </div>
         <button
           type="button"
           className="btn btn-outline btn-small"

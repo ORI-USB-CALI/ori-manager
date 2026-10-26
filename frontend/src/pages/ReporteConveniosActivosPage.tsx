@@ -56,25 +56,27 @@ export function ReporteConveniosActivosPage() {
       </section>
 
       <div className="page-toolbar">
-        {descargasDeshabilitadas ? (
-          <>
-            <button type="button" className="btn btn-outline" disabled>
-              Descargar PDF
-            </button>
-            <button type="button" className="btn btn-outline" disabled>
-              Descargar Excel
-            </button>
-          </>
-        ) : (
-          <>
-            <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_PDF}>
-              Descargar PDF
-            </a>
-            <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_EXCEL}>
-              Descargar Excel
-            </a>
-          </>
-        )}
+        <div className="page-toolbar-group">
+          {descargasDeshabilitadas ? (
+            <>
+              <button type="button" className="btn btn-outline" disabled>
+                Descargar PDF
+              </button>
+              <button type="button" className="btn btn-outline" disabled>
+                Descargar Excel
+              </button>
+            </>
+          ) : (
+            <>
+              <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_PDF}>
+                Descargar PDF
+              </a>
+              <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_EXCEL}>
+                Descargar Excel
+              </a>
+            </>
+          )}
+        </div>
         <button
           type="button"
           className="btn btn-outline btn-small"
