@@ -33,7 +33,7 @@ from backend.schemas.convenio import (
     ConvenioElaboracionActualizar,
     RevisionContenidoGuardar,
 )
-from backend.schemas.solicitud import SolicitudCampos
+from backend.schemas.solicitud import SolicitudCamposEditables
 from backend.services import bitacora
 from backend.services.bitacora import (
     asignar_actor,
@@ -42,7 +42,7 @@ from backend.services.bitacora import (
     describir_cambios_automaticos,
 )
 from backend.services.convenios import ServicioConvenios, contexto_auditoria
-from backend.services.solicitudes import ServicioSolicitudes
+from backend.services.solicitudes import CAMPOS_CON_FORMATO, ServicioSolicitudes
 
 URL_AUDITORIA = "/api/auditoria"
 
@@ -351,11 +351,25 @@ def test_automatica_con_usuario_no_viola_la_restriccion(
 
 
 @pytest.fixture
-def solicitud_para_radicar(client, db, solicitante, entrar_como):
+def solicitud_para_radicar(client, db, solicitante, entrar_como, id_colombia):
     entrar_como(solicitante)
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
-    datos = {campo: f"Valor de {campo}" for campo in SolicitudCampos.model_fields}
+    # Texto genérico solo en los campos sin reglas de formato (HT-14).
+    datos = {
+        campo: f"Valor de {campo}"
+        for campo in SolicitudCamposEditables.model_fields
+        if campo not in CAMPOS_CON_FORMATO
+    }
     datos.update(
+        identificacion_aliado_propuesto="900123456",
+        digito_verificacion_aliado_propuesto="8",
+        pais_aliado_propuesto_id=id_colombia,
+        ciudad_aliado_propuesto="Cali",
+        direccion_aliado_propuesto="Avenida 1 # 2-3",
+        telefono_aliado_propuesto="6025550101",
+        contacto_contraparte_telefono="3001234567",
+        supervisor_usb_telefono="6025550202",
+        supervisor_contraparte_telefono="3005550303",
         solicitante_correo=solicitante.correo,
         tipo_identificacion_aliado_propuesto="NIT",
         tipo_aliado_propuesto="EMPRESA", tipo_convenio_id=tipo.id,

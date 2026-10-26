@@ -23,6 +23,7 @@ from reportlab.platypus import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from backend.core.validaciones import identificacion_completa
 from backend.models.convenio import Convenio
 from backend.models.enums import OrigenConvenio, RolFirmanteConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
@@ -208,7 +209,11 @@ class ServicioPdfConvenio:
             aliado_datos = {
                 "aliado_nombre": aliado.nombre,
                 "aliado_tipo": aliado.tipo,
-                "aliado_identificacion": aliado.identificacion,
+                "aliado_identificacion": identificacion_completa(
+                    aliado.tipo_identificacion,
+                    aliado.identificacion,
+                    aliado.digito_verificacion,
+                ),
                 "aliado_pais": aliado.pais.nombre if aliado.pais else None,
                 "aliado_ciudad": aliado.ciudad,
             }
@@ -216,7 +221,11 @@ class ServicioPdfConvenio:
             aliado_datos = {
                 "aliado_nombre": solicitud.nombre_aliado_propuesto if solicitud else None,
                 "aliado_tipo": solicitud.tipo_aliado_propuesto if solicitud else None,
-                "aliado_identificacion": solicitud.identificacion_aliado_propuesto if solicitud else None,
+                "aliado_identificacion": identificacion_completa(
+                    solicitud.tipo_identificacion_aliado_propuesto,
+                    solicitud.identificacion_aliado_propuesto,
+                    solicitud.digito_verificacion_aliado_propuesto,
+                ) if solicitud else None,
                 "aliado_pais": solicitud.pais_aliado_propuesto if solicitud else None,
                 "aliado_ciudad": solicitud.ciudad_aliado_propuesto if solicitud else None,
             }

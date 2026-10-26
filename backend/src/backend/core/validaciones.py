@@ -142,3 +142,12 @@ def normalizar_direccion(valor: str) -> str:
             "y usar solo letras, dígitos, espacios y los signos # - . , / ° ( )"
         )
     return direccion
+
+
+def identificacion_completa(
+    tipo: str | None, base: str | None, digito_verificacion: str | None
+) -> str | None:
+    """Identificación para mostrar: el NIT se acompaña de su DV cuando existe."""
+    if base and tipo == TipoIdentificacion.NIT and digito_verificacion:
+        return f"{base}-{digito_verificacion}"
+    return base

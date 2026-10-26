@@ -12,6 +12,7 @@ from backend.api.routers import (
     convenios,
     firma_convenio_publica,
     notificaciones,
+    paises,
     revision_contraparte_publica,
     solicitudes,
     usuarios,
@@ -29,6 +30,7 @@ app.include_router(convenios.router, prefix="/api")
 app.include_router(firma_convenio_publica.router, prefix="/api")
 app.include_router(revision_contraparte_publica.router, prefix="/api")
 app.include_router(notificaciones.router, prefix="/api")
+app.include_router(paises.router, prefix="/api")
 app.include_router(solicitudes.router, prefix="/api")
 app.include_router(auditoria.router, prefix="/api")
 

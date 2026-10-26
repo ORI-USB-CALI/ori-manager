@@ -32,6 +32,7 @@ from backend.models.enums import (
 )
 from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
+from backend.models.pais import Pais
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.rol import Rol
@@ -108,6 +109,14 @@ def client(
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def id_colombia(db: Session) -> int:
+    """HT-14: la solicitud recibe el país por id del catálogo poblado por migración."""
+    pais_id = db.scalar(select(Pais.id).where(Pais.codigo_iso == "CO"))
+    assert pais_id is not None
+    return pais_id
 
 
 @pytest.fixture

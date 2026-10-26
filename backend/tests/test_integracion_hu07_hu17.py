@@ -3,6 +3,7 @@ from io import BytesIO
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.core.validaciones import calcular_digito_verificacion_nit
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoRevisionConvenio
@@ -12,14 +13,19 @@ from backend.models.tipo_convenio import TipoConvenio
 URL_TABLERO = "/api/convenios/tablero"
 
 
-def _datos_solicitud(tipo_convenio_id: int, sufijo: str) -> dict[str, object]:
+def _datos_solicitud(tipo_convenio_id: int, sufijo: str, pais_id: int) -> dict[str, object]:
+    identificacion = f"900123{ord(sufijo):03d}"
     return {
         "nombre_aliado_propuesto": f"Universidad Integrada {sufijo}",
         "tipo_identificacion_aliado_propuesto": "NIT",
-        "identificacion_aliado_propuesto": f"900123{sufijo}",
+        "identificacion_aliado_propuesto": identificacion,
+        "digito_verificacion_aliado_propuesto": str(
+            calcular_digito_verificacion_nit(identificacion)
+        ),
+        "solicitante_tipo_documento": "OTRO",
         "tipo_aliado_propuesto": "UNIVERSIDAD",
         "correo_aliado_propuesto": f"convenios-{sufijo}@contraparte.example",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Calle 1 # 2-3",
@@ -46,9 +52,11 @@ def _datos_solicitud(tipo_convenio_id: int, sufijo: str) -> dict[str, object]:
     }
 
 
-def _crear_y_radicar(client, tipo_convenio_id: int, sufijo: str) -> tuple[int, int]:
+def _crear_y_radicar(
+    client, tipo_convenio_id: int, sufijo: str, pais_id: int
+) -> tuple[int, int]:
     creada = client.post(
-        "/api/solicitudes", json=_datos_solicitud(tipo_convenio_id, sufijo)
+        "/api/solicitudes", json=_datos_solicitud(tipo_convenio_id, sufijo, pais_id)
     )
     assert creada.status_code == 201, creada.text
     solicitud_id = creada.json()["id"]
@@ -77,7 +85,7 @@ def _tarjetas(client) -> dict[int, dict]:
 
 
 def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
-    client, db, crear_usuario, entrar_como, crear_convenio
+    id_colombia, client, db, crear_usuario, entrar_como, crear_convenio
 ) -> None:
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
     solicitante = crear_usuario(
@@ -93,7 +101,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
     db.commit()
 
     entrar_como(solicitante)
-    solicitud_id, documento_id = _crear_y_radicar(client, tipo.id, "A")
+    solicitud_id, documento_id = _crear_y_radicar(client, tipo.id, "A", id_colombia)
 
     entrar_como(gestor_a)
     tablero_antes = set(_tarjetas(client))
@@ -277,7 +285,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
 
 
 def test_flujo_integrado_rechazo_no_genera_convenio_ni_tarjeta(
-    client, db, crear_usuario, entrar_como
+    id_colombia, client, db, crear_usuario, entrar_como
 ) -> None:
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
     solicitante = crear_usuario(
@@ -289,7 +297,7 @@ def test_flujo_integrado_rechazo_no_genera_convenio_ni_tarjeta(
     db.commit()
 
     entrar_como(solicitante)
-    solicitud_id, _ = _crear_y_radicar(client, tipo.id, "B")
+    solicitud_id, _ = _crear_y_radicar(client, tipo.id, "B", id_colombia)
     entrar_como(gestor)
     tablero_antes = set(_tarjetas(client))
     rechazada = client.post(

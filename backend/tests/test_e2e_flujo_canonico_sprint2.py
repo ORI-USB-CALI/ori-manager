@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.core.validaciones import calcular_digito_verificacion_nit
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoFirmaConvenio
@@ -22,14 +23,19 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
 
 
-def _datos_solicitud(tipo_convenio_id: int, unico: str) -> dict[str, object]:
+def _datos_solicitud(tipo_convenio_id: int, unico: str, pais_id: int) -> dict[str, object]:
+    identificacion = f"9{int(unico[:8], 16) % 10**8:08d}"
     return {
         "nombre_aliado_propuesto": f"Universidad E2E {unico}",
         "tipo_identificacion_aliado_propuesto": "NIT",
-        "identificacion_aliado_propuesto": f"9{unico[:15]}",
+        "identificacion_aliado_propuesto": identificacion,
+        "digito_verificacion_aliado_propuesto": str(
+            calcular_digito_verificacion_nit(identificacion)
+        ),
+        "solicitante_tipo_documento": "OTRO",
         "tipo_aliado_propuesto": "UNIVERSIDAD",
         "correo_aliado_propuesto": f"convenios-{unico}@example.com",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Calle 1 # 2-3",
@@ -110,6 +116,7 @@ def _es_subsecuencia(valores: list[str], esperados: list[str]) -> bool:
 
 
 def test_e2e_flujo_canonico_sprint2_por_api(
+    id_colombia,
     client, db, crear_usuario, entrar_como, correo_local
 ) -> None:
     unico = uuid4().hex
@@ -130,7 +137,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
 
     # Fases 1-2: solicitud, radicación, devolución, corrección y re-radicación.
     entrar_como(solicitante)
-    creada = client.post("/api/solicitudes", json=_datos_solicitud(tipo.id, unico))
+    creada = client.post("/api/solicitudes", json=_datos_solicitud(tipo.id, unico, id_colombia))
     assert creada.status_code == 201, creada.text
     solicitud_id = creada.json()["id"]
     assert creada.json()["solicitante_id"] == solicitante.id

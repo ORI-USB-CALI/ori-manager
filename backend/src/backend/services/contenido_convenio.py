@@ -5,6 +5,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from backend.core.validaciones import identificacion_completa
 from backend.models.solicitud_convenio import SolicitudConvenio
 
 MAX_BYTES = 1_000_000
@@ -245,7 +246,11 @@ def _valores_solicitud(
         ),
         "contraparte": _unir(
             solicitud.nombre_aliado_propuesto,
-            solicitud.identificacion_aliado_propuesto,
+            identificacion_completa(
+                solicitud.tipo_identificacion_aliado_propuesto,
+                solicitud.identificacion_aliado_propuesto,
+                solicitud.digito_verificacion_aliado_propuesto,
+            ),
             solicitud.pais_aliado_propuesto,
             solicitud.ciudad_aliado_propuesto,
             solicitud.correo_aliado_propuesto,

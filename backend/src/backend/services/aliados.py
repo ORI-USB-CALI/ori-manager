@@ -260,7 +260,10 @@ def resolver_aliado_para_convenio(db: Session, convenio: Convenio) -> Aliado | N
         _validar_sector(tipo, sector)
         aliado = Aliado(
             nombre=nombre, tipo=tipo, tipo_identificacion=tipo_identificacion,
-            identificacion=identificacion, sector_economico=sector,
+            identificacion=identificacion,
+            digito_verificacion=solicitud.digito_verificacion_aliado_propuesto,
+            pais_id=solicitud.pais_aliado_propuesto_id,
+            sector_economico=sector,
             correo=(solicitud.correo_aliado_propuesto or "").strip() or None,
         )
         db.add(aliado)

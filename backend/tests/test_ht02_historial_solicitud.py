@@ -9,13 +9,15 @@ from test_hu07_revision_solicitudes import _datos_completos
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.enums import EstadoSolicitud, TipoSolicitante
+from backend.models.pais import Pais
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 
 
 def _radicar_nueva(client, db) -> int:
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
-    creada = client.post("/api/solicitudes", json=_datos_completos(tipo.id))
+    pais_id = db.scalar(select(Pais.id).where(Pais.codigo_iso == "CO"))
+    creada = client.post("/api/solicitudes", json=_datos_completos(tipo.id, pais_id))
     assert creada.status_code == 201, creada.text
     solicitud_id = creada.json()["id"]
     documento = client.post(

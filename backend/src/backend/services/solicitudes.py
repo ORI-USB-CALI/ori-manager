@@ -10,6 +10,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.core.validaciones import (
+    normalizar_ciudad,
+    normalizar_digito_verificacion_nit,
+    normalizar_direccion,
+    normalizar_identificacion,
+    normalizar_telefono,
+)
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
@@ -17,8 +24,10 @@ from backend.models.enums import (
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
+    TipoIdentificacion,
     TipoNotificacion,
 )
+from backend.models.pais import Pais
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
 from backend.models.solicitud_version import (
@@ -59,9 +68,18 @@ class SolicitudNoEditable(ErrorSolicitud):
 
 
 class SolicitudIncompleta(ErrorSolicitud):
-    def __init__(self, errores: dict[str, str]):
-        super().__init__("La solicitud está incompleta")
+    def __init__(
+        self, errores: dict[str, str], mensaje: str = "La solicitud está incompleta"
+    ):
+        super().__init__(mensaje)
         self.errores = errores
+
+
+class DatosSolicitudInvalidos(SolicitudIncompleta):
+    """HT-14 CA-06: errores de formato por campo, con el mismo 422 de radicación."""
+
+    def __init__(self, errores: dict[str, str]):
+        super().__init__(errores, "La solicitud tiene datos con formato inválido")
 
 
 class DocumentoInvalido(ErrorSolicitud):
@@ -75,6 +93,42 @@ class ReferenciaSolicitudInvalida(ErrorSolicitud):
 class SolicitudNoRevisable(ErrorSolicitud):
     pass
 
+
+# HT-14: campos con reglas de formato (core/validaciones.py).
+CAMPOS_TELEFONO = (
+    "telefono_aliado_propuesto",
+    "contacto_contraparte_telefono",
+    "supervisor_usb_telefono",
+    "supervisor_contraparte_telefono",
+)
+# (tipo, número, dígito de verificación) de cada identificación de la solicitud.
+GRUPOS_IDENTIFICACION = (
+    (
+        "tipo_identificacion_aliado_propuesto",
+        "identificacion_aliado_propuesto",
+        "digito_verificacion_aliado_propuesto",
+    ),
+    (
+        "solicitante_tipo_documento",
+        "solicitante_documento",
+        "solicitante_digito_verificacion",
+    ),
+)
+CAMPOS_CON_FORMATO = frozenset(
+    {
+        *CAMPOS_TELEFONO,
+        "ciudad_aliado_propuesto",
+        "direccion_aliado_propuesto",
+        "pais_aliado_propuesto_id",
+        *(campo for grupo in GRUPOS_IDENTIFICACION for campo in grupo),
+    }
+)
+
+# Campos que se guardan en cada versión radicada. El país se conserva por su
+# nombre: el id no es legible y duplicaría el cambio al comparar versiones.
+CAMPOS_VERSION = tuple(
+    campo for campo in SolicitudCampos.model_fields if campo != "pais_aliado_propuesto_id"
+)
 
 ESTADOS_PENDIENTES_REVISION = frozenset(
     {EstadoSolicitud.RADICADA.value, EstadoSolicitud.EN_ESTUDIO.value}
@@ -163,7 +217,12 @@ class ServicioSolicitudes:
         return solicitud
 
     def crear(self, datos: SolicitudCrear, usuario: Usuario) -> SolicitudConvenio:
-        valores = {**self._snapshot(usuario), **self._valores(datos)}
+        recibidos = self._valores(datos)
+        valores = {**self._snapshot(usuario), **recibidos}
+        ajustes, errores = self._validar_formatos(valores, set(recibidos))
+        if errores:
+            raise DatosSolicitudInvalidos(errores)
+        valores.update(ajustes)
         solicitud = SolicitudConvenio(
             consecutivo=f"TEMP-{token_hex(12)}",
             solicitante_id=usuario.id,
@@ -201,10 +260,80 @@ class ServicioSolicitudes:
         self._validar_tipo_convenio(
             cambios.get("tipo_convenio_id", solicitud.tipo_convenio_id)
         )
+        # Un PATCH puede traer solo una parte de una identificación: se valida
+        # sobre la combinación de lo recibido con lo ya guardado.
+        efectivos = {
+            campo: getattr(solicitud, campo) for campo in CAMPOS_CON_FORMATO
+        } | cambios
+        ajustes, errores = self._validar_formatos(efectivos, set(cambios))
+        if errores:
+            raise DatosSolicitudInvalidos(errores)
+        cambios.update(ajustes)
         for campo, valor in cambios.items():
             setattr(solicitud, campo, valor)
         self.db.commit()
         return self.obtener(solicitud.id, usuario)
+
+    def _validar_formatos(
+        self, valores: dict[str, object], campos: set[str]
+    ) -> tuple[dict[str, object], dict[str, str]]:
+        """HT-14. Valida los ``campos`` indicados sobre ``valores`` y devuelve
+        los valores canónicos a guardar y los errores por campo.
+
+        Los campos vacíos no se validan aquí: la obligatoriedad se exige solo
+        al radicar (CA-05).
+        """
+        ajustes: dict[str, object] = {}
+        errores: dict[str, str] = {}
+
+        def aplicar(campo: str, regla, *argumentos) -> object:
+            try:
+                ajustes[campo] = regla(*argumentos)
+            except ValueError as error:
+                errores[campo] = str(error)
+            return ajustes.get(campo)
+
+        for campo in CAMPOS_TELEFONO:
+            if campo in campos and valores.get(campo):
+                aplicar(campo, normalizar_telefono, valores[campo])
+        for campo, regla in (
+            ("ciudad_aliado_propuesto", normalizar_ciudad),
+            ("direccion_aliado_propuesto", normalizar_direccion),
+        ):
+            if campo in campos and valores.get(campo):
+                aplicar(campo, regla, valores[campo])
+
+        for campo_tipo, campo_numero, campo_dv in GRUPOS_IDENTIFICACION:
+            if not campos.intersection((campo_tipo, campo_numero, campo_dv)):
+                continue
+            tipo = valores.get(campo_tipo)
+            numero = valores.get(campo_numero)
+            digito = valores.get(campo_dv)
+            if tipo != TipoIdentificacion.NIT and digito:
+                if campo_dv in campos:
+                    errores[campo_dv] = "El dígito de verificación solo aplica a NIT"
+                else:
+                    # El tipo dejó de ser NIT: el DV ya no tiene sentido.
+                    ajustes[campo_dv] = None
+                digito = None
+            base = (
+                aplicar(campo_numero, normalizar_identificacion, TipoIdentificacion(tipo), numero)
+                if tipo and numero
+                else None
+            )
+            if base and digito:
+                aplicar(campo_dv, normalizar_digito_verificacion_nit, base, digito)
+
+        if "pais_aliado_propuesto_id" in campos:
+            pais_id = valores.get("pais_aliado_propuesto_id")
+            pais = self.db.get(Pais, pais_id) if pais_id is not None else None
+            if pais_id is not None and pais is None:
+                errores["pais_aliado_propuesto_id"] = "El país seleccionado no existe"
+            else:
+                # El nombre oficial se conserva para el historial y los
+                # consumidores que leen el país como texto.
+                ajustes["pais_aliado_propuesto"] = pais.nombre if pais else None
+        return ajustes, errores
 
     def listar(self, usuario: Usuario) -> list[SolicitudConvenio]:
         return list(
@@ -450,7 +579,7 @@ class ServicioSolicitudes:
     @staticmethod
     def _datos_version(solicitud: SolicitudConvenio) -> dict[str, object]:
         datos: dict[str, object] = {}
-        for campo in SolicitudCampos.model_fields:
+        for campo in CAMPOS_VERSION:
             valor = getattr(solicitud, campo)
             datos[campo] = valor.isoformat() if isinstance(valor, date) else valor
         return datos
@@ -483,7 +612,7 @@ class ServicioSolicitudes:
             "identificacion_aliado_propuesto",
             "tipo_aliado_propuesto",
             "correo_aliado_propuesto",
-            "pais_aliado_propuesto",
+            "pais_aliado_propuesto_id",
             "ciudad_aliado_propuesto",
             "telefono_aliado_propuesto",
             "direccion_aliado_propuesto",
@@ -539,10 +668,30 @@ class ServicioSolicitudes:
             if not solicitud.solicitante_cargo:
                 errores["solicitante_cargo"] = "Este campo es obligatorio"
         else:
+            if not solicitud.solicitante_tipo_documento:
+                errores["solicitante_tipo_documento"] = "Este campo es obligatorio"
             if not solicitud.solicitante_documento:
                 errores["solicitante_documento"] = "Este campo es obligatorio"
+            if (
+                solicitud.solicitante_tipo_documento == TipoIdentificacion.NIT
+                and not solicitud.solicitante_digito_verificacion
+            ):
+                errores["solicitante_digito_verificacion"] = "Este campo es obligatorio"
             if not solicitud.solicitante_entidad:
                 errores["solicitante_entidad"] = "Este campo es obligatorio"
+        if (
+            solicitud.tipo_identificacion_aliado_propuesto == TipoIdentificacion.NIT
+            and not solicitud.digito_verificacion_aliado_propuesto
+        ):
+            errores["digito_verificacion_aliado_propuesto"] = "Este campo es obligatorio"
+        # RN-09 y RN-10: los valores guardados antes de HT-14 o en una solicitud
+        # devuelta se revalidan al radicar, sin corregirlos automáticamente.
+        _, errores_formato = self._validar_formatos(
+            {campo: getattr(solicitud, campo) for campo in CAMPOS_CON_FORMATO},
+            set(CAMPOS_CON_FORMATO),
+        )
+        for campo, mensaje in errores_formato.items():
+            errores.setdefault(campo, mensaje)
         cargados = {item.tipo for item in solicitud.documentos}
         tipos_representacion = {
             tipo.value for tipo in TIPOS_DOCUMENTO_REPRESENTACION
