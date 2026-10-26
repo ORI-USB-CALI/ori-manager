@@ -1,8 +1,9 @@
 # Conciliación diaria del ciclo de vida de convenios
 
-Propuesta para revisión del líder técnico. No se agregó un programador activo,
-no se modificaron los Blueprints de Render y no se ejecutó nada contra ambientes
-desplegados. La plantilla adyacente termina en `.example` y GitHub no la ejecuta.
+La conciliación contractual utiliza una función SQL versionada, preparada
+para su ejecución diaria mediante Supabase Cron. La activación del programador
+es una operación controlada posterior a la migración y a las pruebas de Staging.
+El CLI Python sigue disponible para diagnóstico y ejecución manual.
 
 ## Comportamiento
 
@@ -76,83 +77,35 @@ La API valida de nuevo la versión y el hijo activo ante concurrencia.
 
 HU-32 y HU-33 no se modifican. No se infiere un estado de evaluación durante
 consultas: HU-32 continúa dependiendo de FINALIZADO persistido. La renovación
-no elimina registros históricos ni evaluaciones. Esta rama base no contiene
-implementación ni tests identificables de HU-32; no se afirma una regresión
-ejecutada sobre una función ausente. Su integración debe verificarse cuando
-esa historia esté disponible, sin cambiar sus criterios.
+no elimina registros históricos ni evaluaciones. HU-32 dispone de implementación y pruebas automatizadas. Su regla
+de elegibilidad continúa dependiendo del estado FINALIZADO persistido.
+Las pruebas de regresión deben ejecutarse antes de activar la conciliación.
 
-## Programador propuesto
+## Ejecución automática aprobada para HT-10
 
-Recomiendo GitHub Actions con runner efímero que ejecute el CLI directamente
-contra PostgreSQL. El repositorio ya usa Actions para CI/migraciones y Python
-3.13/uv. Los Blueprints actuales tienen backend Render `plan: free`, que se
-duerme por inactividad y no ofrece one-off jobs ni shell. Un scheduler dentro
-de Uvicorn no asegura ejecución diaria. [Restricciones oficiales de Render
-Free](https://render.com/docs/free).
+La arquitectura seleccionada utiliza Supabase Cron (`pg_cron`) para
+ejecutar diariamente una función privada de PostgreSQL.
 
-Render Cron es una alternativa operativa si se aprueba gasto: garantiza una
-ejecución activa por servicio, pero exige pago mínimo de USD 1/mes por cron.
-No se provisionó. [Documentación oficial de Render Cron](https://render.com/docs/cronjobs).
+La función versionada `ori_internal.conciliar_estados_ht10` actualiza
+el estado contractual y registra las transiciones y la auditoría
+en una misma transacción.
 
-La propuesta en `conciliacion-convenios.workflow.yml.example` usa:
+El horario objetivo es 05:00 UTC, equivalente a las 00:00 de
+America/Bogota.
 
-- `17 5 * * *`: 00:17 America/Bogota, todos los días (UTC-5).
-- Ejecución manual `workflow_dispatch`, seleccionando ambiente.
-- Programación para producción y checkout explícito de `main`; manual staging
-  usa `develop`. Esto queda sujeto a aprobación; hoy no está activo.
-- Variable del ambiente `CONCILIACION_CONVENIOS_HABILITADA=true`, ausente/desactivada
-  por defecto. Si el environment exige revisión, también debe aprobarse el job.
-- Concurrencia por ambiente, `cancel-in-progress: false`, timeout de 10 minutos.
-- Tres intentos del CLI para errores transitorios, esperas de 2 y 4 segundos,
-  nueva sesión y misma fecha por intento. Los errores permanentes no se reintentan.
-- Checkout, dependencias y versiones alineadas con CI. No ejecuta migraciones,
-  tests ni GET de negocio en el job operativo.
+La migración instala únicamente la función SQL. No habilita
+`pg_cron`, no programa jobs y no ejecuta conciliaciones sobre datos
+existentes.
 
-GitHub puede retrasar o descartar horarios bajo carga. El evento programado
-requiere el workflow en la rama predeterminada y usa esa rama para cargarlo;
-el checkout de código selecciona explícitamente main. En repositorios públicos
-el scheduler puede deshabilitarse tras 60 días sin actividad. Por ello 00:17 es
-un objetivo operativo, no una garantía de actualización a medianoche exacta.
-[Reglas oficiales de schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+La configuración y validación operativa se documentan en
+`docs/operations/ht10-supabase-cron.md`.
 
-Hasta que el job termine, el estado puede quedar desactualizado; las alertas ya
-filtran fechas pasadas, pero HU-32 esperará FINALIZADO persistido. Si el negocio
-exige una garantía estricta de hora, corresponde aprobar un programador con ese
-nivel de servicio. El siguiente run recupera cambios pendientes usando su fecha
-real de Bogotá; no necesita recorrer días omitidos.
+El CLI Python se conserva como herramienta de diagnóstico y
+conciliación manual. No debe activarse un segundo programador
+que provoque ejecuciones redundantes.
 
-## Configuración pendiente antes de automatizar
-
-1. Aprobar programador, horario, ambiente inicial, tolerancia a retrasos y responsable
-   operativo. Revisar cuota/minutos y límite de gasto de Actions: no asumir costo
-   cero para cualquier plan ni habilitar consumo facturable sin aprobación.
-2. Aprobar/desplegar la migración y el código por el proceso habitual; la validación
-   local usó las bases aisladas `ori_manager_ciclo_vida_test` y
-   `ori_manager_ciclo_vida_manual`, sin cambios en ambientes desplegados.
-3. Crear una credencial de PostgreSQL específica para el job. Necesita SELECT de
-   convenio, UPDATE de sus columnas estado/actualizado_en, INSERT de la bitácora
-   y acceso a su secuencia. No necesita credenciales de correo/documentos, acceso
-   humano ni capacidad de borrar datos. Migraciones usan otro principal.
-4. Confirmar acceso externo, TLS y hostname/puerto compatibles con runners de
-   GitHub. Cargar secrets `CONCILIACION_DATABASE_HOST`, `_PORT`, `_NAME`, `_USER`,
-   `_PASSWORD` en cada environment. No reutilizar automáticamente credenciales
-   de migración con mayores privilegios.
-5. Antes de habilitar, ejecutar el CLI en simulación bajo control del responsable
-   y revisar VENCIDO legado/fechas nulas. Este trabajo no ejecuta esa simulación
-   contra staging/producción.
-6. Tras aprobación, copiar la plantilla a `.github/workflows`, ajustar environments
-   y branches a la configuración real y habilitar la variable solo en el ambiente
-   autorizado. La plantilla no se activa por estar en docs.
-7. Configurar notificación de workflows fallidos, responsable de revisar anomalías,
-   conservación de logs (p. ej. 90 días si el plan lo permite) y revisión diaria
-   de último run exitoso. Una ejecución sin cambios solo queda evidenciada en
-   logs/Actions, no en filas de transición. No se configuraron notificaciones.
-
-Después de agotar reintentos, el job falla y requiere revisión; no hace un bucle
-indefinido. Se puede reejecutar manualmente con el CLI. Si se conoce un commit
-ambiguo por desconexión, la repetición es segura: la bitácora y el estado se
-confirmaron juntos o ninguno se confirmó. Una vez FINALIZADO, cambiar la fecha
-de referencia no reactiva automáticamente el convenio.
+La activación del job requiere validación previa en Staging,
+auditoría, respaldo y autorización del responsable técnico.
 
 ## Validación manual local
 
