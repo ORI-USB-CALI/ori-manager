@@ -151,3 +151,20 @@ def identificacion_completa(
     if base and tipo == TipoIdentificacion.NIT and digito_verificacion:
         return f"{base}-{digito_verificacion}"
     return base
+
+
+_TERMINO_NIT_CON_DV = re.compile(r"(?P<base>\d+)-\d")
+
+
+def termino_busqueda_identificacion(termino: str) -> str:
+    """Término para buscar en la identificación, que se guarda por su base.
+
+    Si lo escrito parece una identificación numérica (con puntos, espacios o
+    el DV del NIT), se reduce a su base; si no, se busca tal como se escribió.
+    """
+    original = termino.strip()
+    compacto = _SEPARADORES_NUMERICOS.sub("", original)
+    con_dv = _TERMINO_NIT_CON_DV.fullmatch(compacto)
+    if con_dv:
+        return con_dv["base"]
+    return compacto if compacto.isdecimal() else original

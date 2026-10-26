@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from backend.core.validaciones import termino_busqueda_identificacion
 from backend.models.aliado import Aliado
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
@@ -58,8 +59,13 @@ class ServicioAliados:
         condiciones = []
         if filtros.buscar:
             patron = f"%{filtros.buscar.strip()}%"
+            # HT-14: la identificación se guarda por su base, sin puntos ni DV.
+            patron_identificacion = f"%{termino_busqueda_identificacion(filtros.buscar)}%"
             condiciones.append(
-                or_(Aliado.nombre.ilike(patron), Aliado.identificacion.ilike(patron))
+                or_(
+                    Aliado.nombre.ilike(patron),
+                    Aliado.identificacion.ilike(patron_identificacion),
+                )
             )
         if filtros.tipo is not None:
             condiciones.append(Aliado.tipo == filtros.tipo.value)

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, aliased, joinedload, object_session, selecti
 
 from backend.core.roles import CodigoRol
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.core.validaciones import termino_busqueda_identificacion
 from backend.models.aliado import Aliado
 from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
@@ -1055,17 +1056,20 @@ class ServicioConvenios:
         termino_original = buscar.strip()
         termino = termino_original.translate(_CARACTERES_ILIKE)
         patron = f"%{termino}%"
+        # HT-14: la identificación se guarda por su base, sin puntos ni DV.
+        identificacion = termino_busqueda_identificacion(termino_original)
+        patron_identificacion = f"%{identificacion.translate(_CARACTERES_ILIKE)}%"
 
         coincidencias = [
             Convenio.codigo.ilike(patron, escape="\\"),
             Convenio.objeto.ilike(patron, escape="\\"),
             Aliado.nombre.ilike(patron, escape="\\"),
-            Aliado.identificacion.ilike(patron, escape="\\"),
+            Aliado.identificacion.ilike(patron_identificacion, escape="\\"),
             SolicitudConvenio.nombre_aliado_propuesto.ilike(
                 patron, escape="\\"
             ),
             SolicitudConvenio.identificacion_aliado_propuesto.ilike(
-                patron, escape="\\"
+                patron_identificacion, escape="\\"
             ),
             SolicitudConvenio.consecutivo.ilike(patron, escape="\\"),
             TipoConvenio.nombre.ilike(patron, escape="\\"),
