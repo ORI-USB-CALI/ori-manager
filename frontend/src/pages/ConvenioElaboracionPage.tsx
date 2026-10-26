@@ -535,6 +535,7 @@ export function ConvenioElaboracionPage() {
 
             <section className="card historial-versiones">
               <h2>Historial de versiones</h2>
+              <p className="section-help">Solo incluye versiones formales; guardar avances no agrega versiones.</p>
               <div className="version-lista">
                 {versiones.data?.map((version) => (
                   <article className={version.numero === datos.version_actual ? 'version-actual' : undefined} key={version.numero}>
@@ -545,6 +546,11 @@ export function ConvenioElaboracionPage() {
                     <span><strong>Autor:</strong> {version.autor.nombre_completo}</span>
                     <span><strong>Fecha:</strong> {fechaHora(version.creado_en)}</span>
                     <span><strong>Contexto:</strong> {contextoVersion(version.contexto)}</span>
+                    {puede('convenios.ver') && (
+                      <Link className="version-enlace" to={`/convenios/${id}/versiones/${version.numero}`} aria-label={`Ver contenido de la versión ${version.numero}`}>
+                        Ver contenido
+                      </Link>
+                    )}
                   </article>
                 ))}
               </div>

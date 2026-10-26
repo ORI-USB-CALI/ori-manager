@@ -2633,6 +2633,13 @@ a:hover {
   display: contents;
 }
 
+.version-lista .version-enlace {
+  justify-self: start;
+  margin-top: 4px;
+  color: var(--color-naranja);
+  font-weight: 650;
+}
+
 .snapshot-campo dd {
   min-width: 0;
   overflow-wrap: anywhere;
