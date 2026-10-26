@@ -235,6 +235,23 @@ export interface VersionConvenioResumen {
   plantilla: PlantillaConvenioResumen | null
 }
 
+/** Snapshot histórico e inmutable de una versión formal (HT-05). */
+export interface VersionConvenioDetalle extends VersionConvenioResumen {
+  contenido: Record<string, unknown>
+  snapshot_metadata: Record<string, unknown>
+}
+
+const CONTEXTOS_VERSION: Record<string, string> = {
+  INICIALIZACION: 'Creación del proyecto',
+  GUARDADO: 'Avance guardado',
+  FINALIZACION: 'Elaboración finalizada',
+  CORRECCION_REVISION: 'Ajustes de revisión',
+}
+
+export function contextoVersion(contexto: string) {
+  return CONTEXTOS_VERSION[contexto] ?? contexto
+}
+
 export interface UsuarioResumen {
   id: number
   nombre_completo: string
@@ -315,6 +332,15 @@ export function useVersionesConvenio(convenioId: number) {
     queryKey: ['convenios', convenioId, 'versiones'],
     queryFn: () => apiFetch<VersionConvenioResumen[]>(`/convenios/${convenioId}/versiones`),
     enabled: Number.isInteger(convenioId),
+    retry: false,
+  })
+}
+
+export function useVersionConvenio(convenioId: number, numero: number) {
+  return useQuery({
+    queryKey: ['convenios', convenioId, 'versiones', numero],
+    queryFn: () => apiFetch<VersionConvenioDetalle>(`/convenios/${convenioId}/versiones/${numero}`),
+    enabled: Number.isInteger(convenioId) && Number.isInteger(numero) && numero > 0,
     retry: false,
   })
 }
