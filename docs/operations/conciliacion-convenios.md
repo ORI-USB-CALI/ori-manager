@@ -1,8 +1,9 @@
 # Conciliación diaria del ciclo de vida de convenios
 
-Propuesta para revisión del líder técnico. No se agregó un programador activo,
-no se modificaron los Blueprints de Render y no se ejecutó nada contra ambientes
-desplegados. La plantilla adyacente termina en `.example` y GitHub no la ejecuta.
+La conciliación contractual utiliza una función SQL versionada, preparada
+para su ejecución diaria mediante Supabase Cron. La activación del programador
+es una operación controlada posterior a la migración y a las pruebas de Staging.
+El CLI Python sigue disponible para diagnóstico y ejecución manual.
 
 ## Comportamiento
 
@@ -76,10 +77,9 @@ La API valida de nuevo la versión y el hijo activo ante concurrencia.
 
 HU-32 y HU-33 no se modifican. No se infiere un estado de evaluación durante
 consultas: HU-32 continúa dependiendo de FINALIZADO persistido. La renovación
-no elimina registros históricos ni evaluaciones. Esta rama base no contiene
-implementación ni tests identificables de HU-32; no se afirma una regresión
-ejecutada sobre una función ausente. Su integración debe verificarse cuando
-esa historia esté disponible, sin cambiar sus criterios.
+no elimina registros históricos ni evaluaciones. HU-32 dispone de implementación y pruebas automatizadas. Su regla
+de elegibilidad continúa dependiendo del estado FINALIZADO persistido.
+Las pruebas de regresión deben ejecutarse antes de activar la conciliación.
 
 ## Ejecución automática aprobada para HT-10
 
