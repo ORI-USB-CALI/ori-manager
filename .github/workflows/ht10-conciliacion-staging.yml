@@ -15,7 +15,7 @@ jobs:
     name: Simular conciliacion Staging
     if: ${{ github.repository == 'ORI-USB-CALI/ori-manager' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    environment: staging
+    environment: ht10-staging
     timeout-minutes: 10
 
     defaults:
