@@ -316,6 +316,7 @@ a:hover {
 
 .navbar {
   display: flex;
+  flex-wrap: wrap;
   min-height: 64px;
   align-items: center;
   justify-content: space-between;
@@ -338,13 +339,50 @@ a:hover {
   text-decoration: none;
 }
 
+.navbar-menu {
+  display: contents;
+}
+
+.navbar-menu-boton {
+  display: none;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: white;
+  color: var(--text-primary);
+}
+
+.navbar-menu-boton:hover {
+  background: #f1f5f9;
+}
+
+.navbar-menu-boton:focus-visible {
+  outline: 3px solid rgb(243 108 33 / 35%);
+  outline-offset: 2px;
+}
+
+.navbar-menu-boton svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 .navbar-links {
   display: flex;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
 .navbar-links a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 8px 12px;
   border-radius: 8px;
   color: var(--text-secondary);
@@ -364,8 +402,14 @@ a:hover {
 .user-profile,
 .user-data {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 10px;
+}
+
+.user-profile {
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .user-data {
@@ -375,8 +419,16 @@ a:hover {
 }
 
 .user-email {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   font-weight: 600;
+}
+
+.user-data .badge-rol {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .page {
@@ -2541,19 +2593,56 @@ a:hover {
     padding: 12px 16px;
   }
 
-  .navbar-links {
+  .navbar-brand-extra {
+    display: none;
+  }
+
+  .navbar-menu-boton {
+    display: inline-flex;
+    order: 2;
+    margin-left: auto;
+  }
+
+  .user-profile {
     order: 3;
+    display: grid;
+    width: 100%;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .user-data {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  /* HT-04: por debajo del punto de quiebre, la navegación se colapsa
+     detrás del botón de menú en vez de desbordar o hacer scroll
+     horizontal. El panel ocupa todo el ancho, en columna, y solo aparece
+     con .navbar-links-abierto (ver HeaderNav.tsx). */
+  .navbar-links {
+    order: 4;
     width: 100%;
     min-width: 0;
-    overflow-x: auto;
+    flex: 1 1 100%;
+    flex-direction: column;
+    gap: 2px;
+    display: none;
+  }
+
+  .navbar-links-abierto {
+    display: flex;
   }
 
   .navbar-links a {
-    flex: 0 0 auto;
+    width: 100%;
+    padding: 10px 12px;
   }
 
   .user-email {
-    display: none;
+    display: block;
   }
 
   .page {
@@ -2633,9 +2722,8 @@ a:hover {
     display: none;
   }
 
-  .user-data {
-    display: none;
-  }
+  /* El correo y rol siguen visibles y accesibles incluso a 320 px.
+     No ocultar .user-data: CA-03 lo requiere explícitamente. */
 
   .form-grid {
     grid-template-columns: 1fr;
