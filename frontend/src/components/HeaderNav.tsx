@@ -84,7 +84,12 @@ function HeaderNavInteractiva({ enlaces }: HeaderNavProps) {
         aria-label="Navegación principal"
       >
         {enlaces.map((enlace) => (
-          <NavLink key={enlace.to} to={enlace.to} end={enlace.end}>
+          <NavLink
+            key={enlace.to}
+            to={enlace.to}
+            end={enlace.end}
+            onClick={() => setAbierto(false)}
+          >
             {enlace.label}
           </NavLink>
         ))}

@@ -20,6 +20,13 @@ const enlacesAdministrador: EnlaceNav[] = [
   { to: '/convenios', label: 'Consulta de convenios' },
   { to: '/admin/usuarios', label: 'Usuarios' },
   { to: '/admin/bitacora', label: 'Bitácora' },
+  { to: '/ori/solicitudes', label: 'Solicitudes recibidas' },
+  { to: '/convenios/nuevo', label: 'Crear convenio manual' },
+  { to: '/convenios/tablero', label: 'Tablero de convenios' },
+  { to: '/renovaciones', label: 'Renovaciones' },
+  { to: '/reportes/convenios-activos', label: 'Reportes' },
+  { to: '/reportes/estadisticas-convenios', label: 'Estadísticas' },
+  { to: '/revisiones-juridicas', label: 'Revisiones jurídicas' },
 ]
 
 const enlacesSolicitante: EnlaceNav[] = [
@@ -116,4 +123,38 @@ describe('HeaderNav — menú colapsable (operable con teclado)', () => {
 
     expect(screen.getByRole('button', { name: 'Abrir menú de navegación' })).toBeTruthy()
   })
+})
+
+
+describe('HeaderNav — regresiones HT-04', () => {
+  it('todos los enlaces autorizados siguen disponibles al abrir el menú', async () => {
+    renderNav(enlacesAdministrador)
+    const usuario = userEvent.setup()
+    const boton = screen.getByRole('button', { name: 'Abrir menú de navegación' })
+    const idPanel = boton.getAttribute('aria-controls')
+    expect(idPanel).toBeTruthy()
+    expect(document.getElementById(idPanel!)?.getAttribute('aria-label')).toBe('Navegación principal')
+
+    await usuario.click(boton)
+    for (const enlace of enlacesAdministrador) {
+      expect(screen.getByRole('link', { name: enlace.label })).toBeTruthy()
+    }
+  })
+
+  it('cierra el menú al seleccionar la misma ruta activa', async () => {
+    renderNav(enlacesAdministrador, '/')
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByRole('button', { name: 'Abrir menú de navegación' }))
+    await usuario.click(screen.getByRole('link', { name: 'Inicio' }))
+    expect(screen.getByRole('button', { name: 'Abrir menú de navegación' }).getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it.each(['Solicitante Interno', 'Solicitante Externo'])(
+    'solo muestra enlaces recibidos para %s (fixture representativa)', () => {
+      renderNav(enlacesSolicitante)
+      expect(screen.getByRole('link', { name: 'Mis solicitudes' })).toBeTruthy()
+      expect(screen.queryByRole('link', { name: 'Usuarios' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Bitácora' })).toBeNull()
+    },
+  )
 })
