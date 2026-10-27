@@ -14,11 +14,15 @@ import type { CatalogosSolicitud, EstadoSolicitud, SolicitudRecibida } from './s
 const solicitud: SolicitudRecibida = {
   id: 41, consecutivo: 'SOL-00000041', solicitante_id: 7, tipo_solicitante: 'INTERNO',
   unidad_organizacional_id: null, solicitante_nombre: 'Ana Solicitante',
-  solicitante_correo: 'ana@example.com', solicitante_documento: null,
+  solicitante_correo: 'ana@example.com', solicitante_tipo_documento: null,
+  solicitante_documento: null, solicitante_digito_verificacion: null,
+  solicitante_documento_completo: null,
   solicitante_cargo: 'Docente', solicitante_entidad: null, solicitante_unidad: 'Ingeniería',
   solicitante_programa: null, nombre_aliado_propuesto: 'Universidad Contraparte',
   tipo_identificacion_aliado_propuesto: null, identificacion_aliado_propuesto: null,
-  tipo_aliado_propuesto: null, correo_aliado_propuesto: null, pais_aliado_propuesto: null,
+  digito_verificacion_aliado_propuesto: null, identificacion_aliado_propuesto_completa: null,
+  tipo_aliado_propuesto: null, correo_aliado_propuesto: null,
+  pais_aliado_propuesto_id: null, pais_aliado_propuesto: null,
   ciudad_aliado_propuesto: null, telefono_aliado_propuesto: null,
   direccion_aliado_propuesto: null, sector_economico_aliado_propuesto: null,
   contacto_contraparte_nombre: null, contacto_contraparte_cargo: null,
@@ -207,6 +211,7 @@ describe('HT-01: retroalimentación desde el backend en el portal Solicitante', 
       const motivo = 'Precisar cláusula 3, NIT 123 y vigencia: 24 meses.'
       const fetch = vi.fn(async (url: string) => {
         if (url === '/api/solicitudes/catalogos') return respuesta(200, catalogos)
+        if (url === '/api/paises') return respuesta(200, [])
         if (url === '/api/solicitudes/41') return respuesta(200, {
           ...solicitud, estado, motivo_rechazo: estado === 'RECHAZADA' ? motivo : null,
           observaciones_devolucion: estado === 'RECHAZADA' ? null : motivo,
@@ -219,7 +224,7 @@ describe('HT-01: retroalimentación desde el backend en el portal Solicitante', 
       expect(screen.getByText(`Estado: ${estado}`)).toBeTruthy()
       expect(screen.getByText(motivo)).toBeTruthy()
       expect((screen.getByRole('textbox', { name: 'Responsable y/o solicitante *' }) as HTMLInputElement).value).toBe('Ana Solicitante')
-      expect(fetch.mock.calls.map(([url]) => url).sort()).toEqual(['/api/solicitudes/41', '/api/solicitudes/catalogos'])
+      expect(fetch.mock.calls.map(([url]) => url).sort()).toEqual(['/api/paises', '/api/solicitudes/41', '/api/solicitudes/catalogos'])
       expect(screen.queryByText(/Solicitud no encontrada/)).toBeNull()
     },
   )
@@ -242,6 +247,7 @@ describe('HT-01: decisión vigente y observaciones de una devolución anterior',
       const fetch = vi.fn(async (url: string, init?: RequestInit) => {
         if (!init?.method || init.method === 'GET') {
           if (url === '/api/solicitudes/catalogos') return respuesta(200, catalogos)
+          if (url === '/api/paises') return respuesta(200, [])
           if (url === '/api/solicitudes/recibidas/41' || url === '/api/solicitudes/41') {
             return respuesta(200, persistida)
           }
@@ -301,7 +307,7 @@ describe('HT-01: decisión vigente y observaciones de una devolución anterior',
         }
         expect(screen.queryByText(/Solicitud no encontrada/)).toBeNull()
       }
-      expect(fetch).toHaveBeenCalledTimes(12)
+      expect(fetch).toHaveBeenCalledTimes(16)
       expect(incorrectas).toEqual([])
     },
   )

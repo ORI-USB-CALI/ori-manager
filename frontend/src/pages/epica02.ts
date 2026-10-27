@@ -111,6 +111,22 @@ export function useAliados(soloActivos = false) {
   })
 }
 
+/** HT-14: catálogo ISO 3166-1, para cualquier formulario que pida un país. */
+export interface Pais {
+  id: number
+  codigo_iso: string
+  nombre: string
+}
+
+export function usePaises() {
+  return useQuery({
+    queryKey: ['paises'],
+    queryFn: () => apiFetch<Pais[]>('/paises'),
+    staleTime: Infinity,
+    retry: false,
+  })
+}
+
 export interface SolicitudAntecedente {
   id: number
   consecutivo: string

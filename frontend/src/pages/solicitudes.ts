@@ -24,7 +24,10 @@ export interface Solicitud {
   unidad_organizacional_id: number | null
   solicitante_nombre: string | null
   solicitante_correo: string | null
+  solicitante_tipo_documento: TipoIdentificacion | null
   solicitante_documento: string | null
+  solicitante_digito_verificacion: string | null
+  solicitante_documento_completo: string | null
   solicitante_cargo: string | null
   solicitante_entidad: string | null
   solicitante_unidad: string | null
@@ -32,8 +35,11 @@ export interface Solicitud {
   nombre_aliado_propuesto: string | null
   tipo_identificacion_aliado_propuesto: TipoIdentificacion | null
   identificacion_aliado_propuesto: string | null
+  digito_verificacion_aliado_propuesto: string | null
+  identificacion_aliado_propuesto_completa: string | null
   tipo_aliado_propuesto: TipoAliado | null
   correo_aliado_propuesto: string | null
+  pais_aliado_propuesto_id: number | null
   pais_aliado_propuesto: string | null
   ciudad_aliado_propuesto: string | null
   telefono_aliado_propuesto: string | null

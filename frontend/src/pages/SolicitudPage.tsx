@@ -1,17 +1,24 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FocusEvent, type FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
-import { ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
+import { ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado, type TipoIdentificacion, usePaises } from './epica02'
 import { type DocumentoSolicitud, type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
+import {
+  validarCiudad,
+  validarDigitoVerificacionNit,
+  validarDireccion,
+  validarIdentificacion,
+  validarTelefono,
+} from './validacionesSolicitud'
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
 const CAMPOS_REQUERIDOS = [
   'nombre_aliado_propuesto', 'tipo_identificacion_aliado_propuesto', 'identificacion_aliado_propuesto',
   'tipo_aliado_propuesto', 'correo_aliado_propuesto', 'contacto_contraparte_nombre',
-  'pais_aliado_propuesto', 'ciudad_aliado_propuesto', 'telefono_aliado_propuesto',
+  'pais_aliado_propuesto_id', 'ciudad_aliado_propuesto', 'telefono_aliado_propuesto',
   'direccion_aliado_propuesto', 'contacto_contraparte_cargo',
   'contacto_contraparte_telefono', 'contacto_contraparte_correo', 'tipo_convenio_id', 'justificacion', 'objeto',
   'actividades_por_parte', 'metas_esperadas', 'implicacion_financiera', 'vigencia_estimada',
@@ -100,10 +107,26 @@ export function SolicitudPage() {
   const solicitudIdRef = useRef<number | null>(id)
   const operacionEnCursoRef = useRef(false)
   const catalogos = useCatalogosSolicitud()
+  const paises = usePaises()
   const consulta = useSolicitud(id)
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [tipoDocumento, setTipoDocumento] = useState<TipoDocumento>('CAMARA_COMERCIO')
+  // HT-14: el dígito de verificación solo aplica (y solo se exige) cuando el
+  // tipo elegido es NIT, así que hay que saber cuál está seleccionado para
+  // mostrar u ocultar ese campo.
+  const [tipoIdentificacionAliado, setTipoIdentificacionAliado] = useState<TipoIdentificacion | ''>('')
+  const [tipoDocumentoSolicitante, setTipoDocumentoSolicitante] = useState<TipoIdentificacion | ''>('')
+  // El estado inicial de los selects no puede depender de `solicitud` (llega
+  // asíncrona después del primer render). Se ajusta durante el render, no en
+  // un efecto, siguiendo el patrón de React para derivar estado de props que
+  // cambian (https://react.dev/learn/you-might-not-need-an-effect).
+  const [solicitudSincronizada, setSolicitudSincronizada] = useState<Solicitud | undefined>(undefined)
   const solicitud = consulta.data
+  if (solicitud && solicitud !== solicitudSincronizada) {
+    setSolicitudSincronizada(solicitud)
+    setTipoIdentificacionAliado(solicitud.tipo_identificacion_aliado_propuesto ?? '')
+    setTipoDocumentoSolicitante(solicitud.solicitante_tipo_documento ?? '')
+  }
   const editable = !solicitud || ['BORRADOR', 'DEVUELTA'].includes(solicitud.estado)
 
   useEffect(() => {
@@ -172,9 +195,15 @@ export function SolicitudPage() {
         }
         if (!datos.solicitante_cargo) locales.solicitante_cargo = 'Este campo es obligatorio'
       } else {
-        for (const campo of ['solicitante_documento', 'solicitante_entidad']) {
+        for (const campo of ['solicitante_tipo_documento', 'solicitante_documento', 'solicitante_entidad']) {
           if (!datos[campo]) locales[campo] = 'Este campo es obligatorio'
         }
+        if (datos.solicitante_tipo_documento === 'NIT' && !datos.solicitante_digito_verificacion) {
+          locales.solicitante_digito_verificacion = 'Este campo es obligatorio'
+        }
+      }
+      if (datos.tipo_identificacion_aliado_propuesto === 'NIT' && !datos.digito_verificacion_aliado_propuesto) {
+        locales.digito_verificacion_aliado_propuesto = 'Este campo es obligatorio'
       }
       if (datos.tipo_aliado_propuesto === 'EMPRESA' && !datos.sector_economico_aliado_propuesto) locales.sector_economico_aliado_propuesto = 'Es obligatorio para una empresa'
       if (Object.keys(locales).length) {
@@ -257,9 +286,60 @@ export function SolicitudPage() {
   } : perfil
   const erroresDocumentos = Object.entries(errores).filter(([key]) => key.startsWith('documentos.'))
 
-  const campo = (nombre: keyof Solicitud, etiqueta: string, multilinea = false, precarga: string | null = null, requerido = true, placeholder = PLACEHOLDERS_CAMPOS[nombre]) => {
+  // HT14-FE01: marca o limpia el error de un campo sin pisar los demás que
+  // ya estaban mostrándose (del servidor o de otra validación en vivo).
+  function marcarError(nombre: string, mensaje: string | null) {
+    setErrores((actuales) => {
+      if (!mensaje) {
+        if (!(nombre in actuales)) return actuales
+        const siguientes = { ...actuales }
+        delete siguientes[nombre]
+        return siguientes
+      }
+      return { ...actuales, [nombre]: mensaje }
+    })
+  }
+
+  // Valida un dígito de verificación de NIT contra la base ya diligenciada
+  // en `campoBase` del mismo formulario (se lee al vuelo con el `.form` del
+  // propio campo, no por estado ni por ref, para no convertir ese campo en
+  // controlado ni leer un ref durante el render).
+  function alValidarDv(campoBase: string, campoDv: string) {
+    return (evento: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const valorDv = evento.target.value.trim()
+      const formulario = evento.target.form
+      if (!valorDv || !formulario) {
+        marcarError(campoDv, null)
+        return
+      }
+      const base = String(new FormData(formulario).get(campoBase) ?? '')
+        .trim()
+        .replace(/[.\s]/g, '')
+      marcarError(campoDv, base ? validarDigitoVerificacionNit(base, valorDv) : null)
+    }
+  }
+
+  const campo = (
+    nombre: keyof Solicitud,
+    etiqueta: string,
+    multilinea = false,
+    precarga: string | null = null,
+    requerido = true,
+    placeholder = PLACEHOLDERS_CAMPOS[nombre],
+    validar?: (valor: string) => string | null,
+    // Para los dos campos de dígito de verificación: necesitan comparar
+    // contra OTRO campo del formulario (la identificación), algo que
+    // `validar` no puede expresar porque solo recibe su propio valor.
+    onBlurManual?: (evento: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void,
+  ) => {
     const id = `solicitud-${String(nombre).replaceAll('_', '-')}`
     const errorId = `${id}-error`
+    const alSalirDelCampo = onBlurManual ?? (validar
+      ? (evento: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+          const valor = evento.target.value.trim()
+          marcarError(nombre, valor ? validar(valor) : null)
+        }
+      : undefined)
     const propiedades = {
       id,
       className: `form-control ${errores[nombre] ? 'is-invalid' : ''}`,
@@ -269,6 +349,7 @@ export function SolicitudPage() {
       disabled: !editable,
       'aria-describedby': errores[nombre] ? errorId : undefined,
       'aria-invalid': Boolean(errores[nombre]),
+      onBlur: alSalirDelCampo,
     }
     return (
       <label className={`form-group ${multilinea ? 'form-span-2' : ''}`} htmlFor={id}><span className="form-label">{etiqueta}{requerido ? ' *' : ''}</span>
@@ -297,27 +378,52 @@ export function SolicitudPage() {
         <section className="card"><h2>1. Información del solicitante {perfilVisible?.tipo_usuario === 'INTERNO' ? 'interno' : 'externo'}</h2><p className="section-help">Los datos se precargan desde su perfil y se conservarán como snapshot de esta solicitud.</p><div className="form-grid">
           {campo('solicitante_nombre', 'Responsable y/o solicitante', false, perfilVisible?.nombre ?? null)}
           {campo('solicitante_correo', 'Correo del solicitante', false, perfilVisible?.correo ?? null, false)}
-          {perfilVisible?.tipo_usuario === 'INTERNO' ? <>{campo('solicitante_unidad', 'Facultad / Dependencia', false, perfilVisible.unidad, tipoUnidad !== null && (tipoUnidad !== 'PROGRAMA' || Boolean(perfilVisible.unidad)))}{campo('solicitante_programa', 'Programa Académico / Unidad', false, perfilVisible.programa, tipoUnidad === 'PROGRAMA')}{campo('solicitante_cargo', 'Cargo', false, perfilVisible.cargo)}</> : <>{campo('solicitante_documento', 'Identificación', false, perfilVisible?.identificacion ?? null)}{campo('solicitante_entidad', 'Empresa / Entidad', false, perfilVisible?.entidad ?? null)}</>}
+          {perfilVisible?.tipo_usuario === 'INTERNO' ? <>{campo('solicitante_unidad', 'Facultad / Dependencia', false, perfilVisible.unidad, tipoUnidad !== null && (tipoUnidad !== 'PROGRAMA' || Boolean(perfilVisible.unidad)))}{campo('solicitante_programa', 'Programa Académico / Unidad', false, perfilVisible.programa, tipoUnidad === 'PROGRAMA')}{campo('solicitante_cargo', 'Cargo', false, perfilVisible.cargo)}</> : (
+            <>
+              <label className="form-group" htmlFor="solicitud-solicitante-tipo-documento"><span className="form-label">Tipo de documento *</span><select id="solicitud-solicitante-tipo-documento" aria-describedby={errores.solicitante_tipo_documento ? 'solicitud-solicitante-tipo-documento-error' : undefined} aria-invalid={Boolean(errores.solicitante_tipo_documento)} className={`form-control select ${errores.solicitante_tipo_documento ? 'is-invalid' : ''}`} name="solicitante_tipo_documento" defaultValue={solicitud?.solicitante_tipo_documento ?? ''} disabled={!editable} onChange={(evento) => setTipoDocumentoSolicitante(evento.target.value as TipoIdentificacion | '')}><option value="">Seleccione el tipo de documento</option>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo}>{tipo}</option>)}</select>{errores.solicitante_tipo_documento && <span id="solicitud-solicitante-tipo-documento-error" className="form-error">{errores.solicitante_tipo_documento}</span>}</label>
+              {campo(
+                'solicitante_documento', 'Identificación', false, perfilVisible?.identificacion ?? null, true,
+                undefined,
+                tipoDocumentoSolicitante ? (valor) => validarIdentificacion(tipoDocumentoSolicitante, valor) : undefined,
+              )}
+              {tipoDocumentoSolicitante === 'NIT' && campo(
+                'solicitante_digito_verificacion', 'Dígito de verificación', false, null, true, 'Ej: 7',
+                undefined, alValidarDv('solicitante_documento', 'solicitante_digito_verificacion'),
+              )}
+              {campo('solicitante_entidad', 'Empresa / Entidad', false, perfilVisible?.entidad ?? null)}
+            </>
+          )}
         </div></section>
 
         <section className="card"><h2>2. Información de la contraparte</h2><div className="form-grid">
           {campo('nombre_aliado_propuesto', 'Nombre de la entidad')}
           <label className="form-group" htmlFor="solicitud-tipo-entidad"><span className="form-label">Tipo de entidad *</span><select id="solicitud-tipo-entidad" aria-describedby={errores.tipo_aliado_propuesto ? 'solicitud-tipo-entidad-error' : undefined} aria-invalid={Boolean(errores.tipo_aliado_propuesto)} className={`form-control select ${errores.tipo_aliado_propuesto ? 'is-invalid' : ''}`} name="tipo_aliado_propuesto" defaultValue={solicitud?.tipo_aliado_propuesto ?? ''} disabled={!editable}><option value="">Seleccione el tipo de entidad</option>{TIPOS_ALIADO.map((tipo) => <option key={tipo} value={tipo}>{ETIQUETA_TIPO[tipo]}</option>)}</select>{errores.tipo_aliado_propuesto && <span id="solicitud-tipo-entidad-error" className="form-error">{errores.tipo_aliado_propuesto}</span>}</label>
-          <label className="form-group" htmlFor="solicitud-tipo-identificacion"><span className="form-label">Tipo de identificación *</span><select id="solicitud-tipo-identificacion" aria-describedby={errores.tipo_identificacion_aliado_propuesto ? 'solicitud-tipo-identificacion-error' : undefined} aria-invalid={Boolean(errores.tipo_identificacion_aliado_propuesto)} className={`form-control select ${errores.tipo_identificacion_aliado_propuesto ? 'is-invalid' : ''}`} name="tipo_identificacion_aliado_propuesto" defaultValue={solicitud?.tipo_identificacion_aliado_propuesto ?? ''} disabled={!editable}><option value="">Seleccione el tipo de identificación</option>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo}>{tipo}</option>)}</select>{errores.tipo_identificacion_aliado_propuesto && <span id="solicitud-tipo-identificacion-error" className="form-error">{errores.tipo_identificacion_aliado_propuesto}</span>}</label>
-          {campo('identificacion_aliado_propuesto', 'Identificación')}{campo('correo_aliado_propuesto', 'Correo institucional de la entidad')}{campo('sector_economico_aliado_propuesto', 'Sector económico (obligatorio para empresa)', false, null, false)}
-          {campo('pais_aliado_propuesto', 'País')}{campo('ciudad_aliado_propuesto', 'Ciudad')}{campo('telefono_aliado_propuesto', 'Teléfono institucional')}{campo('direccion_aliado_propuesto', 'Dirección')}
+          <label className="form-group" htmlFor="solicitud-tipo-identificacion"><span className="form-label">Tipo de identificación *</span><select id="solicitud-tipo-identificacion" aria-describedby={errores.tipo_identificacion_aliado_propuesto ? 'solicitud-tipo-identificacion-error' : undefined} aria-invalid={Boolean(errores.tipo_identificacion_aliado_propuesto)} className={`form-control select ${errores.tipo_identificacion_aliado_propuesto ? 'is-invalid' : ''}`} name="tipo_identificacion_aliado_propuesto" defaultValue={solicitud?.tipo_identificacion_aliado_propuesto ?? ''} disabled={!editable} onChange={(evento) => setTipoIdentificacionAliado(evento.target.value as TipoIdentificacion | '')}><option value="">Seleccione el tipo de identificación</option>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo}>{tipo}</option>)}</select>{errores.tipo_identificacion_aliado_propuesto && <span id="solicitud-tipo-identificacion-error" className="form-error">{errores.tipo_identificacion_aliado_propuesto}</span>}</label>
+          {campo(
+            'identificacion_aliado_propuesto', 'Identificación', false, null, true, undefined,
+            tipoIdentificacionAliado ? (valor) => validarIdentificacion(tipoIdentificacionAliado, valor) : undefined,
+          )}
+          {tipoIdentificacionAliado === 'NIT' && campo(
+            'digito_verificacion_aliado_propuesto', 'Dígito de verificación', false, null, true, 'Ej: 7',
+            undefined, alValidarDv('identificacion_aliado_propuesto', 'digito_verificacion_aliado_propuesto'),
+          )}
+          {campo('correo_aliado_propuesto', 'Correo institucional de la entidad')}{campo('sector_economico_aliado_propuesto', 'Sector económico (obligatorio para empresa)', false, null, false)}
+          <label className="form-group" htmlFor="solicitud-pais"><span className="form-label">País *</span><select id="solicitud-pais" aria-describedby={errores.pais_aliado_propuesto_id ? 'solicitud-pais-error' : undefined} aria-invalid={Boolean(errores.pais_aliado_propuesto_id)} className={`form-control select ${errores.pais_aliado_propuesto_id ? 'is-invalid' : ''}`} name="pais_aliado_propuesto_id" defaultValue={solicitud?.pais_aliado_propuesto_id ?? ''} disabled={!editable || paises.isPending}><option value="">Seleccione el país</option>{paises.data?.map((pais) => <option key={pais.id} value={pais.id}>{pais.nombre}</option>)}</select>{errores.pais_aliado_propuesto_id && <span id="solicitud-pais-error" className="form-error">{errores.pais_aliado_propuesto_id}</span>}</label>
+          {campo('ciudad_aliado_propuesto', 'Ciudad', false, null, true, undefined, validarCiudad)}
+          {campo('telefono_aliado_propuesto', 'Teléfono institucional', false, null, true, undefined, validarTelefono)}
+          {campo('direccion_aliado_propuesto', 'Dirección', false, null, true, undefined, validarDireccion)}
         </div></section>
 
-        <section className="card"><h2>3. Contacto de contraparte</h2><div className="form-grid">{campo('contacto_contraparte_nombre', 'Nombre')}{campo('contacto_contraparte_cargo', 'Cargo')}{campo('contacto_contraparte_telefono', 'Teléfono')}{campo('contacto_contraparte_correo', 'Correo electrónico')}</div></section>
+        <section className="card"><h2>3. Contacto de contraparte</h2><div className="form-grid">{campo('contacto_contraparte_nombre', 'Nombre')}{campo('contacto_contraparte_cargo', 'Cargo')}{campo('contacto_contraparte_telefono', 'Teléfono', false, null, true, undefined, validarTelefono)}{campo('contacto_contraparte_correo', 'Correo electrónico')}</div></section>
 
         <section className="card"><h2>4. Información del convenio</h2><div className="form-grid">
           <label className="form-group" htmlFor="solicitud-tipo-convenio"><span className="form-label">Tipo de convenio *</span><select id="solicitud-tipo-convenio" aria-describedby={errores.tipo_convenio_id ? 'solicitud-tipo-convenio-error' : undefined} aria-invalid={Boolean(errores.tipo_convenio_id)} className={`form-control select ${errores.tipo_convenio_id ? 'is-invalid' : ''}`} name="tipo_convenio_id" defaultValue={solicitud?.tipo_convenio_id ?? ''} disabled={!editable}><option value="">Seleccione el tipo de convenio</option>{catalogos.data?.tipos_convenio.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.nombre}</option>)}</select>{errores.tipo_convenio_id && <span id="solicitud-tipo-convenio-error" className="form-error">{errores.tipo_convenio_id}</span>}</label>
           {campo('vigencia_estimada', 'Tiempo estimado de vigencia')}{campo('justificacion', 'Justificación', true)}{campo('objeto', 'Objeto', true)}{campo('actividades_por_parte', 'Actividades por cada una de las partes', true)}{campo('metas_esperadas', 'Metas esperadas', true)}{campo('implicacion_financiera', 'Implicación financiera', true)}{campo('requisitos_renovacion', 'Requisitos para renovación', true)}
         </div></section>
 
-        <section className="card"><h2>5. Supervisor o encargado de ejecución USB</h2><div className="form-grid">{campo('supervisor_usb_nombre', 'Nombre')}{campo('supervisor_usb_cargo', 'Cargo')}{campo('supervisor_usb_telefono', 'Teléfono')}{campo('supervisor_usb_correo', 'Correo electrónico')}</div></section>
+        <section className="card"><h2>5. Supervisor o encargado de ejecución USB</h2><div className="form-grid">{campo('supervisor_usb_nombre', 'Nombre')}{campo('supervisor_usb_cargo', 'Cargo')}{campo('supervisor_usb_telefono', 'Teléfono', false, null, true, undefined, validarTelefono)}{campo('supervisor_usb_correo', 'Correo electrónico')}</div></section>
 
-        <section className="card"><h2>6. Supervisor o encargado de ejecución de la contraparte</h2><div className="form-grid">{campo('supervisor_contraparte_nombre', 'Nombre')}{campo('supervisor_contraparte_cargo', 'Cargo')}{campo('supervisor_contraparte_telefono', 'Teléfono')}{campo('supervisor_contraparte_correo', 'Correo electrónico')}</div></section>
+        <section className="card"><h2>6. Supervisor o encargado de ejecución de la contraparte</h2><div className="form-grid">{campo('supervisor_contraparte_nombre', 'Nombre')}{campo('supervisor_contraparte_cargo', 'Cargo')}{campo('supervisor_contraparte_telefono', 'Teléfono', false, null, true, undefined, validarTelefono)}{campo('supervisor_contraparte_correo', 'Correo electrónico')}</div></section>
 
         <section className="card"><h2>7. Documentación</h2><p className="section-help">Adjunte los documentos de representación legal aplicables a la institución o entidad contraparte. Formatos permitidos: PDF, JPG y PNG. Tamaño máximo: 10 MB.</p>
           {(!solicitud || solicitud.documentos.length === 0) && <p className="section-help">Aún no hay documentos adjuntos.</p>}
