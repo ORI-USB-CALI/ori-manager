@@ -46,8 +46,8 @@ export function ConvenioVersionPage() {
 
   const volver = (
     <nav className="page-toolbar" aria-label="Navegación de la versión">
-      <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`}>Volver al historial de versiones</Link>
-      <Link className="btn btn-outline" to={`/convenios/${id}`}>Volver al convenio</Link>
+      <Link className="btn btn-outline" to={`/convenios/${id}?pestana=historial`}>Volver al historial del convenio</Link>
+      <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`}>Ir al proyecto de convenio</Link>
     </nav>
   )
 
