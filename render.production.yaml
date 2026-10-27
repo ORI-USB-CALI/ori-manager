@@ -25,10 +25,10 @@ projects:
                 value: production
 
               - key: PYTHON_VERSION
-                value: 3.13.15
+                value: 3.13.17
 
               - key: UV_VERSION
-                value: 0.12.12
+                value: 0.13.5
 
               - key: DATABASE_HOST
                 sync: false
@@ -109,7 +109,7 @@ projects:
 
             envVars:
               - key: NODE_VERSION
-                value: 24.21.0
+                value: 24.22.1
 
               # Render static sites no pueden alojar ni hacer proxy de
               # WebSocket (solo HTTP vía rewrites). El cliente conecta el
