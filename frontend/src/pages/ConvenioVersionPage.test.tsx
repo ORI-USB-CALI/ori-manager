@@ -171,8 +171,8 @@ describe('HT-05 - consultar versiones anteriores del convenio', () => {
 
     expect(await screen.findByRole('heading', { name: 'Versión no encontrada' })).toBeTruthy()
     expect(screen.queryByTestId('documento')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Volver al historial de versiones' }).getAttribute('href'))
-      .toBe('/convenios/7/elaboracion')
+    expect(screen.getByRole('link', { name: 'Volver al historial del convenio' }).getAttribute('href'))
+      .toBe('/convenios/7?pestana=historial')
   })
 
   it('no consulta el servidor si el número de versión no es válido (CA-07)', async () => {
