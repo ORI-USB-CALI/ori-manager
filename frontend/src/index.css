@@ -3385,3 +3385,100 @@ a:hover {
   border-radius: 9px;
   overflow-wrap: anywhere;
 }
+
+
+
+.reporte-activos-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.reporte-activos-tabla {
+  width: 100%;
+  min-width: 1250px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.reporte-activos-tabla th,
+.reporte-activos-tabla td {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 12px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
+}
+
+
+
+.reporte-activos-tabla tr > :nth-child(1) {
+  width: 16%;
+}
+
+.reporte-activos-tabla tr > :nth-child(2) {
+  width: 13%;
+}
+
+.reporte-activos-tabla tr > :nth-child(3) {
+  width: 10%;
+}
+
+.reporte-activos-tabla tr > :nth-child(4) {
+  width: 12%;
+}
+
+.reporte-activos-tabla tr > :nth-child(5) {
+  width: 12%;
+}
+
+.reporte-activos-tabla tr > :nth-child(6) {
+  width: 15%;
+}
+
+.reporte-activos-tabla tr > :nth-child(7) {
+  width: 8%;
+}
+
+.reporte-activos-tabla tr > :nth-child(8) {
+  width: 7%;
+}
+
+.reporte-activos-tabla tr > :nth-child(9) {
+  width: 7%;
+}
+
+
+
+.reporte-activos-tabla .tabla-ayuda {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+
+
+.reporte-activos-tabla .badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.reporte-activos-tabla .btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+
+
+@media (max-width: 768px) {
+  .reporte-activos-tabla {
+    min-width: 1250px;
+  }
+}
