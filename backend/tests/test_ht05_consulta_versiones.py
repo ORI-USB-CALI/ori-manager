@@ -272,12 +272,33 @@ def test_ca07_convenio_inexistente_responde_404_controlado(client, gestor) -> No
 def test_ca07_una_version_de_otro_convenio_no_se_expone(
     client, gestor, crear_convenio, convenio_listo
 ) -> None:
-    otro = crear_convenio(gestor)
-    otra_version = client.get(f"{_ruta(otro.id)}/versiones/1").json()
+    otro = crear_convenio(
+        gestor,
+        tipo_convenio_id=convenio_listo.tipo_convenio_id,
+        implicacion_financiera=convenio_listo.implicacion_financiera,
+        duracion_meses=convenio_listo.duracion_meses,
+        fecha_inicio=convenio_listo.fecha_inicio,
+        fecha_vencimiento=convenio_listo.fecha_vencimiento,
+    )
+    texto_exclusivo = "Contenido exclusivo del segundo convenio"
+    avance = _guardar_avance(client, otro.id, texto_exclusivo)
+    _finalizar(client, otro.id, avance["revision_borrador"])
 
-    propia = client.get(f"{_ruta(convenio_listo.id)}/versiones/1").json()
+    otra_version = client.get(f"{_ruta(otro.id)}/versiones/2")
+    assert otra_version.status_code == 200, otra_version.text
+    assert texto_exclusivo in str(otra_version.json()["contenido"])
 
-    assert propia["id"] != otra_version["id"]
+    # V2 solo existe en el segundo convenio; su número no permite acceder a ella
+    # bajo el ID del primero, aunque el usuario tenga acceso a ambos convenios.
+    respuesta = client.get(f"{_ruta(convenio_listo.id)}/versiones/2")
+    assert respuesta.status_code == 404, respuesta.text
+    assert respuesta.json() == {"detail": "Versión de convenio no encontrada"}
+    assert texto_exclusivo not in respuesta.text
+    assert "contenido" not in respuesta.json()
+
+    listado = client.get(f"{_ruta(convenio_listo.id)}/versiones")
+    assert listado.status_code == 200, listado.text
+    assert [version["numero"] for version in listado.json()] == [1]
 
 
 # ---- CA-08: versiones existentes antes de HT-13 ---------------------------------

@@ -340,7 +340,7 @@ export function useVersionConvenio(convenioId: number, numero: number) {
   return useQuery({
     queryKey: ['convenios', convenioId, 'versiones', numero],
     queryFn: () => apiFetch<VersionConvenioDetalle>(`/convenios/${convenioId}/versiones/${numero}`),
-    enabled: Number.isInteger(convenioId) && Number.isInteger(numero) && numero > 0,
+    enabled: Number.isInteger(convenioId) && convenioId > 0 && Number.isInteger(numero) && numero > 0,
     retry: false,
   })
 }

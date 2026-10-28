@@ -175,10 +175,22 @@ describe('HT-05 - consultar versiones anteriores del convenio', () => {
       .toBe('/convenios/7?pestana=historial')
   })
 
-  it('no consulta el servidor si el número de versión no es válido (CA-07)', async () => {
-    const { peticiones } = preparar('/convenios/7/versiones/abc')
+  it.each(['abc', '1.5', '0', '-1', 'NaN', 'Infinity'])('no consulta el servidor si convenioId es %s (CA-07)', async (convenioId) => {
+    const { peticiones } = preparar(`/convenios/${convenioId}/versiones/1`)
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Versión no encontrada' })).toBeTruthy()
+    expect(screen.queryByText('Cargando versión…')).toBeNull()
+    expect(screen.queryByTestId('documento')).toBeNull()
+    expect(peticiones).toEqual([])
+  })
+
+  it.each(['abc', '1.5', '0', '-1', 'NaN', 'Infinity'])('no consulta el servidor si el número de versión es %s (CA-07)', async (numero) => {
+    const { peticiones } = preparar(`/convenios/7/versiones/${numero}`)
 
     expect(await screen.findByRole('heading', { name: 'Versión no encontrada' })).toBeTruthy()
+    expect(screen.queryByText('Cargando versión…')).toBeNull()
+    expect(screen.queryByTestId('documento')).toBeNull()
     expect(peticiones).toEqual([])
   })
 

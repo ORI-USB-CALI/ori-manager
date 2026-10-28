@@ -41,7 +41,7 @@ export function ConvenioVersionPage() {
   const params = useParams()
   const id = Number(params.convenioId)
   const numero = Number(params.numero)
-  const numeroValido = Number.isInteger(numero) && numero > 0
+  const parametrosValidos = Number.isInteger(id) && id > 0 && Number.isInteger(numero) && numero > 0
   const version = useVersionConvenio(id, numero)
 
   const volver = (
@@ -51,9 +51,9 @@ export function ConvenioVersionPage() {
     </nav>
   )
 
-  if (numeroValido && version.isPending) return <p className="estado-pagina">Cargando versión…</p>
-  if (!numeroValido || version.isError) {
-    const noExiste = !numeroValido || (version.error instanceof ApiError && version.error.status === 404)
+  if (parametrosValidos && version.isPending) return <p className="estado-pagina">Cargando versión…</p>
+  if (!parametrosValidos || version.isError) {
+    const noExiste = !parametrosValidos || (version.error instanceof ApiError && version.error.status === 404)
     return (
       <>
         <section className="card estado-vacio" role="alert">

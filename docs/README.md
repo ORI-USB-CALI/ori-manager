@@ -10,6 +10,7 @@
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
 | Borradores, versiones formales y concurrencia | [HT-13 — Borrador y versionamiento](hu/ht-13-borrador-versionamiento.md), contrato y dependencia con HT-09 |
+| Consulta del contenido histórico de convenios | [HT-05 — Versiones históricas](hu/HT-05-consulta-versiones-historicas.md), ocho CA, permisos, compatibilidad y reversión |
 | Autoría y ejecución de la auditoría | [HT-09 — Auditoría ampliada](hu/ht-09-auditoria-ampliada.md), responsables, contratos y rollback conservador |
 | Código institucional y modo de emisión del documento | [HT-06 — Código del convenio](hu/ht-06-codigo-convenio.md), generación al formalizar, contador anual y exportación en trámite u oficial |
 | Base de datos e infraestructura | [Operaciones](operations/README.md) |
@@ -18,6 +19,7 @@
 
 ## Historias técnicas en desarrollo (Sprint 4)
 
+- [HT-05 — Consulta de versiones históricas](hu/HT-05-consulta-versiones-historicas.md) · [PR #159](https://github.com/ORI-USB-CALI/ori-manager/pull/159); depende de HT-13 y no implica aceptación QA ni release.
 - [HT-08 — Validación de vigencia de convenios](hu/ht-08-validacion-vigencia.md) · [PR #147](https://github.com/ORI-USB-CALI/ori-manager/pull/147); no implica aceptación QA ni release.
 - [HT-06 — Código institucional del convenio](hu/ht-06-codigo-convenio.md) · incidencias [QA #145](https://github.com/ORI-USB-CALI/ori-manager/issues/145) y [QA #136](https://github.com/ORI-USB-CALI/ori-manager/issues/136); no implica aceptación QA ni release.
 
