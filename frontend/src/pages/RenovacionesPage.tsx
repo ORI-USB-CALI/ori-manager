@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { volverA } from '../components/retornoVolver'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { CLAVE_ALERTAS_VENCIMIENTO } from './alertasVencimiento'
 import { referenciaConvenio } from './epica02'
@@ -53,6 +54,7 @@ function esEstadoSeguimiento(valor: string | null): valor is EstadoSeguimientoRe
 }
 
 export function RenovacionesPage() {
+  const retorno = volverA(useLocation(), 'Volver al panel de renovaciones')
   const { puede } = useSesion()
   const autorizado = puede('convenios.gestionar_renovaciones')
   const consulta = useSeguimientoRenovaciones(autorizado)
@@ -252,12 +254,12 @@ export function RenovacionesPage() {
                         </td>
                         <td>
                           <div className="renovacion-acciones">
-                            <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.convenio_id}`}>
+                            <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.convenio_id}`} state={retorno}>
                               {iniciada ? 'Ver convenio original' : 'Ver convenio'}
                             </Link>
                             {iniciada ? (
                               convenio.convenio_renovacion_id !== null && (
-                                <Link className="btn btn-primary btn-small" to={`/convenios/${convenio.convenio_renovacion_id}`}>Ver renovación</Link>
+                                <Link className="btn btn-primary btn-small" to={`/convenios/${convenio.convenio_renovacion_id}`} state={retorno}>Ver renovación</Link>
                               )
                             ) : (
                               <>

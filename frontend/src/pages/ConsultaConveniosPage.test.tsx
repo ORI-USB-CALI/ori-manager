@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import type { Mock } from 'vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { AccionVolver } from '../components/AccionVolver'
 import { ConsultaConveniosPage } from './ConsultaConveniosPage'
 import { construirQuery, useConsultaConvenios } from './consultaConvenios'
 
@@ -798,5 +799,30 @@ describe('ConsultaConveniosPage (ConsultaConveniosPage)', () => {
     for (const programa_id of [NaN, Infinity]) {
       expect(() => construirQuery({ limite: 20, desplazamiento: 0, programa_id })).toThrow('El identificador de programa no es válido.')
     }
+  })
+})
+
+/* HT-12 FE-02: el detalle y el historial abiertos desde la consulta regresan a
+   ella con los mismos filtros. */
+describe('acción Volver desde la consulta', () => {
+  it.each([
+    [true, 'Ver', '/convenios/77'],
+    [false, 'Ver historial', '/convenios/77/historial'],
+  ])('regresa a la consulta filtrada (puede_ver_detalle=%s)', async (puede_ver_detalle, enlace, destino) => {
+    mockFetch({ items: [{ ...itemReal, puede_ver_detalle }], total: 1 })
+    const consulta = '/convenios?buscar=movilidad&tipo_fecha=FORMALIZACION&fecha_hasta=2026-06-30'
+    const usuario = userEvent.setup()
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={[consulta]}>
+          <Routes>
+            <Route path="/convenios" element={<ConsultaConveniosPage />} />
+            <Route path={destino.replace('77', ':id')} element={<AccionVolver alternativo={{ to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }} />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await usuario.click(await screen.findByRole('link', { name: enlace }))
+    expect(screen.getByRole('link', { name: 'Volver a la consulta de convenios' }).getAttribute('href')).toBe(consulta)
   })
 })

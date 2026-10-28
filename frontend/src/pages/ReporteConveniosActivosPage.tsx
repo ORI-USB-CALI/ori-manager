@@ -1,6 +1,7 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { useSesion } from '../auth/sesion'
+import { volverA } from '../components/retornoVolver'
 import { referenciaConvenio } from './epica02'
 import {
   URL_DESCARGA_REPORTE_EXCEL,
@@ -36,6 +37,7 @@ function textoActividades(convenio: ConvenioReporteActivo): string {
 }
 
 export function ReporteConveniosActivosPage() {
+  const retorno = volverA(useLocation(), 'Volver al reporte de convenios activos')
   const { puede } = useSesion()
   const autorizado = puede('convenios.ver_reportes')
   const reporte = useReporteConveniosActivos(autorizado)
@@ -165,7 +167,7 @@ export function ReporteConveniosActivosPage() {
                   </td>
                   <td>{textoActividades(convenio)}</td>
                   <td>
-                    <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`}>
+                    <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`} state={retorno}>
                       Ver convenio
                     </Link>
                   </td>

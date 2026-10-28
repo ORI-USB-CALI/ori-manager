@@ -2902,6 +2902,7 @@ a:hover {
 
   .navbar,
   .footer-internal,
+  .accion-volver-barra,
   .documento-aprobado-acciones {
     display: none !important;
   }
@@ -3277,8 +3278,12 @@ a:hover {
   list-style: none;
 }
 
-/* HT-03: accesibilidad, jerarquía y navegación en revisión de contraparte */
-.historial-volver {
+/* HT-12: acción Volver común. Va siempre al inicio de la vista, fuera del
+   banner degradado, con texto y borde oscuros sobre superficie blanca. */
+.accion-volver-barra {
+  margin-bottom: 16px;
+}
+.accion-volver {
   background: var(--bg-surface);
   color: var(--text-primary);
   border: 2px solid var(--text-primary);
@@ -3286,9 +3291,14 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.historial-volver:hover:not(:disabled), .historial-volver:focus-visible {
+.accion-volver:hover, .accion-volver:focus-visible {
   background: var(--bg-main);
   color: var(--text-primary);
+  text-decoration: underline;
+}
+.accion-volver:focus-visible {
+  outline: 3px solid var(--text-primary);
+  outline-offset: 2px;
 }
 .historial-observacion {
   margin: 12px 0;

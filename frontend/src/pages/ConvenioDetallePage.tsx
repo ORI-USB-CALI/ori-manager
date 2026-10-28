@@ -5,6 +5,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { AccionVolver } from '../components/AccionVolver'
 import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
@@ -250,7 +251,14 @@ export function ConvenioDetallePage() {
   })
 
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
-  if (convenio.isError) return <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
+  if (convenio.isError) {
+    return (
+      <>
+        <AccionVolver alternativo={{ to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }} />
+        <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
+      </>
+    )
+  }
   if (!convenio.data) return null
   const datos = convenio.data
   const etapaActual = flujoContraparte.data?.etapa_actual?.codigo
@@ -271,14 +279,17 @@ export function ConvenioDetallePage() {
 
   return (
     <>
+      <AccionVolver
+        alternativo={esProyecto
+          ? { to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }
+          : { to: '/convenios', texto: 'Volver a la consulta de convenios' }}
+      />
+
       <section className="header-banner">
         <div className="header-banner-fila">
           <div>
             <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {referenciaConvenio(datos.codigo, datos.id)}</h1>
             <p><span className="badge">{datos.estado}</span></p>
-            <Link to={esProyecto ? '/convenios/tablero' : '/convenios'}>
-              {esProyecto ? 'Volver al tablero de convenios' : 'Volver a la consulta de convenios'}
-            </Link>
           </div>
           <ExportarConvenioMenu
             convenioId={datos.id}

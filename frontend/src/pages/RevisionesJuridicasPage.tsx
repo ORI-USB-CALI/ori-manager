@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
+import { volverA } from '../components/retornoVolver'
 import {
   DataTable,
   ResultsCount,
@@ -29,6 +30,7 @@ interface RevisionJuridicaPendiente {
 }
 
 export function RevisionesJuridicasPage() {
+  const retorno = volverA(useLocation(), 'Volver a revisiones jurídicas')
   const [busqueda, setBusqueda] = useState('')
   const [tipoConvenio, setTipoConvenio] = useState('')
   const [responsable, setResponsable] = useState('')
@@ -87,7 +89,7 @@ export function RevisionesJuridicasPage() {
       ),
     },
     { id: 'fecha', header: 'Fecha de recepción', render: (item) => formatDateTime(item.fecha_recepcion) },
-    { id: 'acciones', header: 'Acciones', render: (item) => <Link className="btn btn-outline btn-small" to={`/convenios/${item.convenio_id}`}>Revisar</Link> },
+    { id: 'acciones', header: 'Acciones', render: (item) => <Link className="btn btn-outline btn-small" to={`/convenios/${item.convenio_id}`} state={retorno}>Revisar</Link> },
   ]
 
   return (

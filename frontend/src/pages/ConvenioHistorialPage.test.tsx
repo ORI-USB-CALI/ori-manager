@@ -109,7 +109,8 @@ describe('ConvenioHistorialPage', () => {
     expect(screen.getByRole('link', { name: 'Tablero de convenios' }).getAttribute('href')).toBe('/convenios/tablero')
     const navegacion = screen.getByRole('navigation', { name: 'Navegación del historial' })
     expect(within(navegacion).getByRole('link', { name: 'Consulta de convenios formalizados' }).getAttribute('href')).toBe('/convenios')
-    await userEvent.click(within(navegacion).getByRole('link', { name: 'Volver al convenio' }))
+    // HT-12: sin contexto de origen (acceso directo) regresa al detalle del convenio.
+    await userEvent.click(screen.getByRole('link', { name: 'Volver al convenio' }))
     expect(await screen.findByRole('heading', { name: 'Convenio de prueba' })).toBeTruthy()
   })
 })
