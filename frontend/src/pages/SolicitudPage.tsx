@@ -4,7 +4,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
+import { useRecorrido } from '../components/recorrido'
 import { ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
+import { DESTINOS_ACCIONES_SOLICITUD, DESTINOS_SECCIONES_SOLICITUD, PASOS_SECCIONES_SOLICITUD } from './guiaRadicacion'
+import { claveGuia, type EstadoGuiaUsuario, useEstadoGuia, useRegistrarEstadoGuia } from './guias'
 import { type DocumentoSolicitud, type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
@@ -105,6 +108,29 @@ export function SolicitudPage() {
   const [tipoDocumento, setTipoDocumento] = useState<TipoDocumento>('CAMARA_COMERCIO')
   const solicitud = consulta.data
   const editable = !solicitud || ['BORRADOR', 'DEVUELTA'].includes(solicitud.estado)
+  const recorrido = useRecorrido()
+  // El estado solo se consulta mientras la guía está abierta: no agrega peticiones al formulario.
+  useEstadoGuia('GUIA_RADICACION', recorrido.activo === 'GUIA_RADICACION')
+  const registrarGuia = useRegistrarEstadoGuia('GUIA_RADICACION')
+
+  // HU-39: la guía se abre solo desde Ayuda (RN-07) y no toca el formulario (CA-07).
+  function abrirGuia() {
+    const registrar = (estado: 'COMPLETADO' | 'OMITIDO') => registrarGuia.mutate(estado, {
+      onError: (error) => notify({ type: 'error', message: `No se pudo guardar el estado de la guía: ${error.message}` }),
+    })
+    recorrido.iniciar({
+      guia: 'GUIA_RADICACION',
+      pasos: PASOS_SECCIONES_SOLICITUD,
+      onComplete: () => registrar('COMPLETADO'),
+      // Omitir solo se registra si la guía estaba pendiente: cerrar una guía ya
+      // completada u omitida no cambia su estado (RN-04, RN-05).
+      // Se lee del caché al omitir, porque el estado llega después de abrir la guía.
+      onSkip: () => {
+        const actual = queryClient.getQueryData<EstadoGuiaUsuario>(claveGuia('GUIA_RADICACION'))
+        if (actual?.estado === 'PENDIENTE') registrar('OMITIDO')
+      },
+    })
+  }
 
   useEffect(() => {
     solicitudIdRef.current = id
@@ -280,7 +306,7 @@ export function SolicitudPage() {
 
   return (
     <>
-      <section className="header-banner"><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></section>
+      <section className="header-banner"><div className="header-banner-fila"><div><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></div>{editable && <button type="button" className="btn btn-outline" data-tour={DESTINOS_ACCIONES_SOLICITUD.ayuda} disabled={recorrido.activo !== null} onClick={abrirGuia}>Ayuda: cómo diligenciar la solicitud</button>}</div></section>
       {solicitud?.estado === 'RECHAZADA' && (
         <section className="card" role="status">
           <h2>Motivo del rechazo ORI</h2>
@@ -294,13 +320,13 @@ export function SolicitudPage() {
         </section>
       )}
       <form ref={formRef} className="solicitud-form" onSubmit={enviar}>
-        <section className="card"><h2>1. Información del solicitante {perfilVisible?.tipo_usuario === 'INTERNO' ? 'interno' : 'externo'}</h2><p className="section-help">Los datos se precargan desde su perfil y se conservarán como snapshot de esta solicitud.</p><div className="form-grid">
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.solicitante}><h2>1. Información del solicitante {perfilVisible?.tipo_usuario === 'INTERNO' ? 'interno' : 'externo'}</h2><p className="section-help">Los datos se precargan desde su perfil y se conservarán como snapshot de esta solicitud.</p><div className="form-grid">
           {campo('solicitante_nombre', 'Responsable y/o solicitante', false, perfilVisible?.nombre ?? null)}
           {campo('solicitante_correo', 'Correo del solicitante', false, perfilVisible?.correo ?? null, false)}
           {perfilVisible?.tipo_usuario === 'INTERNO' ? <>{campo('solicitante_unidad', 'Facultad / Dependencia', false, perfilVisible.unidad, tipoUnidad !== null && (tipoUnidad !== 'PROGRAMA' || Boolean(perfilVisible.unidad)))}{campo('solicitante_programa', 'Programa Académico / Unidad', false, perfilVisible.programa, tipoUnidad === 'PROGRAMA')}{campo('solicitante_cargo', 'Cargo', false, perfilVisible.cargo)}</> : <>{campo('solicitante_documento', 'Identificación', false, perfilVisible?.identificacion ?? null)}{campo('solicitante_entidad', 'Empresa / Entidad', false, perfilVisible?.entidad ?? null)}</>}
         </div></section>
 
-        <section className="card"><h2>2. Información de la contraparte</h2><div className="form-grid">
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.contraparte}><h2>2. Información de la contraparte</h2><div className="form-grid">
           {campo('nombre_aliado_propuesto', 'Nombre de la entidad')}
           <label className="form-group" htmlFor="solicitud-tipo-entidad"><span className="form-label">Tipo de entidad *</span><select id="solicitud-tipo-entidad" aria-describedby={errores.tipo_aliado_propuesto ? 'solicitud-tipo-entidad-error' : undefined} aria-invalid={Boolean(errores.tipo_aliado_propuesto)} className={`form-control select ${errores.tipo_aliado_propuesto ? 'is-invalid' : ''}`} name="tipo_aliado_propuesto" defaultValue={solicitud?.tipo_aliado_propuesto ?? ''} disabled={!editable}><option value="">Seleccione el tipo de entidad</option>{TIPOS_ALIADO.map((tipo) => <option key={tipo} value={tipo}>{ETIQUETA_TIPO[tipo]}</option>)}</select>{errores.tipo_aliado_propuesto && <span id="solicitud-tipo-entidad-error" className="form-error">{errores.tipo_aliado_propuesto}</span>}</label>
           <label className="form-group" htmlFor="solicitud-tipo-identificacion"><span className="form-label">Tipo de identificación *</span><select id="solicitud-tipo-identificacion" aria-describedby={errores.tipo_identificacion_aliado_propuesto ? 'solicitud-tipo-identificacion-error' : undefined} aria-invalid={Boolean(errores.tipo_identificacion_aliado_propuesto)} className={`form-control select ${errores.tipo_identificacion_aliado_propuesto ? 'is-invalid' : ''}`} name="tipo_identificacion_aliado_propuesto" defaultValue={solicitud?.tipo_identificacion_aliado_propuesto ?? ''} disabled={!editable}><option value="">Seleccione el tipo de identificación</option>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo}>{tipo}</option>)}</select>{errores.tipo_identificacion_aliado_propuesto && <span id="solicitud-tipo-identificacion-error" className="form-error">{errores.tipo_identificacion_aliado_propuesto}</span>}</label>
@@ -308,27 +334,27 @@ export function SolicitudPage() {
           {campo('pais_aliado_propuesto', 'País')}{campo('ciudad_aliado_propuesto', 'Ciudad')}{campo('telefono_aliado_propuesto', 'Teléfono institucional')}{campo('direccion_aliado_propuesto', 'Dirección')}
         </div></section>
 
-        <section className="card"><h2>3. Contacto de contraparte</h2><div className="form-grid">{campo('contacto_contraparte_nombre', 'Nombre')}{campo('contacto_contraparte_cargo', 'Cargo')}{campo('contacto_contraparte_telefono', 'Teléfono')}{campo('contacto_contraparte_correo', 'Correo electrónico')}</div></section>
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.contactoContraparte}><h2>3. Contacto de contraparte</h2><div className="form-grid">{campo('contacto_contraparte_nombre', 'Nombre')}{campo('contacto_contraparte_cargo', 'Cargo')}{campo('contacto_contraparte_telefono', 'Teléfono')}{campo('contacto_contraparte_correo', 'Correo electrónico')}</div></section>
 
-        <section className="card"><h2>4. Información del convenio</h2><div className="form-grid">
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.convenio}><h2>4. Información del convenio</h2><div className="form-grid">
           <label className="form-group" htmlFor="solicitud-tipo-convenio"><span className="form-label">Tipo de convenio *</span><select id="solicitud-tipo-convenio" aria-describedby={errores.tipo_convenio_id ? 'solicitud-tipo-convenio-error' : undefined} aria-invalid={Boolean(errores.tipo_convenio_id)} className={`form-control select ${errores.tipo_convenio_id ? 'is-invalid' : ''}`} name="tipo_convenio_id" defaultValue={solicitud?.tipo_convenio_id ?? ''} disabled={!editable}><option value="">Seleccione el tipo de convenio</option>{catalogos.data?.tipos_convenio.map((tipo) => <option key={tipo.id} value={tipo.id}>{tipo.nombre}</option>)}</select>{errores.tipo_convenio_id && <span id="solicitud-tipo-convenio-error" className="form-error">{errores.tipo_convenio_id}</span>}</label>
           {campo('vigencia_estimada', 'Tiempo estimado de vigencia')}{campo('justificacion', 'Justificación', true)}{campo('objeto', 'Objeto', true)}{campo('actividades_por_parte', 'Actividades por cada una de las partes', true)}{campo('metas_esperadas', 'Metas esperadas', true)}{campo('implicacion_financiera', 'Implicación financiera', true)}{campo('requisitos_renovacion', 'Requisitos para renovación', true)}
         </div></section>
 
-        <section className="card"><h2>5. Supervisor o encargado de ejecución USB</h2><div className="form-grid">{campo('supervisor_usb_nombre', 'Nombre')}{campo('supervisor_usb_cargo', 'Cargo')}{campo('supervisor_usb_telefono', 'Teléfono')}{campo('supervisor_usb_correo', 'Correo electrónico')}</div></section>
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.supervisorUsb}><h2>5. Supervisor o encargado de ejecución USB</h2><div className="form-grid">{campo('supervisor_usb_nombre', 'Nombre')}{campo('supervisor_usb_cargo', 'Cargo')}{campo('supervisor_usb_telefono', 'Teléfono')}{campo('supervisor_usb_correo', 'Correo electrónico')}</div></section>
 
-        <section className="card"><h2>6. Supervisor o encargado de ejecución de la contraparte</h2><div className="form-grid">{campo('supervisor_contraparte_nombre', 'Nombre')}{campo('supervisor_contraparte_cargo', 'Cargo')}{campo('supervisor_contraparte_telefono', 'Teléfono')}{campo('supervisor_contraparte_correo', 'Correo electrónico')}</div></section>
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.supervisorContraparte}><h2>6. Supervisor o encargado de ejecución de la contraparte</h2><div className="form-grid">{campo('supervisor_contraparte_nombre', 'Nombre')}{campo('supervisor_contraparte_cargo', 'Cargo')}{campo('supervisor_contraparte_telefono', 'Teléfono')}{campo('supervisor_contraparte_correo', 'Correo electrónico')}</div></section>
 
-        <section className="card"><h2>7. Documentación</h2><p className="section-help">Adjunte los documentos de representación legal aplicables a la institución o entidad contraparte. Formatos permitidos: PDF, JPG y PNG. Tamaño máximo: 10 MB.</p>
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.documentacion}><h2>7. Documentación</h2><p className="section-help">Adjunte los documentos de representación legal aplicables a la institución o entidad contraparte. Formatos permitidos: PDF, JPG y PNG. Tamaño máximo: 10 MB.</p>
           {(!solicitud || solicitud.documentos.length === 0) && <p className="section-help">Aún no hay documentos adjuntos.</p>}
           {solicitud?.documentos.map((doc) => <div className="document-row" key={doc.id}><span>{catalogos.data?.tipos_documento.find((tipo) => tipo.codigo === doc.tipo_documento)?.nombre}: {doc.nombre_original} · {tamanoLegible(doc.tamano_bytes)}</span>{editable && <button className="btn btn-outline btn-small" type="button" disabled={operacionEnCurso} onClick={() => eliminar.mutate(doc.id)}>Eliminar</button>}</div>)}
           {erroresDocumentos.length > 0 && <div id="solicitud-documentos-error">{erroresDocumentos.map(([key, value]) => <p className="form-error" key={key}>{value}</p>)}</div>}
           {editable && <div className="document-upload"><label className="form-group" htmlFor="solicitud-tipo-documento"><span className="form-label">Tipo de documento</span><select id="solicitud-tipo-documento" className="form-control select" value={tipoDocumento} disabled={operacionEnCurso} onChange={(event) => setTipoDocumento(event.target.value as TipoDocumento)}>{catalogos.data?.tipos_documento.map((tipo) => <option key={tipo.codigo} value={tipo.codigo}>{tipo.nombre}{tipo.es_representacion_legal ? ' · representación legal' : ''}</option>)}</select></label><label className="form-group" htmlFor="solicitud-archivo"><span className="form-label">Archivo</span><input id="solicitud-archivo" ref={archivoRef} className="form-control" type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={operacionEnCurso} aria-describedby={`solicitud-archivo-ayuda${erroresDocumentos.length ? ' solicitud-documentos-error' : ''}`} /><small id="solicitud-archivo-ayuda" className="form-help">Formatos permitidos: PDF, JPG y PNG. Máximo 10 MB.</small></label><button className="btn btn-outline" type="button" disabled={operacionEnCurso} onClick={() => cargar.mutate()}>{cargar.isPending ? 'Adjuntando…' : 'Adjuntar'}</button></div>}
         </section>
 
-        <section className="card"><h2>8. Observaciones adicionales</h2><label className="form-group" htmlFor="solicitud-observaciones"><span className="form-label">Observaciones</span><textarea id="solicitud-observaciones" className="form-control" name="observaciones" defaultValue={solicitud?.observaciones ?? ''} disabled={!editable} placeholder="Agregue información complementaria que no haya sido incluida anteriormente." /></label></section>
+        <section className="card" data-tour={DESTINOS_SECCIONES_SOLICITUD.observaciones}><h2>8. Observaciones adicionales</h2><label className="form-group" htmlFor="solicitud-observaciones"><span className="form-label">Observaciones</span><textarea id="solicitud-observaciones" className="form-control" name="observaciones" defaultValue={solicitud?.observaciones ?? ''} disabled={!editable} placeholder="Agregue información complementaria que no haya sido incluida anteriormente." /></label></section>
 
-        <div className="page-toolbar"><Link className="btn btn-outline" to="/solicitudes">Volver</Link>{editable && <><button className="btn btn-outline" type="submit" disabled={operacionEnCurso}>{guardar.isPending ? 'Guardando…' : solicitud?.estado === 'DEVUELTA' ? 'Guardar cambios' : 'Guardar borrador'}</button><button className="btn btn-primary" type="button" disabled={operacionEnCurso} onClick={() => radicar.mutate()}>{radicar.isPending ? 'Radicando…' : solicitud?.estado === 'DEVUELTA' ? 'Volver a radicar' : 'Radicar solicitud'}</button></>}</div>
+        <div className="page-toolbar"><Link className="btn btn-outline" to="/solicitudes">Volver</Link>{editable && <><button className="btn btn-outline" type="submit" data-tour={DESTINOS_ACCIONES_SOLICITUD.guardarBorrador} disabled={operacionEnCurso}>{guardar.isPending ? 'Guardando…' : solicitud?.estado === 'DEVUELTA' ? 'Guardar cambios' : 'Guardar borrador'}</button><button className="btn btn-primary" type="button" data-tour={DESTINOS_ACCIONES_SOLICITUD.radicar} disabled={operacionEnCurso} onClick={() => radicar.mutate()}>{radicar.isPending ? 'Radicando…' : solicitud?.estado === 'DEVUELTA' ? 'Volver a radicar' : 'Radicar solicitud'}</button></>}</div>
       </form>
     </>
   )

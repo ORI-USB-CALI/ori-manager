@@ -2989,6 +2989,10 @@ a:hover {
    Exportación de Convenios (FE-01, FE-03)
    ========================================================================== */
 
+.header-banner .btn-outline {
+  background: var(--bg-surface);
+}
+
 .header-banner-fila {
   display: flex;
   flex-wrap: wrap;

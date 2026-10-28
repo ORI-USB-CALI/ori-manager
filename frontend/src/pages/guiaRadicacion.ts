@@ -18,6 +18,13 @@ export const DESTINOS_SECCIONES_SOLICITUD = {
   observaciones: 'solicitud-observaciones',
 } as const
 
+/** Valores de `data-tour` de las acciones del formulario, para los pasos de HU-39 FE03. */
+export const DESTINOS_ACCIONES_SOLICITUD = {
+  ayuda: 'solicitud-ayuda',
+  guardarBorrador: 'solicitud-guardar-borrador',
+  radicar: 'solicitud-radicar',
+} as const
+
 const D = DESTINOS_SECCIONES_SOLICITUD
 
 /* Las reglas que se mencionan son las vigentes (RN-08): obligatorios de
