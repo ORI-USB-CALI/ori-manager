@@ -1,7 +1,7 @@
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AppLayout } from '../app/AppLayout'
@@ -89,17 +89,16 @@ function preparar({
   const cliente = clienteNuevo()
   render(
     <QueryClientProvider client={cliente}>
-      <MemoryRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={inicio ? <HomePage /> : <h1>Inicio</h1>} />
-            <Route path="/solicitudes/:id" element={<h1>Detalle de solicitud</h1>} />
-            <Route path="/convenios/:id" element={<h1>Detalle de convenio</h1>} />
-            <Route path="/renovaciones" element={<h1>Gestión de renovaciones</h1>} />
-            <Route path="/revisiones-contraparte" element={<h1>Revisiones propias</h1>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={createMemoryRouter([{
+        element: <AppLayout />,
+        children: [
+          { path: '/', element: inicio ? <HomePage /> : <h1>Inicio</h1> },
+          { path: '/solicitudes/:id', element: <h1>Detalle de solicitud</h1> },
+          { path: '/convenios/:id', element: <h1>Detalle de convenio</h1> },
+          { path: '/renovaciones', element: <h1>Gestión de renovaciones</h1>, handle: { layout: 'wide' } },
+          { path: '/revisiones-contraparte', element: <h1>Revisiones propias</h1> },
+        ],
+      }])} />
     </QueryClientProvider>,
   )
   const usuario = userEvent.setup()
@@ -113,6 +112,31 @@ function preparar({
 }
 
 describe('Centro unificado en AppLayout', () => {
+  it('muestra la marca compacta enlazada a Inicio y conserva los controles de sesión', async () => {
+    preparar()
+    await screen.findByRole('button', { name: /^Centro de notificaciones/ })
+    const header = screen.getByRole('banner')
+    const marca = within(header).getByRole('link', { name: 'ORI Manager — Inicio' })
+    expect(marca.textContent).toBe('ORI Manager')
+    expect(marca.getAttribute('href')).toBe('/')
+    expect(within(header).queryByText('· Sistema de Gestión')).toBeNull()
+    expect(within(header).getByText('persona@example.com')).toBeTruthy()
+    expect(within(header).getByText('GESTOR_ORI')).toBeTruthy()
+    expect(within(header).getByRole('button', { name: 'Cerrar sesión' })).toBeTruthy()
+  })
+
+  it('aplica el ancho de datos por ruta y recupera el ancho de lectura al volver a Inicio', async () => {
+    const { usuario } = preparar()
+    await screen.findByRole('button', { name: /^Centro de notificaciones/ })
+    expect(screen.getByRole('main').classList.contains('page-wide')).toBe(false)
+    await usuario.click(screen.getByRole('link', { name: 'Renovaciones' }))
+    await screen.findByRole('heading', { name: 'Gestión de renovaciones' })
+    expect(screen.getByRole('main').classList.contains('page-wide')).toBe(true)
+    await usuario.click(screen.getByRole('link', { name: 'Inicio' }))
+    await screen.findByRole('heading', { name: 'Inicio' })
+    expect(screen.getByRole('main').classList.contains('page-wide')).toBe(false)
+  })
+
   it('renderiza una sola campana y suma pendientes sin duplicar ni contar resueltos', async () => {
     const { abrir } = preparar({
       notificaciones: [personal, personal, { ...personal, id: 31, leida: true },
@@ -352,7 +376,8 @@ describe('Adaptadores, rangos y estados por fuente', () => {
     expect(avisos[0].entidad.identificacion).toBe('Convenio sin código')
     expect(avisos[0].descripcion).toBe('Convenio sin código · 1 día restante')
     expect(adaptarVencimientos([{ ...alerta(0), codigo: null, objeto: null }])[0].entidad.identificacion)
-      .toBe('Convenio #0')
+      // HT-06, CA-01: referencia provisional unificada en todas las vistas.
+      .toBe('Convenio provisional #0')
   })
 })
 
@@ -371,6 +396,8 @@ describe('Resumen de vencimientos en Inicio', () => {
   it('reutiliza la caché, limita el resumen a tres e incluye el total y renovación', async () => {
     const { cliente } = preparar({ inicio: true, alertas: [alerta(30), alerta(60), alerta(90), alerta(120)] })
     const resumen = await screen.findByRole('region', { name: 'Próximos vencimientos' })
+    const accesos = screen.getByRole('region', { name: 'Accesos rápidos' })
+    expect(accesos.compareDocumentPosition(resumen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await within(resumen).findByText('4 convenios próximos a vencer')
     expect(within(resumen).getAllByRole('listitem')).toHaveLength(3)
     expect(within(resumen).getAllByRole('link', { name: 'Gestionar renovación' })).toHaveLength(3)

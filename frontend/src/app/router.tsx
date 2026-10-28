@@ -48,27 +48,27 @@ export const router = createBrowserRouter([
     children: [
       { path: '/', element: <HomePage /> },
       { element: <RequierePermiso permiso="convenios.gestionar_renovaciones" />, children: [
-        { path: '/renovaciones', element: <RenovacionesPage /> },
+        { path: '/renovaciones', element: <RenovacionesPage />, handle: { layout: 'wide' } },
       ] },
       { element: <RequierePermiso permiso="convenios.ver_reportes" />, children: [
-        { path: '/reportes/convenios-activos', element: <ReporteConveniosActivosPage /> },
-        { path: '/reportes/estadisticas-convenios', element: <ReporteEstadisticasConveniosPage /> },
+        { path: '/reportes/convenios-activos', element: <ReporteConveniosActivosPage />, handle: { layout: 'wide' } },
+        { path: '/reportes/estadisticas-convenios', element: <ReporteEstadisticasConveniosPage />, handle: { layout: 'wide' } },
       ] },
       { element: <RequierePermiso permiso="usuarios.ver" />, children: [{ path: '/admin/usuarios', element: <UsuariosRolesPage /> }] },
-      { element: <RequierePermiso permiso="auditoria.ver" />, children: [{ path: '/admin/bitacora', element: <BitacoraPage /> }] },
+      { element: <RequierePermiso permiso="auditoria.ver" />, children: [{ path: '/admin/bitacora', element: <BitacoraPage />, handle: { layout: 'wide' } }] },
       { element: <RequierePermiso permiso="aliados.ver" />, children: [
         { path: '/aliados', element: <AliadosPage /> },
         { path: '/aliados/:aliadoId', element: <AliadoDetallePage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.crear" />, children: [{ path: '/convenios/nuevo', element: <ConvenioNuevoPage /> }] },
       { element: <RequierePermiso permiso="solicitudes.ver_recibidas" />, children: [
-        { path: '/ori/solicitudes', element: <SolicitudesRecibidasPage /> },
+        { path: '/ori/solicitudes', element: <SolicitudesRecibidasPage />, handle: { layout: 'wide' } },
         { path: '/ori/solicitudes/:solicitudId', element: <SolicitudRecibidaPage /> },
         { path: '/ori/solicitudes/:solicitudId/historial', element: <SolicitudHistorialPage alcance="recibida" /> },
       ] },
       { element: <RequierePermiso permiso="convenios.ver" />, children: [
-        { path: '/convenios', element: <ConsultaConveniosPage /> },
-        { path: '/convenios/tablero', element: <TableroConveniosPage /> },
+        { path: '/convenios', element: <ConsultaConveniosPage />, handle: { layout: 'wide' } },
+        { path: '/convenios/tablero', element: <TableroConveniosPage />, handle: { layout: 'wide' } },
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
         { path: '/convenios/:convenioId/historial', element: <ConvenioHistorialPage /> },

@@ -54,7 +54,6 @@ def fecha_dominio_fija(monkeypatch):
 def origen(request, db, crear_usuario, crear_convenio, solicitante):
     autor = crear_usuario(CodigoRol.GESTOR_ORI)
     datos = {
-        "codigo": f"ORIGEN-{autor.id}",
         "objeto": "Convenio de origen para renovar",
         "fecha_inicio": date(2025, 1, 1),
         "fecha_vencimiento": FECHA_REFERENCIA + timedelta(days=30),
@@ -63,8 +62,11 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
     }
     if request.param == "MANUAL_ORI":
         convenio = ServicioConvenios(db).crear_manual(ConvenioCrearManual(**datos), autor)
+        # HT-06, CA-05: el código ya no entra por el contrato de creación; se
+        # fija sobre el modelo porque estas pruebas distinguen origen de hijo.
+        convenio.codigo = f"ORIGEN-{autor.id}"
     else:
-        convenio = crear_convenio(autor, **datos)
+        convenio = crear_convenio(autor, codigo=f"ORIGEN-{autor.id}", **datos)
         convenio.solicitud.solicitante_id = solicitante.id
         convenio.solicitud.contacto_contraparte_nombre = "Contacto vigente"
         convenio.solicitud.observaciones = "Observación histórica que no debe copiarse"
@@ -329,16 +331,17 @@ def test_renovacion_se_edita_y_requiere_sus_dos_avales_propios(
         "type": "paragraph", "content": [{"type": "text", "text": "Cláusula de la renovación"}],
     })
     guardado = client.patch(ruta, json={
-        "expected_version": 1, "contenido": contenido,
+        "expected_revision": 0, "contenido": contenido,
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
     })
     assert guardado.status_code == 200, guardado.text
-    assert guardado.json()["version_actual"] == 2
+    assert guardado.json()["version_actual"] == 1
+    assert guardado.json()["revision_borrador"] == 1
     assert client.get(f"/api/convenios/{hijo.id}/versiones/1").json()["contenido"] == DOCUMENTO_VIGENTE
     assert ServicioConvenios(db)._version_actual(origen).contenido == DOCUMENTO_VIGENTE
     finalizado = client.post(f"{ruta}/finalizar", json={
-        "expected_version": 2, "contenido": contenido,
+        "expected_revision": 1, "contenido": contenido,
     })
     assert finalizado.status_code == 200, finalizado.text
     primera = db.scalar(select(RevisionConvenio).where(

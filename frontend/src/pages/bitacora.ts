@@ -5,11 +5,14 @@ import type { CodigoRol } from '../auth/sesion'
 import type { UsuarioResumen } from './epica02'
 
 export type AccionBitacora = 'INSERT' | 'UPDATE' | 'DELETE'
+export type EjecucionBitacora = 'HUMANA' | 'AUTOMATICA'
 
 export interface RegistroBitacora {
   id: number
   fecha_hora: string
-  usuario: UsuarioResumen
+  // HT-09, CA-03: nulo únicamente en procesos automáticos sin usuario
+  // originador; no se inventa un usuario ficticio para representarlos.
+  usuario: UsuarioResumen | null
   rol: string | null
   entidad: string
   registro_id: number
@@ -18,6 +21,18 @@ export interface RegistroBitacora {
   valor_anterior: string | null
   valor_nuevo: string | null
   contexto: string | null
+  // HT-09: nulos en los registros previos a HT-09 y en los cambios que no
+  // declaran una acción de negocio estructurada.
+  evento: string | null
+  etapa: string | null
+  version: number | null
+  ejecucion: EjecucionBitacora | null
+  responsable: UsuarioResumen | null
+}
+
+export const ETIQUETAS_EJECUCION: Record<EjecucionBitacora, string> = {
+  HUMANA: 'Humana',
+  AUTOMATICA: 'Automática',
 }
 
 export interface PaginaBitacora {

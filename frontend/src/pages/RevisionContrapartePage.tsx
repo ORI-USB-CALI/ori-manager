@@ -8,6 +8,7 @@ import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import type { RevisionConvenioTrazabilidad, UsuarioResumen, VersionConvenioResumen } from './epica02'
 import { CLAVE_REVISIONES_CONTRAPARTE } from './revisionContraparte'
+import { referenciaConvenio } from './epica02'
 
 interface DetalleRevisionContraparte {
   convenio_id: number
@@ -91,7 +92,7 @@ export function RevisionContrapartePage() {
     <>
       <section className="header-banner">
         <h1>Revisión de contraparte</h1>
-        <p>{datos.codigo_convenio ?? `Convenio #${datos.convenio_id}`} · versión {datos.version_recibida.numero}</p>
+        <p>{referenciaConvenio(datos.codigo_convenio, datos.convenio_id)} · versión {datos.version_recibida.numero}</p>
       </section>
       <div className="revision-workspace">
         <main className="card revision-documento">

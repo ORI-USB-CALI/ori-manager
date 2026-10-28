@@ -6,6 +6,7 @@ import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { CLAVE_ALERTAS_VENCIMIENTO } from './alertasVencimiento'
+import { referenciaConvenio } from './epica02'
 import {
   CLAVE_RENOVACIONES,
   diasRestantes,
@@ -44,7 +45,7 @@ interface Accion {
 }
 
 function identificacion(convenio: SeguimientoRenovacion) {
-  return convenio.codigo?.trim() || `Convenio #${convenio.convenio_id}`
+  return referenciaConvenio(convenio.codigo, convenio.convenio_id)
 }
 
 function esEstadoSeguimiento(valor: string | null): valor is EstadoSeguimientoRenovacion {

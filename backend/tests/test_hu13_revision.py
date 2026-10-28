@@ -159,7 +159,7 @@ def test_segunda_ronda_muestra_solo_la_revision_pendiente_vigente(
     )
     assert client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
+        json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     ).status_code == 200
     assert client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"

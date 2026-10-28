@@ -185,6 +185,10 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
     """Crea el convenio mediante el contrato canónico de HU-06."""
 
     def _crear(autor: Usuario, **cambios) -> Convenio:
+        # HT-06, CA-05: el contrato de creación ya no acepta `codigo`; lo genera
+        # el backend al formalizar. Las pruebas que necesitan un código concreto
+        # (búsqueda por código, tablero) lo fijan sobre el modelo ya creado.
+        codigo = cambios.pop("codigo", None)
         solicitud = SolicitudConvenio(
             consecutivo=f"SOL-{uuid4().hex}",
             tipo_solicitante=TipoSolicitante.INTERNO.value,
@@ -210,10 +214,14 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
         # el CA-01 (vencimiento pasado); el CA-02 (inicio <= vencimiento) sí aplica.
         # Las reglas de HT-08 se prueban en test_ht08_validacion_vigencia.py.
         with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min):
-            return ServicioConvenios(db).crear(
+            convenio = ServicioConvenios(db).crear(
                 ConvenioCrear.model_validate(datos),
                 autor,
             )
+        if codigo is not None:
+            convenio.codigo = codigo
+            db.commit()
+        return convenio
 
     return _crear
 
@@ -268,8 +276,11 @@ def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
 
     Además de lo que trae `convenio_listo` (tipo, objeto, fechas y una versión
     con texto), registra código, aliado y un proceso de firmas con el Rector y
-    el representante legal de la entidad. Queda en la etapa de firmas: fuera de
-    ELABORACION se exporta como documento oficial, no como borrador.
+    el representante legal de la entidad.
+
+    HT-06, CA-06: queda **formalizado** (estado y fecha de firma), porque eso
+    es lo que ahora habilita el documento oficial. Antes bastaba con dejarlo
+    fuera de la etapa de elaboración.
     """
     aliado = Aliado(
         nombre="Universidad Aliada de Prueba",
@@ -330,8 +341,10 @@ def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
         ]
     )
     convenio_listo.etapa_actual = db.scalar(
-        select(Etapa).where(Etapa.codigo == "APROBACION_FIRMAS")
+        select(Etapa).where(Etapa.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO")
     )
+    convenio_listo.estado = EstadoConvenio.VIGENTE.value
+    convenio_listo.fecha_firma = date(2026, 1, 15)
     db.commit()
     # Las colecciones cargadas antes del commit no se refrescan solas.
     db.refresh(convenio_listo)

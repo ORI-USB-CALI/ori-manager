@@ -4,6 +4,7 @@ Un convenio EN_TRAMITE en la etapa ELABORACION se exporta como borrador, con
 validación propia. Fuera de esa etapa se conserva la exportación existente.
 """
 import re
+from datetime import date
 from io import BytesIO
 
 import pytest
@@ -18,11 +19,13 @@ from backend.models.etapa import Etapa
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.exportacion import (
+    ETIQUETA_REFERENCIA_PROVISIONAL,
     INFORMACION_NO_DISPONIBLE,
     MARCA_BORRADOR,
     ConvenioPdfDTO,
     ModoEmision,
     SeccionContenidoDTO,
+    referencia_provisional,
 )
 from backend.services.excel_convenio import (
     HOJA_DATOS_GENERALES,
@@ -66,7 +69,7 @@ def _guardar_contenido(client, convenio, contenido) -> None:
     elaboracion = client.get(f"/api/convenios/{convenio.id}/elaboracion").json()
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
+        json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     )
     assert respuesta.status_code == 200
 
@@ -92,26 +95,49 @@ def borrador(gestor, crear_convenio) -> Convenio:
 # ---- Modo de emisión (backend, a partir de los datos reales) ------------------
 
 
+# HT-06, CA-06 y CA-07: el modo ya no depende de la etapa sino de la
+# formalización. Antes solo ELABORACION emitía borrador y las revisiones y
+# firmas emitían oficial, lo que las dejaba sin poder exportar: el documento
+# oficial exige el código institucional, que no existe hasta formalizar
+# (QA #136). Ahora todo convenio en trámite emite documento de trabajo.
 @pytest.mark.parametrize(
-    ("etapa", "estado", "modo"),
+    ("etapa", "estado", "fecha_firma", "modo"),
     [
-        ("ELABORACION", "EN_TRAMITE", ModoEmision.BORRADOR),
-        ("REVISION_AVAL_JURIDICO", "EN_TRAMITE", ModoEmision.OFICIAL),
-        ("REVISION_CONTRAPARTE", "EN_TRAMITE", ModoEmision.OFICIAL),
-        ("APROBACION_FIRMAS", "EN_TRAMITE", ModoEmision.OFICIAL),
-        ("ELABORACION", "VIGENTE", ModoEmision.OFICIAL),
-        (None, "EN_TRAMITE", ModoEmision.OFICIAL),
+        ("ELABORACION", "EN_TRAMITE", None, ModoEmision.BORRADOR),
+        ("REVISION_AVAL_JURIDICO", "EN_TRAMITE", None, ModoEmision.BORRADOR),
+        ("REVISION_CONTRAPARTE", "EN_TRAMITE", None, ModoEmision.BORRADOR),
+        ("APROBACION_FIRMAS", "EN_TRAMITE", None, ModoEmision.BORRADOR),
+        (None, "EN_TRAMITE", None, ModoEmision.BORRADOR),
+        # Una fecha de firma diligenciada a mano durante la elaboración no
+        # formaliza nada: el convenio sigue en trámite.
+        ("ELABORACION", "EN_TRAMITE", date(2026, 1, 15), ModoEmision.BORRADOR),
+        # Un convenio cancelado tampoco emite documento oficial.
+        ("ELABORACION", "CANCELADO", date(2026, 1, 15), ModoEmision.BORRADOR),
+        # Formalizado: estado fuera de trámite y con fecha de firma.
+        ("FIRMA_ARCHIVO_SEGUIMIENTO", "VIGENTE", date(2026, 1, 15), ModoEmision.OFICIAL),
+        ("FIRMA_ARCHIVO_SEGUIMIENTO", "FINALIZADO", date(2026, 1, 15), ModoEmision.OFICIAL),
+        # Sin fecha de firma no está formalizado, aunque el estado lo sugiera.
+        ("FIRMA_ARCHIVO_SEGUIMIENTO", "VIGENTE", None, ModoEmision.BORRADOR),
     ],
 )
-def test_modo_borrador_solo_en_elaboracion_en_tramite(etapa, estado, modo):
+def test_modo_oficial_solo_cuando_el_convenio_esta_formalizado(
+    etapa, estado, fecha_firma, modo
+):
     convenio = Convenio(
-        estado=estado, etapa_actual=Etapa(codigo=etapa) if etapa else None
+        estado=estado,
+        fecha_firma=fecha_firma,
+        etapa_actual=Etapa(codigo=etapa) if etapa else None,
     )
     assert modo_emision(convenio) is modo
 
 
-def test_el_cliente_no_puede_forzar_el_modo(client, gestor, convenio_exportable):
-    # Un parámetro inventado no cambia el modo: fuera de ELABORACION es oficial.
+def test_el_cliente_no_puede_forzar_el_modo(client, db, gestor, convenio_exportable):
+    # El convenio se formaliza para que su modo real sea oficial; un parámetro
+    # inventado por el cliente no lo cambia.
+    convenio_exportable.estado = "VIGENTE"
+    convenio_exportable.fecha_firma = date(2026, 1, 15)
+    db.commit()
+
     respuesta = client.get(
         f"/api/convenios/{convenio_exportable.id}/exportar"
         "?formato=pdf&modo=BORRADOR&modo_emision=BORRADOR"
@@ -218,7 +244,12 @@ def test_excel_del_borrador_identificado_en_ambas_hojas(client, gestor, borrador
     datos = libro[HOJA_DATOS_GENERALES]
     assert datos["A3"].value == "Campo"
     valores = {fila[0].value: fila[1].value for fila in datos.iter_rows(min_row=4)}
-    assert valores["Código del convenio"] == INFORMACION_NO_DISPONIBLE
+    # HT-06, CA-01 y CA-07: el documento de trabajo no anuncia un código oficial
+    # inexistente; lleva la referencia provisional del identificador interno.
+    assert "Código oficial" not in valores
+    assert valores[ETIQUETA_REFERENCIA_PROVISIONAL] == referencia_provisional(
+        borrador.id
+    )
     assert valores["Fecha de inicio de vigencia"] == INFORMACION_NO_DISPONIBLE
     assert valores["Fecha de fin de vigencia"] == INFORMACION_NO_DISPONIBLE
     assert valores["Objeto"] == borrador.objeto
@@ -471,9 +502,15 @@ def test_excel_del_borrador_no_interpreta_formulas(db, client, gestor, borrador)
 
 
 @pytest.mark.parametrize("formato", ["pdf", "excel"])
-def test_fuera_de_elaboracion_se_conserva_la_exportacion_oficial(
-    client, gestor, convenio_exportable, formato
+def test_un_convenio_formalizado_se_exporta_como_documento_oficial(
+    client, db, gestor, convenio_exportable, formato
 ):
+    # HT-06, CA-06: lo que habilita el documento oficial es la formalización,
+    # no haber salido de la etapa de elaboración.
+    convenio_exportable.estado = "VIGENTE"
+    convenio_exportable.fecha_firma = date(2026, 1, 15)
+    db.commit()
+
     respuesta = _exportar(client, convenio_exportable.id, formato)
 
     assert respuesta.status_code == 200
@@ -485,13 +522,18 @@ def test_fuera_de_elaboracion_se_conserva_la_exportacion_oficial(
         assert {"Rector de Prueba", "Representante Legal de Prueba"} <= _textos(libro)
 
 
-def test_fuera_de_elaboracion_se_conservan_las_validaciones_oficiales(
+def test_un_convenio_formalizado_conserva_las_validaciones_oficiales(
     db, client, gestor, borrador
 ):
-    # El mismo convenio válido como borrador no basta para el documento oficial.
+    # El mismo convenio válido como documento de trabajo no basta para el
+    # oficial. Se formaliza sin código: es el caso heredado que la
+    # regularización de HT-06 (CA-08) todavía no cubrió, y el validador sigue
+    # siendo la red de seguridad.
     borrador.etapa_actual = db.scalar(
-        select(Etapa).where(Etapa.codigo == "REVISION_AVAL_JURIDICO")
+        select(Etapa).where(Etapa.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO")
     )
+    borrador.estado = "VIGENTE"
+    borrador.fecha_firma = date(2026, 1, 15)
     db.commit()
 
     respuesta = _exportar(client, borrador.id, "pdf")
@@ -504,11 +546,15 @@ def test_fuera_de_elaboracion_se_conservan_las_validaciones_oficiales(
 def test_borrador_con_proceso_de_firmas_no_presenta_firmas(
     db, client, gestor, convenio_exportable
 ):
-    # Si un convenio con proceso configurado vuelve a ELABORACION, el borrador
-    # no muestra a sus firmantes como si el documento estuviera formalizado.
+    # Si un convenio con proceso configurado vuelve a trámite y a ELABORACION,
+    # el documento de trabajo no muestra a sus firmantes como si estuviera
+    # formalizado. HT-06: deshacer la formalización exige también el estado,
+    # porque el modo ya no depende solo de la etapa.
     convenio_exportable.etapa_actual = db.scalar(
         select(Etapa).where(Etapa.codigo == "ELABORACION")
     )
+    convenio_exportable.estado = "EN_TRAMITE"
+    convenio_exportable.fecha_firma = None
     db.commit()
 
     respuesta = _exportar(client, convenio_exportable.id, "excel")

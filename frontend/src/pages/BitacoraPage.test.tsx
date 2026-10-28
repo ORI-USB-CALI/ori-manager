@@ -36,6 +36,11 @@ const pagina: PaginaBitacora = {
       valor_anterior: 'RADICADA',
       valor_nuevo: 'APROBADA',
       contexto: 'Decisión de la solicitud',
+      evento: 'SOLICITUD_APROBADA',
+      etapa: null,
+      version: null,
+      ejecucion: 'HUMANA',
+      responsable: gestora,
     },
     {
       id: 6,
@@ -49,6 +54,11 @@ const pagina: PaginaBitacora = {
       valor_anterior: null,
       valor_nuevo: null,
       contexto: null,
+      evento: null,
+      etapa: null,
+      version: null,
+      ejecucion: null,
+      responsable: null,
     },
   ],
   total: 2,
@@ -101,10 +111,52 @@ describe('BitacoraPage', () => {
     expect(within(filas[1]).getByText('RADICADA')).toBeTruthy()
     expect(within(filas[1]).getByText('APROBADA')).toBeTruthy()
     expect(within(filas[1]).getByText('Decisión de la solicitud')).toBeTruthy()
+    expect(within(filas[1]).getByText('SOLICITUD_APROBADA')).toBeTruthy()
+    expect(within(filas[1]).getByText('Humana')).toBeTruthy()
+    // Originador y responsable son la misma gestora: dos celdas distintas.
+    expect(within(filas[1]).getAllByText('Gestora ORI')).toHaveLength(2)
+    expect(within(filas[1]).getByText('No disponible')).toBeTruthy()
     expect(within(filas[2]).getByText('Creación')).toBeTruthy()
-    // Rol, campo, valor anterior, valor nuevo y contexto vacíos.
-    expect(within(filas[2]).getAllByText('—')).toHaveLength(5)
+    // Naturaleza y etapa/versión sin declarar.
+    expect(within(filas[2]).getAllByText('No disponible')).toHaveLength(2)
+    // Rol, responsable, evento, campo, valor anterior, valor nuevo y contexto vacíos.
+    expect(within(filas[2]).getAllByText('—')).toHaveLength(7)
     expect(screen.getByText('Página 1 de 1')).toBeTruthy()
+  })
+
+  it('muestra un proceso automático sin usuario como tal, sin inventar uno', async () => {
+    const automatico: PaginaBitacora = {
+      items: [
+        {
+          id: 9,
+          fecha_hora: '2026-10-05T08:00:00Z',
+          usuario: null,
+          rol: null,
+          entidad: 'convenio',
+          registro_id: 20,
+          accion: 'UPDATE',
+          campo: 'estado',
+          valor_anterior: 'VIGENTE',
+          valor_nuevo: 'FINALIZADO',
+          contexto: 'Finalizó automáticamente el convenio vencido',
+          evento: 'CONVENIO_FINALIZADO_AUTOMATICO',
+          etapa: 'FIRMA_ARCHIVO_SEGUIMIENTO',
+          version: 2,
+          ejecucion: 'AUTOMATICA',
+          responsable: null,
+        },
+      ],
+      total: 1,
+    }
+    simularApi(() => respuesta(200, automatico))
+    renderizar()
+
+    const tabla = await screen.findByRole('table', { name: 'Bitácora de cambios' })
+    const fila = within(tabla).getAllByRole('row')[1]
+    expect(within(fila).getByText('Proceso automático')).toBeTruthy()
+    expect(within(fila).getByText('Automática')).toBeTruthy()
+    expect(within(fila).getByText('CONVENIO_FINALIZADO_AUTOMATICO')).toBeTruthy()
+    expect(within(fila).getByText('FIRMA_ARCHIVO_SEGUIMIENTO · v2')).toBeTruthy()
   })
 
   it('envía los filtros elegidos con el contrato de /auditoria', async () => {

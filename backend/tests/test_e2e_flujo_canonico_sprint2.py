@@ -237,7 +237,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
         f"/api/convenios/{convenio_id}/elaboracion",
         json={
             "contenido": contenido_editado,
-            "expected_version": elaboracion.json()["version_actual"],
+            "expected_revision": elaboracion.json()["revision_borrador"],
             "tipo_convenio_id": tipo.id,
             "objeto": "Convenio canónico completo del Sprint 2",
             "alcance": "INSTITUCIONAL",
@@ -246,12 +246,14 @@ def test_e2e_flujo_canonico_sprint2_por_api(
         },
     )
     assert guardada.status_code == 200, guardada.text
-    assert guardada.json()["version_actual"] > elaboracion.json()["version_actual"]
+    # Guardar avance no versiona; la versión formal nace al enviar a revisión.
+    assert guardada.json()["version_actual"] == elaboracion.json()["version_actual"]
     finalizada = client.post(
         f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": guardada.json()["version_actual"]},
+        json={"expected_revision": guardada.json()["revision_borrador"]},
     )
     assert finalizada.status_code == 200, finalizada.text
+    assert finalizada.json()["version_actual"] > elaboracion.json()["version_actual"]
     db.expire_all()
     assert db.get(Convenio, convenio_id).etapa_actual.codigo == (
         "REVISION_AVAL_JURIDICO"
@@ -356,17 +358,17 @@ def test_e2e_flujo_canonico_sprint2_por_api(
                 elaboracion_corregida.json()["contenido"],
                 "Corrección posterior a la devolución de RJ2 en E2E",
             ),
-            "expected_version": elaboracion_corregida.json()["version_actual"],
+            "expected_revision": elaboracion_corregida.json()["revision_borrador"],
         },
     )
     assert correccion.status_code == 200, correccion.text
-    version_consistente = correccion.json()["version_actual"]
-    assert version_consistente > edicion_rj2.json()["numero"]
     nueva_ronda = client.post(
         f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": version_consistente},
+        json={"expected_revision": correccion.json()["revision_borrador"]},
     )
     assert nueva_ronda.status_code == 200, nueva_ronda.text
+    version_consistente = nueva_ronda.json()["version_actual"]
+    assert version_consistente > edicion_rj2.json()["numero"]
 
     entrar_como(revisor_a)
     rj1_ronda2 = _revision_juridica_pendiente(client, convenio_id)
