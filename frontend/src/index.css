@@ -2604,6 +2604,47 @@ a:hover {
   color: var(--text-secondary);
 }
 
+/* HT-05: una versión histórica se distingue del borrador de trabajo, que usa
+   el borde naranja; aquí el documento es gris y no editable. */
+.badge-historica {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.version-historica-aviso {
+  padding: 11px 13px;
+  margin-bottom: 16px;
+  border: 1px solid #94a3b8;
+  border-left-width: 4px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.version-historica-documento {
+  border-top-color: #64748b;
+}
+
+.version-historica-documento .convenio-editor .ProseMirror {
+  cursor: default;
+}
+
+.snapshot-campo {
+  display: contents;
+}
+
+.version-lista .version-enlace {
+  justify-self: start;
+  margin-top: 4px;
+  color: var(--color-naranja);
+  font-weight: 650;
+}
+
+.snapshot-campo dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .resumen-pendientes {
   margin-top: 16px;
   padding: 14px;

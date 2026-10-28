@@ -6,7 +6,7 @@ import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
-import { type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
+import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia } from './vigencia'
 
@@ -51,13 +51,6 @@ const MENSAJES_PENDIENTES: Record<string, string> = {
   contenido: 'Completa el documento jurídico.',
 }
 
-const CONTEXTOS_VERSION: Record<string, string> = {
-  INICIALIZACION: 'Creación del proyecto',
-  GUARDADO: 'Avance guardado',
-  FINALIZACION: 'Elaboración finalizada',
-  CORRECCION_REVISION: 'Ajustes de revisión',
-}
-
 function mensajePendiente(campo: string, motivo: string) {
   if (motivo === 'Es obligatorio para finalizar la elaboración'
     || motivo === 'Es obligatorio cuando el alcance es PROGRAMA') {
@@ -65,10 +58,6 @@ function mensajePendiente(campo: string, motivo: string) {
   }
   if (campo === 'fecha_vencimiento') return mensajeVigenciaServidor(motivo) ?? motivo
   return motivo
-}
-
-function contextoVersion(contexto: string) {
-  return CONTEXTOS_VERSION[contexto] ?? contexto
 }
 
 type MetadataFormulario = Record<typeof CAMPOS[number], string>
@@ -546,6 +535,7 @@ export function ConvenioElaboracionPage() {
 
             <section className="card historial-versiones">
               <h2>Historial de versiones</h2>
+              <p className="section-help">Solo incluye versiones formales; guardar avances no agrega versiones.</p>
               <div className="version-lista">
                 {versiones.data?.map((version) => (
                   <article className={version.numero === datos.version_actual ? 'version-actual' : undefined} key={version.numero}>
@@ -556,6 +546,11 @@ export function ConvenioElaboracionPage() {
                     <span><strong>Autor:</strong> {version.autor.nombre_completo}</span>
                     <span><strong>Fecha:</strong> {fechaHora(version.creado_en)}</span>
                     <span><strong>Contexto:</strong> {contextoVersion(version.contexto)}</span>
+                    {puede('convenios.ver') && (
+                      <Link className="version-enlace" to={`/convenios/${id}/versiones/${version.numero}`} aria-label={`Ver contenido de la versión ${version.numero}`}>
+                        Ver contenido
+                      </Link>
+                    )}
                   </article>
                 ))}
               </div>
