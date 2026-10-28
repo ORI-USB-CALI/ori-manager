@@ -64,10 +64,13 @@ class ServicioExportacionConvenio:
                 joinedload(Convenio.tipo_convenio),
                 joinedload(Convenio.unidad_organizacional),
                 joinedload(Convenio.aliado),
-                # La etapa define el modo de emisión (borrador u oficial).
+                # HT-06: el modo de emisión lo decide la formalización, no la
+                # etapa. Se sigue precargando porque el documento muestra la
+                # etapa actual del convenio.
                 joinedload(Convenio.etapa_actual),
                 selectinload(Convenio.solicitud),
                 selectinload(Convenio.versiones),
+                selectinload(Convenio.borrador),
                 selectinload(Convenio.procesos_firmas).selectinload(
                     ProcesoFirmasConvenio.firmas
                 ),

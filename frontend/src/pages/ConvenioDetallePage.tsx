@@ -15,11 +15,7 @@ import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFina
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import { SoportesConvenio } from '../components/SoportesConvenio'
-import {
-  type Convenio,
-  type ElaboracionConvenio,
-  type HistorialConvenio,
-} from './epica02'
+import { type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio } from './epica02'
 
 interface UsuarioResumen { id: number; nombre_completo: string }
 interface ObservacionRevision {
@@ -278,7 +274,7 @@ export function ConvenioDetallePage() {
       <section className="header-banner">
         <div className="header-banner-fila">
           <div>
-            <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {datos.codigo ?? `#${datos.id}`}</h1>
+            <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {referenciaConvenio(datos.codigo, datos.id)}</h1>
             <p><span className="badge">{datos.estado}</span></p>
             <Link to={esProyecto ? '/convenios/tablero' : '/convenios'}>
               {esProyecto ? 'Volver al tablero de convenios' : 'Volver a la consulta de convenios'}
@@ -286,7 +282,11 @@ export function ConvenioDetallePage() {
           </div>
           <ExportarConvenioMenu
             convenioId={datos.id}
-            esBorrador={etapaActual === 'ELABORACION' && datos.estado === 'EN_TRAMITE'}
+            /* HT-06, CA-06: el documento es oficial solo si el convenio está
+               formalizado. `esProyecto` ya es la negación exacta de
+               `convenio_esta_formalizado` del backend, que es quien decide de
+               verdad; esto solo ajusta lo que se le anuncia al usuario. */
+            esBorrador={esProyecto}
           />
         </div>
       </section>

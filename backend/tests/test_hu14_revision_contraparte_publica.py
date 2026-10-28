@@ -73,7 +73,7 @@ def enlace_manual(client, db, gestor, crear_usuario, correo_local):
     assert convenio.solicitud_id is None
     assert convenio.origen == "MANUAL_ORI"
     guardado = client.patch(f"/api/convenios/{convenio.id}/elaboracion", json={
-        "expected_version": convenio.version_actual,
+        "expected_revision": 0,
         "contenido": {"type": "doc", "content": [{
             "type": "paragraph", "content": [{"type": "text", "text": convenio.objeto}],
         }]},

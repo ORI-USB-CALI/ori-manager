@@ -93,7 +93,7 @@ def test_iniciar_crea_plantilla_version_inicial_y_precarga_sin_tocar_solicitud(
     ) == original
 
 
-def test_guardar_crea_version_consecutiva_y_sin_cambios_no_duplica(
+def test_guardar_avance_no_crea_version_y_sin_cambios_no_sube_la_revision(
     client, db, convenio_listo
 ) -> None:
     cuerpo = _elaboracion(client, convenio_listo.id)
@@ -104,19 +104,23 @@ def test_guardar_crea_version_consecutiva_y_sin_cambios_no_duplica(
             "content": [{"type": "text", "text": "Nueva cláusula de prueba"}],
         }
     )
-    payload = {"contenido": contenido, "expected_version": 1}
+    payload = {"contenido": contenido, "expected_revision": 0}
 
     guardada = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion", json=payload
     )
     assert guardada.status_code == 200
-    assert guardada.json()["version_actual"] == 2
+    assert guardada.json()["version_actual"] == 1
+    assert guardada.json()["revision_borrador"] == 1
+    assert guardada.json()["borrador_guardado_en"] is not None
     repetida = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": 2},
+        json={"contenido": contenido, "expected_revision": 1},
     )
     assert repetida.status_code == 200
-    assert repetida.json()["version_actual"] == 2
+    assert repetida.json()["version_actual"] == 1
+    assert repetida.json()["revision_borrador"] == 1
+    assert _elaboracion(client, convenio_listo.id)["contenido"] == contenido
 
     versiones = list(
         db.scalars(
@@ -125,21 +129,18 @@ def test_guardar_crea_version_consecutiva_y_sin_cambios_no_duplica(
             .order_by(VersionConvenio.numero)
         )
     )
-    assert [version.numero for version in versiones] == [1, 2]
+    assert [version.numero for version in versiones] == [1]
     assert "Nueva cláusula" not in _texto(versiones[0].contenido)
-    assert "Nueva cláusula" in _texto(versiones[1].contenido)
-    (auditoria,) = db.scalars(
+    assert not db.scalars(
         select(Auditoria).where(
             Auditoria.entidad == "convenio",
             Auditoria.registro_id == convenio_listo.id,
             Auditoria.campo == "version_actual",
         )
     ).all()
-    assert (auditoria.valor_anterior, auditoria.valor_nuevo) == ("1", "2")
-    assert "Nueva cláusula" not in (auditoria.valor_nuevo or "")
 
 
-def test_expected_version_obsoleta_responde_409_sin_sobrescribir(
+def test_revision_obsoleta_del_borrador_responde_409_sin_sobrescribir(
     client, db, convenio_listo
 ) -> None:
     original = _elaboracion(client, convenio_listo.id)["contenido"]
@@ -150,7 +151,7 @@ def test_expected_version_obsoleta_responde_409_sin_sobrescribir(
     assert (
         client.patch(
             f"/api/convenios/{convenio_listo.id}/elaboracion",
-            json={"contenido": primera, "expected_version": 1},
+            json={"contenido": primera, "expected_revision": 0},
         ).status_code
         == 200
     )
@@ -160,18 +161,14 @@ def test_expected_version_obsoleta_responde_409_sin_sobrescribir(
     )
     conflicto = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": segunda, "expected_version": 1},
+        json={"contenido": segunda, "expected_revision": 0},
     )
     assert conflicto.status_code == 409
-    assert conflicto.json()["detail"]["current_version"] == 2
-    actual = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == 2,
-        )
-    )
-    assert "Pestaña A" in _texto(actual.contenido)
-    assert "Pestaña B" not in _texto(actual.contenido)
+    assert conflicto.json()["detail"]["current_revision"] == 1
+    actual = _elaboracion(client, convenio_listo.id)
+    assert "Pestaña A" in _texto(actual["contenido"])
+    assert "Pestaña B" not in _texto(actual["contenido"])
+    assert actual["version_actual"] == 1
 
 
 def test_json_desconocido_html_crudo_y_atributos_peligrosos_son_rechazados(
@@ -188,7 +185,7 @@ def test_json_desconocido_html_crudo_y_atributos_peligrosos_son_rechazados(
     for contenido in casos:
         respuesta = client.patch(
             f"/api/convenios/{convenio_listo.id}/elaboracion",
-            json={"contenido": contenido, "expected_version": 1},
+            json={"contenido": contenido, "expected_revision": 0},
         )
         assert respuesta.status_code == 422
 
@@ -259,11 +256,12 @@ def test_contenido_de_todas_las_capacidades_visibles_se_puede_guardar(
 
     respuesta = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": 1},
+        json={"contenido": contenido, "expected_revision": 0},
     )
 
     assert respuesta.status_code == 200
-    assert respuesta.json()["version_actual"] == 2
+    assert respuesta.json()["version_actual"] == 1
+    assert respuesta.json()["revision_borrador"] == 1
     assert respuesta.json()["contenido"] == contenido
 
 
@@ -303,7 +301,7 @@ def test_attrs_reales_de_lista_numerada_tiptap_son_validos(
 ) -> None:
     respuesta = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": _lista_numerada(attrs), "expected_version": 1},
+        json={"contenido": _lista_numerada(attrs), "expected_revision": 0},
     )
 
     assert respuesta.status_code == 200
@@ -332,7 +330,7 @@ def test_attrs_invalidos_de_lista_numerada_son_rechazados(
 ) -> None:
     respuesta = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": _lista_numerada(attrs), "expected_version": 1},
+        json={"contenido": _lista_numerada(attrs), "expected_revision": 0},
     )
 
     assert respuesta.status_code == 422
@@ -405,7 +403,7 @@ def test_capacidades_fuera_del_editor_son_rechazadas(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
         json={
             "contenido": {"type": "doc", "content": [nodo]},
-            "expected_version": 1,
+            "expected_revision": 0,
         },
     )
 
@@ -418,12 +416,12 @@ def test_documento_vacio_se_puede_guardar_pero_no_finalizar(
     vacio = {"type": "doc", "content": [{"type": "paragraph"}]}
     guardada = client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": vacio, "expected_version": 1},
+        json={"contenido": vacio, "expected_revision": 0},
     )
     assert guardada.status_code == 200
     finalizada = client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar",
-        json={"expected_version": 2},
+        json={"expected_revision": 1},
     )
     assert finalizada.status_code == 422
     assert {item["campo"] for item in finalizada.json()["detail"]["faltantes"]} == {
@@ -451,7 +449,7 @@ def test_finalizar_guarda_cambios_y_vincula_una_sola_revision_a_version_exacta(
     )
     respuesta = client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar",
-        json={"contenido": contenido, "expected_version": 1},
+        json={"contenido": contenido, "expected_revision": 0},
     )
     assert respuesta.status_code == 200
     assert respuesta.json()["version_actual"] == 2

@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom'
 
-import { type ConvenioTablero, useTableroConvenios } from './epica02'
+import { type ConvenioTablero, referenciaConvenio, useTableroConvenios } from './epica02'
 
 function identificador(convenio: ConvenioTablero) {
-  return convenio.codigo ?? `Convenio #${convenio.id}`
+  return referenciaConvenio(convenio.codigo, convenio.id)
 }
 
 function contraparte(convenio: ConvenioTablero) {

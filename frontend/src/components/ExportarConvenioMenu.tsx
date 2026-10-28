@@ -186,7 +186,11 @@ export function ExportarConvenioMenu({ convenioId, esBorrador = false }: Props) 
               </svg>
               <div className="exportar-menu-item-texto">
                 <strong>Exportar como PDF</strong>
-                <small>Documento oficial con membrete y firmas</small>
+                <small>
+                  {esBorrador
+                    ? 'Documento de trabajo, sin código oficial ni firmas'
+                    : 'Documento oficial con membrete y firmas'}
+                </small>
               </div>
             </button>
 

@@ -98,6 +98,7 @@ from backend.services.actividades_utilizacion import ServicioActividadesUtilizac
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
     ESTADOS_SIN_FORMALIZAR,
+    ConflictoBorradorConvenio,
     ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
@@ -202,6 +203,15 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "message": str(exc),
                 "expected_version": exc.esperada,
                 "current_version": exc.actual,
+            },
+        ) from exc
+    if isinstance(exc, ConflictoBorradorConvenio):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(exc),
+                "expected_revision": exc.esperada,
+                "current_revision": exc.actual,
             },
         ) from exc
     if isinstance(

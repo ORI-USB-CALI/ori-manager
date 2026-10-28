@@ -906,7 +906,7 @@ def test_cambio_sustancial_exige_version_nueva_aunque_observacion_este_atendida(
 
     respuesta = client.post(
         f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": escenario_final["version"].numero},
+        json={"expected_revision": 0},
     )
 
     assert respuesta.status_code == 409
@@ -915,7 +915,7 @@ def test_cambio_sustancial_exige_version_nueva_aunque_observacion_este_atendida(
     assert db.get(Convenio, convenio_id).etapa_actual.codigo == "ELABORACION"
 
 
-def _crear_version_posterior_al_cambio(client, db, escenario_final):
+def _enviar_version_posterior_al_cambio(client, db, escenario_final):
     convenio_id = escenario_final["convenio"].id
     contenido = deepcopy(escenario_final["version"].contenido)
     contenido.setdefault("content", []).append(
@@ -926,12 +926,14 @@ def _crear_version_posterior_al_cambio(client, db, escenario_final):
     )
     respuesta = client.patch(
         f"/api/convenios/{convenio_id}/elaboracion",
-        json={
-            "contenido": contenido,
-            "expected_version": escenario_final["version"].numero,
-        },
+        json={"contenido": contenido, "expected_revision": 0},
     )
     assert respuesta.status_code == 200
+    enviado = client.post(
+        f"/api/convenios/{convenio_id}/elaboracion/finalizar",
+        json={"expected_revision": respuesta.json()["revision_borrador"]},
+    )
+    assert enviado.status_code == 200, enviado.text
     db.expire_all()
     nueva = db.scalar(
         select(VersionConvenio)
@@ -951,15 +953,8 @@ def test_nueva_version_abre_nueva_ronda_y_preserva_proceso_cancelado(
     convenio_id = escenario_final["convenio"].id
     assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 200
     _atender_cambio_sustancial(client, db, convenio_id)
-    nueva = _crear_version_posterior_al_cambio(client, db, escenario_final)
+    nueva = _enviar_version_posterior_al_cambio(client, db, escenario_final)
 
-    respuesta = client.post(
-        f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": nueva.numero},
-    )
-
-    assert respuesta.status_code == 200
-    db.expire_all()
     revision = db.scalar(
         select(RevisionConvenio)
         .where(
@@ -986,12 +981,7 @@ def test_nuevo_ciclo_crea_proceso_y_firmas_nuevas_sin_reutilizar(
     convenio_id = escenario_final["convenio"].id
     assert _solicitar_cambio_sustancial(client, convenio_id).status_code == 200
     _atender_cambio_sustancial(client, db, convenio_id)
-    nueva = _crear_version_posterior_al_cambio(client, db, escenario_final)
-    assert client.post(
-        f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": nueva.numero},
-    ).status_code == 200
-    db.expire_all()
+    nueva = _enviar_version_posterior_al_cambio(client, db, escenario_final)
     primera = db.scalar(
         select(RevisionConvenio).where(
             RevisionConvenio.convenio_id == convenio_id,

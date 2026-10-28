@@ -15,6 +15,21 @@ export type EstadoConvenio =
   | 'FINALIZADO'
   | 'CANCELADO'
 
+/**
+ * Identificación visible de un convenio (HT-06, CA-01).
+ *
+ * Antes de formalizarlo no tiene código institucional, así que se muestra una
+ * referencia provisional derivada de su identificador interno (RN-10),
+ * distinguible del código aprobado `USB-ORI-AAAA-NNNNN`. El backend es el único
+ * que asigna el código, al formalizar (RN-01, RN-02).
+ *
+ * Centraliza lo que antes eran cuatro textos distintos entre vistas
+ * (`#41`, `Sin código`, `En asignación`, `Convenio #41`).
+ */
+export function referenciaConvenio(codigo: string | null | undefined, id: number): string {
+  return codigo?.trim() || `Convenio provisional #${id}`
+}
+
 export interface ConvenioResumen {
   id: number
   codigo: string | null
@@ -200,6 +215,8 @@ export interface ElaboracionConvenio extends Convenio {
   unidad_organizacional: UnidadOrganizacionalResumen | null
   plantilla_origen: PlantillaConvenioResumen | null
   contenido: Record<string, unknown> | null
+  revision_borrador: number
+  borrador_guardado_en: string | null
 }
 
 export interface PlantillaConvenioResumen {

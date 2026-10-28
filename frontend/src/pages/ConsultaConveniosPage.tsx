@@ -19,7 +19,7 @@ import {
   useCatalogosConsulta,
   useConsultaConvenios,
 } from './consultaConvenios'
-import { ETIQUETA_TIPO, type EstadoConvenio, type TipoAliado } from './epica02'
+import { type EstadoConvenio, ETIQUETA_TIPO, referenciaConvenio, type TipoAliado } from './epica02'
 
 const TIPO_FECHA_DEFECTO: TipoFiltroFecha = 'FORMALIZACION'
 
@@ -336,7 +336,7 @@ export function ConsultaConveniosPage() {
   }
 
   const columns: DataTableColumn<ConvenioConsulta>[] = [
-    { id: 'codigo', header: 'Código', render: (convenio) => convenio.codigo ?? 'Sin código' },
+    { id: 'codigo', header: 'Código', render: (convenio) => referenciaConvenio(convenio.codigo, convenio.id) },
     {
       id: 'objeto',
       header: 'Objeto',

@@ -64,7 +64,7 @@ def test_cliente_no_fija_hitos_manuales(client, db, gestor, campo, metodo, sufij
     inicio = convenio.elaboracion_iniciada_en
     datos = {campo: "2020-01-01T00:00:00Z"}
     if "elaboracion" in sufijo:
-        datos.update(expected_version=1, contenido={"type": "doc", "content": [{"type": "paragraph"}]})
+        datos.update(expected_revision=0, contenido={"type": "doc", "content": [{"type": "paragraph"}]})
     ruta = "/api/convenios/manual" if sufijo == "/manual" else f"/api/convenios/{identificador}{sufijo}"
     respuesta = client.request(metodo, ruta, json=datos)
     assert respuesta.status_code == 422, respuesta.text

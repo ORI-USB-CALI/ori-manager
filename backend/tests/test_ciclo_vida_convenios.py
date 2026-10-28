@@ -8,6 +8,7 @@ from sqlalchemy import delete, event, func, select
 from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio, EstadoSolicitud, TipoSolicitante
 from backend.models.rol import Rol
@@ -150,6 +151,45 @@ def test_simulacion_no_persiste(db, preparar):
     db.refresh(convenio)
     assert convenio.estado == "VIGENTE"
     assert db.scalar(select(func.count()).select_from(TransicionEstadoConvenio)) == 0
+
+
+def test_conciliacion_real_queda_en_la_bitacora_sin_usuario_ficticio(db, preparar):
+    """HT-09, CA-03: el cambio automático queda registrado, sin usuario ni
+    un valor de ejecución inventado a medias (RN-07). Se filtra por el
+    evento propio de la conciliación porque crear el convenio de prueba ya
+    deja su propia fila humana en la bitácora (preparar fija el estado
+    inicial), y no es lo que esta prueba quiere verificar."""
+    convenio = preparar(dias=-1)
+    conciliar_estados(db, HOY)
+
+    filas = db.scalars(
+        select(Auditoria).where(
+            Auditoria.entidad == "convenio",
+            Auditoria.registro_id == convenio.id,
+            Auditoria.evento == "CONCILIACION_ESTADO_AUTOMATICA",
+        )
+    ).all()
+    assert filas
+    for fila in filas:
+        assert fila.usuario_id is None
+        assert fila.rol is None
+        assert fila.ejecucion == "AUTOMATICA"
+
+
+def test_simulacion_no_deja_registros_en_la_bitacora(db, preparar):
+    convenio = preparar(dias=-1)
+    conciliar_estados(db, HOY, simular=True)
+
+    total = db.scalar(
+        select(func.count())
+        .select_from(Auditoria)
+        .where(
+            Auditoria.entidad == "convenio",
+            Auditoria.registro_id == convenio.id,
+            Auditoria.evento == "CONCILIACION_ESTADO_AUTOMATICA",
+        )
+    )
+    assert total == 0
 
 
 def test_error_revierte_estados_y_bitacora(db, preparar, monkeypatch):

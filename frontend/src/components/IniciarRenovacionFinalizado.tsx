@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { CLAVE_ALERTAS_VENCIMIENTO } from '../pages/alertasVencimiento'
-import { type Convenio } from '../pages/epica02'
+import { type Convenio, referenciaConvenio } from '../pages/epica02'
 import { CLAVE_RENOVACIONES, iniciarRenovacion, mensajeErrorAccion } from '../pages/renovaciones'
 import { ConfirmacionModal } from './ConfirmacionModal'
 
@@ -58,7 +58,7 @@ export function IniciarRenovacionFinalizado({ convenio }: { convenio: Convenio }
       </div>
       {confirmar && (
         <ConfirmacionModal titulo="Iniciar renovación" confirmar="Iniciar renovación" procesando="Registrando…" pendiente={mutacion.isPending} onConfirmar={iniciar} onCerrar={() => setConfirmar(false)}>
-          <h3>{convenio.codigo?.trim() || `Convenio #${convenio.id}`}</h3>
+          <h3>{referenciaConvenio(convenio.codigo, convenio.id)}</h3>
           <p>Se iniciará una nueva elaboración de convenio usando como base el documento vigente del convenio actual. ¿Deseas continuar?</p>
         </ConfirmacionModal>
       )}

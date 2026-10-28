@@ -24,6 +24,7 @@ from backend.models.enums import AlcanceConvenio, EstadoConvenio, OrigenConvenio
 if TYPE_CHECKING:
     from backend.models.actividad_convenio import ActividadConvenio
     from backend.models.aliado import Aliado
+    from backend.models.borrador_convenio import BorradorConvenio
     from backend.models.decision_no_renovacion import DecisionNoRenovacion
     from backend.models.documento import Documento
     from backend.models.etapa import Etapa
@@ -137,6 +138,9 @@ class Convenio(Base):
     )
     versiones: Mapped[list[VersionConvenio]] = relationship(
         back_populates="convenio", order_by="VersionConvenio.numero"
+    )
+    borrador: Mapped[BorradorConvenio | None] = relationship(
+        back_populates="convenio", uselist=False
     )
     procesos_firmas: Mapped[list[ProcesoFirmasConvenio]] = relationship(
         back_populates="convenio", order_by="ProcesoFirmasConvenio.id"

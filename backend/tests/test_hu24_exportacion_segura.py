@@ -4,7 +4,6 @@ Autorización por alcance, rutas oficiales, aislamiento de datos, versión
 contractual, texto especial, contenido incompleto y exportación segura.
 """
 import re
-from copy import deepcopy
 from datetime import date
 from io import BytesIO
 
@@ -13,6 +12,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.models.enums import ContextoVersionConvenio
 from backend.models.etapa import Etapa
 from backend.models.firma_convenio import FirmaConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
@@ -113,9 +113,12 @@ def test_revisor_ori_con_revision_juridica_elegible_supera_el_alcance(
 
     respuesta = _exportar(client, convenio_listo.id)
 
-    # Dentro de su alcance llega a la validación (el convenio está incompleto).
-    assert respuesta.status_code == 422
-    assert respuesta.json()["error"] == "CONVENIO_INCOMPLETO"
+    # Dentro de su alcance la petición pasa el control de alcance y se atiende.
+    # HT-06, CA-07: el convenio sigue en trámite, así que recibe un documento de
+    # trabajo. Antes esta etapa emitía en modo oficial y el convenio incompleto
+    # respondía 422; lo que esta prueba vigila es el alcance, no la validación.
+    assert respuesta.status_code == 200, respuesta.text
+    assert "BORRADOR" in respuesta.headers["content-disposition"]
 
 
 def test_administrador_ori_exporta_cualquier_convenio(
@@ -173,25 +176,17 @@ def _mover_a_etapa(db, convenio, codigo: str) -> None:
 
 
 def _crear_version_2(client, db, convenio, texto: str) -> None:
-    """Guardar el editor de HU-12 crea la versión 2 del convenio.
-
-    El editor exige la etapa ELABORACION; después se vuelve a la etapa
-    anterior para que la exportación siga siendo oficial.
-    """
-    convenio_id = convenio.id
-    etapa_original = convenio.etapa_actual.codigo
-    _mover_a_etapa(db, convenio, "ELABORACION")
-    elaboracion = client.get(f"/api/convenios/{convenio_id}/elaboracion").json()
-    contenido = deepcopy(elaboracion["contenido"])
-    contenido["content"] = [
-        {"type": "paragraph", "content": [{"type": "text", "text": texto}]}
-    ]
-    guardada = client.patch(
-        f"/api/convenios/{convenio_id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
+    """Crea la versión 2 como lo hace el envío a revisión: desde HT-13, guardar
+    avance ya no versiona. La etapa no cambia, así que la exportación sigue
+    siendo oficial."""
+    contenido = {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": texto}]}],
+    }
+    ServicioConvenios(db)._crear_version(
+        convenio, contenido, convenio.creado_por, ContextoVersionConvenio.FINALIZACION
     )
-    assert guardada.status_code == 200
-    _mover_a_etapa(db, convenio, etapa_original)
+    db.commit()
 
 
 def _completar_proceso_de_la_v1(db, convenio) -> None:
