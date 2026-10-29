@@ -118,6 +118,7 @@ function HeaderNavInteractiva({ enlaces }: HeaderNavProps) {
         id={idPanel}
         className={`navbar-links${abierto ? ' navbar-links-abierto' : ''}`}
         aria-label="Navegación principal"
+        data-tour="navegacion-principal"
       >
         {enlaces.map((elemento, indice) => 'enlaces' in elemento ? (
           <div

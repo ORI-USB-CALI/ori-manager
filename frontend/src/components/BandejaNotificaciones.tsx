@@ -78,7 +78,7 @@ function BandejaNotificacionesInteractiva({
   }
 
   return (
-    <div className="bandeja-notificaciones" ref={contenedorRef}>
+    <div className="bandeja-notificaciones" ref={contenedorRef} data-tour="centro-notificaciones">
       <button
         ref={botonRef}
         type="button"
