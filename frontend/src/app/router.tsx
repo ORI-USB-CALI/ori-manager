@@ -9,6 +9,7 @@ import { ConvenioDetallePage } from '../pages/ConvenioDetallePage'
 import { ConvenioElaboracionPage } from '../pages/ConvenioElaboracionPage'
 import { ConvenioHistorialPage } from '../pages/ConvenioHistorialPage'
 import { ConvenioNuevoPage } from '../pages/ConvenioNuevoPage'
+import { ConvenioVersionPage } from '../pages/ConvenioVersionPage'
 import { DocumentoAprobadoFirmaPage } from '../pages/DocumentoAprobadoFirmaPage'
 import { FirmaConvenioPublicaPage } from '../pages/FirmaConvenioPublicaPage'
 import { HomePage } from '../pages/HomePage'
@@ -72,6 +73,8 @@ export const router = createBrowserRouter([
         { path: '/convenios/:convenioId', element: <ConvenioDetallePage /> },
         { path: '/convenios/:convenioId/elaboracion', element: <ConvenioElaboracionPage /> },
         { path: '/convenios/:convenioId/historial', element: <ConvenioHistorialPage /> },
+        // HT-05: el backend consulta versiones con `convenios.ver` y su alcance operativo.
+        { path: '/convenios/:convenioId/versiones/:numero', element: <ConvenioVersionPage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.gestionar_firmas" />, children: [
         { path: '/convenios/:convenioId/firmas/documento-aprobado', element: <DocumentoAprobadoFirmaPage /> },
