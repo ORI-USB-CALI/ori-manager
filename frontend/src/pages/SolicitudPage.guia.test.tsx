@@ -101,9 +101,33 @@ describe('guía de radicación en el formulario (HU-39 FE01)', () => {
     const { fetch, guardados, cliente } = preparar()
     await abrirGuia(cliente)
 
-    for (let paso = 1; paso < 8; paso++) fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
-    await waitFor(() => expect(tituloActual()).toBe('8. Observaciones adicionales'))
-    fireEvent.click(screen.getByRole('button', { name: 'Finalizar' }))
+    // Avanzar por las ocho secciones originales
+for (let paso = 1; paso < 8; paso++) {
+  fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+}
+
+await waitFor(() =>
+  expect(tituloActual()).toBe('8. Observaciones adicionales'),
+)
+
+// Comprobar que el recorrido continúa con FE-03
+fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+
+await waitFor(() =>
+  expect(tituloActual()).not.toBe('8. Observaciones adicionales'),
+)
+
+// Avanzar por los pasos adicionales hasta encontrar Finalizar
+for (let paso = 0; paso < 20; paso++) {
+  if (screen.queryByRole('button', { name: 'Finalizar' })) break
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Siguiente' }),
+  )
+}
+
+// Finalizar el recorrido completo
+fireEvent.click(screen.getByRole('button', { name: 'Finalizar' }))
 
     await waitFor(() => expect(guardados()).toEqual([{ estado: 'COMPLETADO', version: 1 }]))
     const rutas = fetch.mock.calls.map(([url, init]) => `${init?.method ?? 'GET'} ${url}`)

@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useRecorrido } from '../components/recorrido'
@@ -9,6 +8,7 @@ import { ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
 import { DESTINOS_ACCIONES_SOLICITUD, DESTINOS_SECCIONES_SOLICITUD, PASOS_SECCIONES_SOLICITUD } from './guiaRadicacion'
 import { claveGuia, type EstadoGuiaUsuario, useEstadoGuia, useRegistrarEstadoGuia } from './guias'
 import { type DocumentoSolicitud, type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
+import { crearPasosAccionesRadicacion } from './pasosAccionesRadicacion'
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
 const CAMPOS_REQUERIDOS = [
@@ -120,7 +120,10 @@ export function SolicitudPage() {
     })
     recorrido.iniciar({
       guia: 'GUIA_RADICACION',
-      pasos: PASOS_SECCIONES_SOLICITUD,
+      pasos: [
+  ...PASOS_SECCIONES_SOLICITUD,
+  ...crearPasosAccionesRadicacion(solicitud?.estado === 'DEVUELTA'),
+],
       onComplete: () => registrar('COMPLETADO'),
       // Omitir solo se registra si la guía estaba pendiente: cerrar una guía ya
       // completada u omitida no cambia su estado (RN-04, RN-05).
