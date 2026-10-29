@@ -6,7 +6,8 @@ export type DocumentoConvenio = Record<string, unknown>
 interface Props {
   contenido: DocumentoConvenio
   editable: boolean
-  onChange: (contenido: DocumentoConvenio) => void
+  /** Opcional en modo lectura (HT-05): sin edición no hay cambios que notificar. */
+  onChange?: (contenido: DocumentoConvenio) => void
 }
 
 export function ConvenioEditor({ contenido, editable, onChange }: Props) {
@@ -27,7 +28,7 @@ export function ConvenioEditor({ contenido, editable, onChange }: Props) {
     content: contenido,
     editable,
     immediatelyRender: false,
-    onUpdate: ({ editor: editorActual }) => onChange(editorActual.getJSON()),
+    onUpdate: ({ editor: editorActual }) => onChange?.(editorActual.getJSON()),
   })
 
   if (!editor) return <p className="estado-pagina">Preparando editor…</p>

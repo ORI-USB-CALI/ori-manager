@@ -4,6 +4,7 @@ import { ApiError, apiFetch } from '../app/api'
 import type { HistorialConvenio, RevisionConvenioTrazabilidad } from '../pages/epica02'
 import { LineaTiempoConvenio } from './LineaTiempoConvenio'
 import { ObservacionesJuridicas } from './ObservacionesJuridicas'
+import { VersionesConvenio } from './VersionesConvenio'
 import { VersionesSolicitud } from './VersionesSolicitud'
 
 const ETIQUETA_TIPO_REVISION: Record<string, string> = {
@@ -232,6 +233,7 @@ export function HistorialConvenioContenido({ convenioId, solicitudId }: Props) {
   return (
     <>
       <LineaTiempoConvenio convenioId={convenioId} />
+      <VersionesConvenio convenioId={convenioId} />
       <TrazabilidadRevisiones convenioId={convenioId} solicitudId={solicitudId} />
     </>
   )
