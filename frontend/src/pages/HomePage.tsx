@@ -158,14 +158,6 @@ export function HomePage() {
         </Link>
       )}
 
-      {puedeVerVencimientos && (
-        <AlertasVencimiento
-          alertas={vencimientos.data}
-          cargando={vencimientos.isPending}
-          error={vencimientos.isError}
-        />
-      )}
-
       <section className="accesos-rapidos" aria-labelledby="accesos-rapidos-titulo">
         <header className="accesos-rapidos-cabecera">
           <p className="accesos-rapidos-eyebrow">Portal de servicios</p>
@@ -197,6 +189,14 @@ export function HomePage() {
           ))}
         </div>
       </section>
+
+      {puedeVerVencimientos && (
+        <AlertasVencimiento
+          alertas={vencimientos.data}
+          cargando={vencimientos.isPending}
+          error={vencimientos.isError}
+        />
+      )}
     </>
   )
 }
