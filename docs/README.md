@@ -22,6 +22,7 @@
 - [HT-05 — Consulta de versiones históricas](hu/HT-05-consulta-versiones-historicas.md) · [PR #159](https://github.com/ORI-USB-CALI/ori-manager/pull/159); depende de HT-13 y no implica aceptación QA ni release.
 - [HT-08 — Validación de vigencia de convenios](hu/ht-08-validacion-vigencia.md) · [PR #147](https://github.com/ORI-USB-CALI/ori-manager/pull/147); no implica aceptación QA ni release.
 - [HT-06 — Código institucional del convenio](hu/ht-06-codigo-convenio.md) · incidencias [QA #145](https://github.com/ORI-USB-CALI/ori-manager/issues/145) y [QA #136](https://github.com/ORI-USB-CALI/ori-manager/issues/136); no implica aceptación QA ni release.
+- [HT-07 — PDF del reporte de convenios activos](hu/ht-07-pdf-reporte-convenios-activos.md) · incidencia [QA #137](https://github.com/ORI-USB-CALI/ori-manager/issues/137); no implica aceptación QA ni release.
 
 ## Historias terminadas con ficha de referencia
 
