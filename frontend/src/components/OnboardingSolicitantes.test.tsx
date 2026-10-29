@@ -8,7 +8,7 @@ import type { Sesion } from '../auth/sesion'
 import { OnboardingSolicitantes } from './OnboardingSolicitantes'
 import type { OpcionesRecorrido } from './recorrido'
 
-const iniciar = vi.hoisted(() => vi.fn((_opciones: OpcionesRecorrido) => true))
+const iniciar = vi.hoisted(() => vi.fn((opciones: OpcionesRecorrido) => Boolean(opciones)))
 vi.mock('./recorrido', () => ({
   useRecorrido: () => ({ activo: null, iniciar }),
 }))
