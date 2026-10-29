@@ -5,6 +5,7 @@ import { useSesion } from '../auth/sesion'
 import { BandejaNotificaciones } from '../components/BandejaNotificaciones'
 import { CentroNotificaciones } from '../components/CentroNotificaciones'
 import { HeaderNav } from '../components/HeaderNav'
+import { OnboardingSolicitantes } from '../components/OnboardingSolicitantes'
 import { useCentroNotificaciones } from '../pages/centroNotificaciones'
 import { useNotificacionesTiempoReal } from '../pages/notificaciones'
 import { apiFetch } from './api'
@@ -52,6 +53,7 @@ export function AppLayout() {
         <HeaderNav enlaces={enlaces} />
 
         <div className="user-profile">
+          <OnboardingSolicitantes sesion={sesion} />
           <BandejaNotificaciones
             nombre="Centro de notificaciones"
             contador={centro.contador}
