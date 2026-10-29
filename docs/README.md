@@ -24,6 +24,8 @@
 - [HT-06 — Código institucional del convenio](hu/ht-06-codigo-convenio.md) · incidencias [QA #145](https://github.com/ORI-USB-CALI/ori-manager/issues/145) y [QA #136](https://github.com/ORI-USB-CALI/ori-manager/issues/136); no implica aceptación QA ni release.
 - [HT-07 — PDF del reporte de convenios activos](hu/ht-07-pdf-reporte-convenios-activos.md) · incidencia [QA #137](https://github.com/ORI-USB-CALI/ori-manager/issues/137); no implica aceptación QA ni release.
 
+- [HT-11 — Legibilidad del reporte web de convenios activos](hu/ht-11-legibilidad-reporte-convenios-activos.md) · [QA #142](https://github.com/ORI-USB-CALI/ori-manager/issues/142); complementa HT-07. Validación visual pendiente de QA.
+
 ## Historias terminadas con ficha de referencia
 
 - [HU-01 — Inicio sesion](hu/hu-01-inicio-sesion.md)

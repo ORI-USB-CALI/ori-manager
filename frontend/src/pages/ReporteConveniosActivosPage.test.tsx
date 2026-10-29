@@ -146,4 +146,35 @@ describe('ReporteConveniosActivosPage', () => {
     expect(screen.queryByRole('button', { name: 'Descargar PDF' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Descargar Excel' })).toBeNull()
   })
+
+it('HT-11: mantiene la estructura de la tabla con textos extensos', async () => {
+  const textoLargo =
+    'Universidad Internacional de Cooperación Académica y Desarrollo Institucional'
+
+  const convenioLargo: ConvenioReporteActivo = {
+    ...convenioEjemplo,
+    aliado: textoLargo,
+    objeto: textoLargo,
+    unidad_organizacional: textoLargo,
+    responsable: textoLargo,
+  }
+
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify([convenioLargo]), { status: 200 }),
+  )
+
+  renderizar(sesionAutorizada, fetchMock)
+
+  const tabla = await screen.findByRole('table')
+  const contenedor = screen.getByRole('region', {
+    name: 'Tabla de convenios activos',
+  })
+
+  expect(tabla.classList.contains('reporte-activos-tabla')).toBe(true)
+  expect(contenedor.classList.contains('reporte-activos-container')).toBe(true)
+  expect(screen.getAllByText(textoLargo).length).toBe(4)
+  expect(screen.getAllByRole('columnheader')).toHaveLength(9)
+  expect(screen.getByRole('link', { name: 'Ver convenio' })).toBeTruthy()
+})
+
 })

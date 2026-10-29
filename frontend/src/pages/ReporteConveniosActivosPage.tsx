@@ -116,12 +116,12 @@ export function ReporteConveniosActivosPage() {
 
       {!reporte.isPending && !reporte.isError && convenios.length > 0 && (
         <div
-          className="table-container"
+          className="table-container reporte-activos-container"
           role="region"
           aria-label="Tabla de convenios activos"
           tabIndex={0}
         >
-          <table className="table">
+          <table className="table reporte-activos-tabla">
             <thead>
               <tr>
                 <th scope="col">Convenio</th>
