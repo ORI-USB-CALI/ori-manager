@@ -105,6 +105,53 @@ describe('SoportesConvenio (FE-02, CA-03: Visualización y descarga de soportes)
     expect(screen.getByText('Administrador ORI')).toBeTruthy()
   })
 
+  it('abre el modal de previsualización al hacer clic en Ver (HU-23: CA-01, CA-02, CA-03)', async () => {
+    const user = userEvent.setup()
+    window.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://localhost/soporte-mock')
+    window.URL.revokeObjectURL = vi.fn()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('disposicion=inline') || url.includes('/descargar')) {
+          return {
+            ok: true,
+            status: 200,
+            blob: async () => new Blob(['%PDF-1.4 prueba'], { type: 'application/pdf' }),
+            headers: new Headers({ 'Content-Type': 'application/pdf' }),
+          }
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => soportesEjemplo,
+        }
+      }),
+    )
+
+    renderizar()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tabla-soportes')).toBeTruthy()
+    })
+
+    const btnVer1 = screen.getByTestId('btn-ver-soporte-1')
+    await user.click(btnVer1)
+
+    // Modal abierto con el nombre del soporte
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: 'acuerdo_firmado.pdf' })).toBeTruthy()
+
+    // Botón de cerrar modal
+    const btnCerrar = screen.getByRole('button', { name: 'Cerrar previsualizador' })
+    await user.click(btnCerrar)
+
+    // Modal cerrado
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { level: 2, name: 'acuerdo_firmado.pdf' })).toBeNull()
+    })
+  })
+
   it('muestra el estado vacío cuando no existen soportes adjuntos', async () => {
     vi.stubGlobal(
       'fetch',

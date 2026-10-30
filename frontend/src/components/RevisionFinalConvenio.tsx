@@ -11,6 +11,7 @@ import type {
 } from '../pages/epica02'
 import { ConfirmacionModal } from './ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from './ConvenioEditor'
+import { DocumentoPreviewModal } from './DocumentoPreviewModal'
 
 interface DocumentoAsociado {
   id: number
@@ -63,6 +64,7 @@ export function RevisionFinalConvenio({ convenioId }: { convenioId: number }) {
   const notify = useNotifications()
   const [mostrarDevolucion, setMostrarDevolucion] = useState(false)
   const [observacion, setObservacion] = useState('')
+  const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
 
   const revisionFinal = useQuery({
     queryKey: ['convenio', convenioId, 'revision-final'],
@@ -178,7 +180,18 @@ export function RevisionFinalConvenio({ convenioId }: { convenioId: number }) {
             {datos.documentos.map((documento) => (
               <div className="document-row" key={documento.id}>
                 <span><strong>{documento.tipo}</strong><br />{documento.nombre_archivo} · {tamanoLegible(documento.tamano_bytes)}</span>
-                <a className="btn btn-outline btn-small" href={`/api/convenios/${convenioId}/documentos/${documento.id}/contenido`} target="_blank" rel="noreferrer">Ver</a>
+                <a
+                  className="btn btn-outline btn-small"
+                  href={`/api/convenios/${convenioId}/documentos/${documento.id}/contenido?disposicion=inline`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(evento) => {
+                    evento.preventDefault()
+                    setDocumentoPreview(documento)
+                  }}
+                >
+                  Ver
+                </a>
               </div>
             ))}
           </section>
@@ -222,6 +235,16 @@ export function RevisionFinalConvenio({ convenioId }: { convenioId: number }) {
             />
           </label>
         </ConfirmacionModal>
+      )}
+
+      {documentoPreview && (
+        <DocumentoPreviewModal
+          nombreArchivo={documentoPreview.nombre_archivo}
+          urlContenido={`/convenios/${convenioId}/documentos/${documentoPreview.id}/contenido?disposicion=inline`}
+          urlDescarga={`/api/convenios/${convenioId}/documentos/${documentoPreview.id}/contenido?disposicion=attachment`}
+          tipoMime={documentoPreview.tipo_mime}
+          onCerrar={() => setDocumentoPreview(null)}
+        />
       )}
     </>
   )
