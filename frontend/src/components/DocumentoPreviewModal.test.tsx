@@ -285,5 +285,134 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
 
     expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/mock-preview-uuid')
   })
+
+  it('maneja error 401 de sesión expirada (CA-07)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        text: async () => JSON.stringify({ detail: 'No autenticado' }),
+      }),
+    )
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="convenio_confidencial.pdf"
+        urlContenido="/convenios/10/documentos/5/contenido"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-error')).toBeTruthy()
+      expect(screen.getByText('Sesión expirada o no autenticada. Por favor inicie sesión nuevamente.')).toBeTruthy()
+    })
+  })
+
+  it('no muestra botones ni enlaces de descarga si puedeDescargar es false (CA-04, CA-05)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        headers: new Headers(),
+      }),
+    )
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="restringido.pdf"
+        urlContenido="/convenios/10/documentos/1/contenido"
+        puedeDescargar={false}
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-iframe')).toBeTruthy()
+    })
+
+    expect(screen.queryByRole('link', { name: 'Descargar' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Descargar archivo' })).toBeNull()
+  })
+
+  it('invoca onCerrar al disparar el evento cancel del diálogo (Escape) (CA-03, CA-08)', () => {
+    const { container } = render(
+      <DocumentoPreviewModal
+        nombreArchivo="documento.pdf"
+        urlContenido="/convenios/10/documentos/1/contenido"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    const dialog = container.querySelector('dialog') as HTMLDialogElement
+    expect(dialog).toBeTruthy()
+
+    fireEvent(dialog, new Event('cancel'))
+    expect(onCerrar).toHaveBeenCalled()
+  })
+
+  it('maneja fallas de red mostrando mensaje de error y permitiendo reintento (CA-07)', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('Fallo de conexión a la red'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        headers: new Headers(),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="red.pdf"
+        urlContenido="/convenios/10/documentos/1/contenido"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-error')).toBeTruthy()
+      expect(screen.getByText('Fallo de conexión a la red')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('preview-error')).toBeNull()
+      expect(screen.getByTestId('preview-iframe')).toBeTruthy()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('soporta extensión en mayúsculas (.PDF) y detecta por tipo MIME (RN-01)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        headers: new Headers(),
+      }),
+    )
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="ANEXO_MAYUSCULA.PDF"
+        urlContenido="/convenios/10/documentos/1/contenido"
+        tipoMime="application/pdf"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-iframe')).toBeTruthy()
+    })
+  })
 })
 
