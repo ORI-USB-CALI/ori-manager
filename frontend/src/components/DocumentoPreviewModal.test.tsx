@@ -414,5 +414,155 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
       expect(screen.getByTestId('preview-iframe')).toBeTruthy()
     })
   })
+
+  it('informa formato no compatible cuando el nombre es .pdf pero el tipo MIME es image/png (H-01)', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="captura_falsa.pdf"
+        urlContenido="/convenios/10/documentos/1/contenido"
+        tipoMime="image/png"
+        puedeDescargar={true}
+        onCerrar={onCerrar}
+      />,
+    )
+
+    // No debe intentar fetch de previsualización porque el MIME no es PDF
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Descargar archivo' })).toBeTruthy()
+  })
+
+  it('informa formato no compatible cuando el nombre es .pdf pero el tipo MIME es image/jpeg (H-01)', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="foto.pdf"
+        urlContenido="/convenios/10/documentos/2/contenido"
+        tipoMime="image/jpeg"
+        puedeDescargar={true}
+        onCerrar={onCerrar}
+      />,
+    )
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+  })
+
+  it('no renderiza en iframe si la respuesta autenticada devuelve text/html en lugar de PDF (H-01)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['<!DOCTYPE html><html><body>Error</body></html>'], { type: 'text/html' }),
+        headers: new Headers({ 'Content-Type': 'text/html' }),
+      }),
+    )
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="documento.pdf"
+        urlContenido="/convenios/10/documentos/3/contenido"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('preview-cargando')).toBeNull()
+    })
+
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+    expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
+  })
+
+  it('no renderiza en iframe si el contenido no tiene la firma mágica %PDF- (H-01)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['CONTENIDO CORRUPTO NO PDF'], { type: 'application/pdf' }),
+        headers: new Headers({ 'Content-Type': 'application/pdf' }),
+      }),
+    )
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="corrupto.pdf"
+        urlContenido="/convenios/10/documentos/4/contenido"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('preview-cargando')).toBeNull()
+    })
+
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+    expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
+  })
+
+  it('no muestra opción de descarga en formato incompatible si puedeDescargar es false (H-01)', async () => {
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="archivo.xlsx"
+        urlContenido="/convenios/10/documentos/5/contenido"
+        tipoMime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        puedeDescargar={false}
+        onCerrar={onCerrar}
+      />,
+    )
+
+    expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Descargar archivo' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Descargar' })).toBeNull()
+  })
+
+  it('limpia cualquier previsualización anterior inválida al reintentar después de un error', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        text: async () => JSON.stringify({ detail: 'Falla temporal' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['%PDF-1.4 valido'], { type: 'application/pdf' }),
+        headers: new Headers(),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <DocumentoPreviewModal
+        nombreArchivo="reintento.pdf"
+        urlContenido="/convenios/10/documentos/6/contenido"
+        onCerrar={onCerrar}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-error')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    // Durante el reintento no debe haber previsualización previa ni error previo
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('preview-iframe')).toBeTruthy()
+    })
+  })
 })
 

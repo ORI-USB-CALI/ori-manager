@@ -22,9 +22,14 @@ export function DocumentoPreviewModal({
   const dialogo = useRef<HTMLDialogElement>(null)
   const focoPrevioRef = useRef<HTMLElement | null>(null)
 
-  const esPdf = (tipoMime && tipoMime === 'application/pdf') || nombreArchivo.toLowerCase().endsWith('.pdf')
+  // Criterio principal: tipoMime registrado si existe; de lo contrario, extensión del nombre como indicio inicial
+  const tipoMimeNormalizado = tipoMime?.trim().toLowerCase()
+  const esPdfInicial = tipoMimeNormalizado
+    ? (tipoMimeNormalizado === 'application/pdf' || tipoMimeNormalizado === 'application/x-pdf')
+    : nombreArchivo.toLowerCase().endsWith('.pdf')
 
-  const [cargando, setCargando] = useState(esPdf)
+  const [incompatible, setIncompatible] = useState(!esPdfInicial)
+  const [cargando, setCargando] = useState(esPdfInicial)
   const [error, setError] = useState<string | null>(null)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [intento, setIntento] = useState(0)
@@ -55,7 +60,7 @@ export function DocumentoPreviewModal({
   }, [])
 
   useEffect(() => {
-    if (!esPdf) return
+    if (!esPdfInicial) return
 
     let cancelado = false
 
@@ -69,10 +74,34 @@ export function DocumentoPreviewModal({
         const ruta = normalizarRutaApi(urlContenido)
         const resultado = await apiFetchArchivo(ruta)
         if (cancelado) return
+
+        // 1. Validar tipo MIME retornado por la respuesta
+        const mimeRespuesta = resultado.blob.type?.trim().toLowerCase()
+        if (mimeRespuesta && mimeRespuesta !== 'application/pdf' && mimeRespuesta !== 'application/x-pdf') {
+          setIncompatible(true)
+          setCargando(false)
+          return
+        }
+
+        // 2. Validar firma mágica del PDF (%PDF-)
+        let encabezado = ''
+        try {
+          encabezado = await resultado.blob.slice(0, 5).text()
+        } catch {
+          encabezado = ''
+        }
+
+        if (!encabezado.startsWith('%PDF-')) {
+          setIncompatible(true)
+          setCargando(false)
+          return
+        }
+
         const url = URL.createObjectURL(resultado.blob)
         blobUrlRef.current = url
         setBlobUrl(url)
         setError(null)
+        setIncompatible(false)
       } catch (err: unknown) {
         if (cancelado) return
         if (err instanceof ApiError) {
@@ -104,11 +133,17 @@ export function DocumentoPreviewModal({
     return () => {
       cancelado = true
     }
-  }, [urlContenido, esPdf, intento])
+  }, [urlContenido, esPdfInicial, intento])
 
   const manejarReintentar = () => {
-    setCargando(true)
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = null
+    }
+    setBlobUrl(null)
     setError(null)
+    setIncompatible(!esPdfInicial)
+    setCargando(esPdfInicial)
     setIntento((actual) => actual + 1)
   }
 
@@ -140,7 +175,7 @@ export function DocumentoPreviewModal({
       </div>
 
       <section className="modal-section" aria-live="polite">
-        {!esPdf ? (
+        {incompatible ? (
           <div className="preview-estado" data-testid="preview-no-compatible">
             <span className="preview-estado-icono" aria-hidden="true">⚠️</span>
             <h3>Formato no compatible con el visor</h3>

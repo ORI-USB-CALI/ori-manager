@@ -13,6 +13,7 @@
 | Consulta del contenido histórico de convenios | [HT-05 — Versiones históricas](hu/HT-05-consulta-versiones-historicas.md), ocho CA, permisos, compatibilidad y reversión |
 | Autoría y ejecución de la auditoría | [HT-09 — Auditoría ampliada](hu/ht-09-auditoria-ampliada.md), responsables, contratos y rollback conservador |
 | Código institucional y modo de emisión del documento | [HT-06 — Código del convenio](hu/ht-06-codigo-convenio.md), generación al formalizar, contador anual y exportación en trámite u oficial |
+| Visualización de documentos adjuntos | [HU-23 — Previsualizar documentos](hu/hu-23-previsualizacion-documentos.md), visualizador PDF accesible, contratos autenticados y solo lectura |
 | Base de datos e infraestructura | [Operaciones](operations/README.md) |
 | Contribuciones | [Política documental](development/documentation-policy.md) |
 | Wiki de GitHub | [Portada preparada](wiki/Home.md), pendiente de publicar |
@@ -25,6 +26,7 @@
 - [HT-07 — PDF del reporte de convenios activos](hu/ht-07-pdf-reporte-convenios-activos.md) · incidencia [QA #137](https://github.com/ORI-USB-CALI/ori-manager/issues/137); no implica aceptación QA ni release.
 
 - [HT-11 — Legibilidad del reporte web de convenios activos](hu/ht-11-legibilidad-reporte-convenios-activos.md) · [QA #142](https://github.com/ORI-USB-CALI/ori-manager/issues/142); complementa HT-07. Validación visual pendiente de QA.
+- [HU-23 — Previsualizar documentos adjuntos](hu/hu-23-previsualizacion-documentos.md) · [PR #166](https://github.com/ORI-USB-CALI/ori-manager/pull/166); visor PDF accesible, validación de formato y entrega autenticada. Validación visual pendiente de QA.
 
 ## Historias terminadas con ficha de referencia
 
