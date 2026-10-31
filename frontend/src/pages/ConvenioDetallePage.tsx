@@ -8,6 +8,7 @@ import { useSesion } from '../auth/sesion'
 import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { DocumentoPreviewModal } from '../components/DocumentoPreviewModal'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
 import { ExportarConvenioMenu } from '../components/ExportarConvenioMenu'
 import { HistorialConvenioContenido } from '../components/HistorialConvenioContenido'
@@ -111,6 +112,7 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
+  const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
 
   const convenio = useQuery({
     queryKey: ['convenio', id],
@@ -423,7 +425,27 @@ export function ConvenioDetallePage() {
                 <section className="card">
                   <h2>Documentos asociados</h2>
                   {consultaRevision.data.documentos.length === 0 && <p className="section-help">No hay documentos vigentes asociados.</p>}
-                  {consultaRevision.data.documentos.map((doc) => <div className="document-row" key={doc.id}><span><strong>{doc.tipo}</strong><br />{doc.nombre_archivo} · {tamanoLegible(doc.tamano_bytes)}</span><a className="btn btn-outline btn-small" href={`/api/convenios/${id}/documentos/${doc.id}/contenido`} target="_blank" rel="noreferrer">Ver</a></div>)}
+                  {consultaRevision.data.documentos.map((doc) => (
+                    <div className="document-row" key={doc.id}>
+                      <span>
+                        <strong>{doc.tipo}</strong>
+                        <br />
+                        {doc.nombre_archivo} · {tamanoLegible(doc.tamano_bytes)}
+                      </span>
+                      <a
+                        className="btn btn-outline btn-small"
+                        href={`/api/convenios/${id}/documentos/${doc.id}/contenido?disposicion=inline`}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(evento) => {
+                          evento.preventDefault()
+                          setDocumentoPreview(doc)
+                        }}
+                      >
+                        Ver
+                      </a>
+                    </div>
+                  ))}
                 </section>
 
                 <section className="card revision-decision">
@@ -467,6 +489,16 @@ export function ConvenioDetallePage() {
           <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${datos.aliado?.nombre ?? 'por definir'}.` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
           <p className="texto-secundario">{datos.origen === 'MANUAL_ORI' ? 'La contraparte recibirá un enlace externo de revisión.' : 'La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.'}</p>
         </ConfirmacionModal>
+      )}
+
+      {documentoPreview && (
+        <DocumentoPreviewModal
+          nombreArchivo={documentoPreview.nombre_archivo}
+          urlContenido={`/convenios/${id}/documentos/${documentoPreview.id}/contenido?disposicion=inline`}
+          urlDescarga={`/api/convenios/${id}/documentos/${documentoPreview.id}/contenido?disposicion=attachment`}
+          tipoMime={documentoPreview.tipo_mime}
+          onCerrar={() => setDocumentoPreview(null)}
+        />
       )}
     </>
   )

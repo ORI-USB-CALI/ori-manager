@@ -1048,6 +1048,7 @@ def obtener_contenido_documento(
     db: DatabaseSession,
     almacen: Storage,
     usuario: PuedeVer,
+    disposicion: Literal["inline", "attachment"] = "inline",
 ) -> Response:
     try:
         servicio = ServicioConvenios(db, almacen)
@@ -1066,7 +1067,11 @@ def obtener_contenido_documento(
     return Response(
         content=contenido,
         media_type=documento.tipo_mime,
-        headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
     )
 
 

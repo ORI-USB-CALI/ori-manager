@@ -3523,3 +3523,135 @@ a:hover {
     min-width: 1250px;
   }
 }
+
+/* HU-23: Visualizador de documentos (DocumentoPreviewModal) */
+.modal-preview {
+  width: min(1000px, calc(100% - 32px));
+  height: min(90vh, 850px);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-preview .modal-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  min-height: 420px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  border: none;
+  background: white;
+}
+
+.preview-estado {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  flex: 1;
+  gap: 16px;
+}
+
+.preview-estado-icono {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.preview-estado-mensaje {
+  max-width: 520px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.preview-estado-error {
+  color: var(--color-rojo, #dc2626);
+  margin: 0;
+}
+
+.preview-acciones-error {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.spinner-preview {
+  display: inline-block;
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  border-top-color: var(--color-rojo, #d92d20);
+  animation: spin 0.8s linear infinite;
+}
+
+.solicitud-documentos-lista {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.solicitud-documento-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.solicitud-documento-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.solicitud-documento-acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .modal-preview {
+    width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .modal-preview .modal-section {
+    min-height: 300px;
+  }
+
+  .solicitud-documento-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .solicitud-documento-acciones {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
