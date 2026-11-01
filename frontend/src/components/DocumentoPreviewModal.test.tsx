@@ -1,8 +1,27 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+/// <reference types="node" />
+
+import { readFileSync } from 'node:fs'
+import { URL as NodeURL } from 'node:url'
+
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DocumentoPreviewModal } from './DocumentoPreviewModal'
+
+function diferido<T>() {
+  let resolver!: (valor: T) => void
+  let rechazar!: (error: Error) => void
+  const promesa = new Promise<T>((resolve, reject) => {
+    resolver = resolve
+    rechazar = reject
+  })
+  return { promesa, resolver, rechazar }
+}
+
+function respuestaPdf(blob = new Blob(['%PDF-1.4'], { type: 'application/pdf' })) {
+  return { ok: true, status: 200, blob: async () => blob, headers: new Headers() }
+}
 
 describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07, CA-08)', () => {
   const onCerrar = vi.fn()
@@ -12,6 +31,7 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
   beforeAll(() => {
     HTMLDialogElement.prototype.showModal = function () {
       this.setAttribute('open', '')
+      this.querySelector('button')?.focus()
     }
     HTMLDialogElement.prototype.close = function () {
       this.removeAttribute('open')
@@ -242,7 +262,7 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
     // Esperar primer intento fallido
     await waitFor(() => {
       expect(screen.getByTestId('preview-error')).toBeTruthy()
-      expect(screen.getByText('No fue posible recuperar el documento almacenado')).toBeTruthy()
+      expect(screen.getByText('No fue posible recuperar el documento almacenado. Intente nuevamente.')).toBeTruthy()
     })
 
     // Hacer clic en Reintentar
@@ -377,7 +397,7 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
 
     await waitFor(() => {
       expect(screen.getByTestId('preview-error')).toBeTruthy()
-      expect(screen.getByText('Fallo de conexión a la red')).toBeTruthy()
+      expect(screen.getByText(/Compruebe su conexión/)).toBeTruthy()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
@@ -523,6 +543,207 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
     expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Descargar archivo' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Descargar' })).toBeNull()
+  })
+
+  it.each([401, 403])('oculta todas las descargas y el reintento tras %i', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status, statusText: 'Acceso denegado',
+      text: async () => JSON.stringify({ detail: 'información interna del almacenamiento' }),
+    }))
+    render(<DocumentoPreviewModal nombreArchivo="privado.pdf" urlContenido="/documento" onCerrar={onCerrar} />)
+    await screen.findByTestId('preview-error')
+    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).toBeNull()
+    expect(screen.queryByText(/información interna/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Cerrar' })).toBeTruthy()
+  })
+
+  it.each([404, 502, 500])('conserva descarga autenticada y reintento tras un error recuperable %i', async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false, status, statusText: 'ruta interna secreta',
+      text: async () => JSON.stringify({ detail: 'ruta interna secreta' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/api/documento?disposicion=inline" onCerrar={onCerrar} />)
+    await screen.findByTestId('preview-error')
+    expect(screen.queryByText(/ruta interna secreta/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Descargar' }).getAttribute('href'))
+      .toBe('/api/documento?disposicion=attachment')
+    expect(fetchMock).toHaveBeenCalledWith('/api/documento?disposicion=inline', {
+      credentials: 'include', signal: expect.any(AbortSignal),
+    })
+  })
+
+  it.each(['cerrar', 'desmontar'])('cancela al %s durante una petición pendiente, incluso si fetch ignora AbortSignal', async (accion) => {
+    const pendiente = diferido<ReturnType<typeof respuestaPdf>>()
+    const fetchMock = vi.fn().mockReturnValue(pendiente.promesa)
+    vi.stubGlobal('fetch', fetchMock)
+    const vista = render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/documento" onCerrar={onCerrar} />)
+    const signal = fetchMock.mock.calls[0][1].signal as AbortSignal
+    if (accion === 'cerrar') fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    else vista.unmount()
+    expect(signal.aborted).toBe(true)
+    await act(async () => { pendiente.resolver(respuestaPdf()); await pendiente.promesa })
+    expect(mockCreateObjectURL).not.toHaveBeenCalled()
+    expect(mockRevokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['cerrar', false], ['desmontar', false], ['cerrar', true], ['desmontar', true],
+  ])('no crea recursos al %s durante Blob.text() (rechazo: %s)', async (accion, falla) => {
+    const texto = diferido<string>()
+    const blob = new Blob(['%PDF-1.4'], { type: 'application/pdf' })
+    const leer = vi.fn().mockReturnValue(texto.promesa)
+    vi.spyOn(blob, 'slice').mockReturnValue({ text: leer } as unknown as Blob)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaPdf(blob)))
+    const vista = render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/documento" onCerrar={onCerrar} />)
+    await waitFor(() => expect(leer).toHaveBeenCalledTimes(1))
+    if (accion === 'cerrar') fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    else vista.unmount()
+    await act(async () => {
+      if (falla) texto.rechazar(new Error('falló Blob.text'))
+      else texto.resolver('%PDF-')
+      await texto.promesa.catch(() => undefined)
+    })
+    expect(mockCreateObjectURL).not.toHaveBeenCalled()
+    expect(mockRevokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('ignora una respuesta HTTP antigua que llega después del documento nuevo', async () => {
+    const antigua = diferido<ReturnType<typeof respuestaPdf>>()
+    const nuevoBlob = new Blob(['%PDF-1.7 nuevo'], { type: 'application/pdf' })
+    const fetchMock = vi.fn().mockReturnValueOnce(antigua.promesa).mockResolvedValueOnce(respuestaPdf(nuevoBlob))
+    vi.stubGlobal('fetch', fetchMock)
+    const vista = render(<DocumentoPreviewModal nombreArchivo="antes.pdf" urlContenido="/antes" onCerrar={onCerrar} />)
+    const signalAntigua = fetchMock.mock.calls[0][1].signal as AbortSignal
+    vista.rerender(<DocumentoPreviewModal nombreArchivo="nuevo.pdf" urlContenido="/nuevo" onCerrar={onCerrar} />)
+    await screen.findByTitle('Previsualización de nuevo.pdf')
+    expect(signalAntigua.aborted).toBe(true)
+    await act(async () => { antigua.resolver(respuestaPdf()); await antigua.promesa })
+    expect(mockCreateObjectURL).toHaveBeenCalledExactlyOnceWith(nuevoBlob)
+  })
+
+  it('una validación antigua no sobrescribe un reintento más reciente', async () => {
+    const textoAntiguo = diferido<string>()
+    const antiguoBlob = new Blob(['%PDF-1.4'], { type: 'application/pdf' })
+    const leer = vi.fn().mockReturnValue(textoAntiguo.promesa)
+    vi.spyOn(antiguoBlob, 'slice').mockReturnValue({ text: leer } as unknown as Blob)
+    const nuevoBlob = new Blob(['%PDF-1.7 nuevo'], { type: 'application/pdf' })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respuestaPdf(antiguoBlob))
+      .mockRejectedValueOnce(new Error('red'))
+      .mockResolvedValueOnce(respuestaPdf(nuevoBlob)))
+    const vista = render(<DocumentoPreviewModal nombreArchivo="antes.pdf" urlContenido="/antes" onCerrar={onCerrar} />)
+    await waitFor(() => expect(leer).toHaveBeenCalled())
+    vista.rerender(<DocumentoPreviewModal nombreArchivo="nuevo.pdf" urlContenido="/nuevo" onCerrar={onCerrar} />)
+    await screen.findByTestId('preview-error')
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    await screen.findByTitle('Previsualización de nuevo.pdf')
+    await act(async () => { textoAntiguo.resolver('HTML!'); await textoAntiguo.promesa })
+    expect(mockCreateObjectURL).toHaveBeenCalledExactlyOnceWith(nuevoBlob)
+    expect(screen.queryByTestId('preview-no-compatible')).toBeNull()
+    expect(screen.queryByTestId('preview-error')).toBeNull()
+    expect(screen.getByTitle('Previsualización de nuevo.pdf')).toBeTruthy()
+  })
+
+  it('revoca la URL anterior al cambiar de documento y al cerrar sin desmontar', async () => {
+    mockCreateObjectURL.mockReturnValueOnce('blob:primero').mockReturnValueOnce('blob:segundo')
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => respuestaPdf()))
+    const vista = render(<DocumentoPreviewModal nombreArchivo="uno.pdf" urlContenido="/uno" onCerrar={onCerrar} />)
+    await screen.findByTestId('preview-iframe')
+    vista.rerender(<DocumentoPreviewModal nombreArchivo="dos.pdf" urlContenido="/dos" onCerrar={onCerrar} />)
+    await waitFor(() => expect(screen.getByTestId('preview-iframe').getAttribute('src')).toBe('blob:segundo'))
+    expect(mockRevokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:primero')
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    expect(mockRevokeObjectURL.mock.calls).toEqual([['blob:primero'], ['blob:segundo']])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    vista.unmount()
+    expect(mockRevokeObjectURL).toHaveBeenCalledTimes(2)
+  })
+
+  it('libera una sola URL en cada apertura y cierre consecutivo', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => respuestaPdf()))
+    for (let i = 1; i <= 3; i++) {
+      mockCreateObjectURL.mockReturnValueOnce(`blob:${i}`)
+      const vista = render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/documento" onCerrar={onCerrar} />)
+      await screen.findByTestId('preview-iframe')
+      expect(mockCreateObjectURL).toHaveBeenCalledTimes(i)
+      expect(mockRevokeObjectURL).toHaveBeenCalledTimes(i - 1)
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar previsualizador' }))
+      vista.unmount()
+      expect(mockRevokeObjectURL).toHaveBeenCalledTimes(i)
+      expect(onCerrar).toHaveBeenCalledTimes(i)
+    }
+  })
+
+  it('reinicia los estados y libera recursos al cambiar de PDF a formato incompatible', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(respuestaPdf())
+    vi.stubGlobal('fetch', fetchMock)
+    const vista = render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+    await screen.findByTestId('preview-iframe')
+    vista.rerender(<DocumentoPreviewModal nombreArchivo="imagen.png" tipoMime="image/png" urlContenido="/png" onCerrar={onCerrar} />)
+    expect(screen.getByTestId('preview-no-compatible')).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+    expect(mockRevokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('tiene nombre accesible, foco inicial, navegación por teclado y un único aviso al cancelar', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const activador = document.createElement('button')
+    document.body.appendChild(activador)
+    activador.focus()
+    try {
+      render(<DocumentoPreviewModal nombreArchivo="accesible.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+      const dialog = screen.getByRole('dialog', { name: 'accesible.pdf' })
+      expect(dialog.getAttribute('aria-modal')).toBe('true')
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cerrar previsualizador' }))
+      const user = userEvent.setup()
+      await user.tab()
+      expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Descargar' }))
+      await user.tab()
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cerrar' }))
+      fireEvent(dialog, new Event('cancel', { cancelable: true }))
+      fireEvent(dialog, new Event('close'))
+      expect(onCerrar).toHaveBeenCalledTimes(1)
+      expect(dialog.hasAttribute('open')).toBe(false)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(document.activeElement).toBe(activador)
+    } finally {
+      activador.remove()
+    }
+  })
+
+  it('permite cerrar cuando el activador ya no existe', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const activador = document.createElement('button')
+    document.body.appendChild(activador)
+    activador.focus()
+    const vista = render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+    activador.remove()
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    vista.unmount()
+    expect(onCerrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('los estilos reales mantienen el diálogo cerrado oculto aunque el padre no lo desmonte', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const estilo = document.createElement('style')
+    // JSDOM no carga el @import de variables; las reglas de distribución son las reales.
+    estilo.textContent = readFileSync(new NodeURL('../index.css', import.meta.url), 'utf8')
+      .replace(/^@import[^;]*;/gm, '')
+    document.head.appendChild(estilo)
+    try {
+      const vista = render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+      const dialog = screen.getByRole('dialog')
+      expect(getComputedStyle(dialog).display).toBe('flex')
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+      expect(getComputedStyle(dialog).display).toBe('none')
+      vista.unmount()
+    } finally {
+      estilo.remove()
+    }
   })
 
   it('limpia cualquier previsualización anterior inválida al reintentar después de un error', async () => {

@@ -17,6 +17,8 @@ from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import EstadoSolicitud
+from backend.models.etapa import Etapa
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
@@ -231,7 +233,7 @@ def test_revisor_ori_accede_a_documentos_en_convenio_en_etapa_juridica(
 def test_revisor_ori_denegado_en_convenio_fuera_de_su_alcance(
     client, db, gestor, revisor, entrar_como, crear_convenio, tmp_path
 ):
-    """RN-05: Revisor ORI solo accede a convenios asignados/elegibles. En elaboración da 404."""
+    """RN-05: Revisor ORI solo accede a convenios elegibles. En elaboración da 404."""
     convenio = crear_convenio(gestor)
     doc = _crear_documento_convenio(db, convenio, tmp_path)
 
@@ -588,3 +590,176 @@ def test_consulta_documental_es_de_solo_lectura_rn09(
     db.refresh(convenio)
     assert convenio.version_actual == version_inicial
     assert convenio.estado == estado_inicial
+
+
+@pytest.mark.parametrize("rol", [
+    CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI,
+])
+@pytest.mark.parametrize("tipo", ["SOPORTE", "BORRADOR"])
+@pytest.mark.parametrize("vigente", [True, False])
+def test_contrato_consulta_documental_no_equivale_a_gestion_soportes(
+    client, db, gestor, crear_usuario, entrar_como, convenio_listo, tmp_path,
+    rol, tipo, vigente,
+):
+    """H-01: consultar asociados no concede el permiso HU-22 de gestionar soportes."""
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    documento = _crear_documento_convenio(
+        db, convenio_listo, tmp_path, tipo=tipo, es_vigente=vigente,
+    )
+    entrar_como(crear_usuario(rol))
+    ruta = f"/api/convenios/{convenio_listo.id}/documentos/{documento.id}"
+    for disposicion in ("inline", "attachment"):
+        consulta = client.get(f"{ruta}/contenido", params={"disposicion": disposicion})
+        descarga = client.get(f"{ruta}/descargar", params={"disposicion": disposicion})
+        assert consulta.status_code == (200 if vigente else 404)
+        esperado = (
+            403 if rol == CodigoRol.REVISOR_ORI
+            else 200 if vigente and tipo == "SOPORTE" else 404
+        )
+        assert descarga.status_code == esperado
+        for respuesta in (consulta, descarga):
+            if respuesta.status_code == 200:
+                assert respuesta.content == PDF_BYTES
+                assert respuesta.headers["content-disposition"].startswith(disposicion)
+                assert respuesta.headers["cache-control"] == "no-store"
+                assert respuesta.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize("rol", [
+    CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI,
+])
+def test_comparacion_endpoints_impide_idor_de_convenio_y_solicitud(
+    client, db, gestor, crear_usuario, entrar_como, crear_convenio,
+    convenio_listo, tmp_path, rol,
+):
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    ajeno = crear_convenio(gestor)
+    soporte_ajeno = _crear_documento_convenio(db, ajeno, tmp_path, tipo="SOPORTE")
+    solicitud_ajena = _crear_solicitud_recibida(db, gestor)
+    adjunto_ajeno = _crear_documento_solicitud(db, solicitud_ajena, tmp_path)
+    solicitud_propia = db.get(SolicitudConvenio, convenio_listo.solicitud_id)
+    adjunto_asociado = _crear_documento_solicitud(db, solicitud_propia, tmp_path)
+    entrar_como(crear_usuario(rol))
+
+    for documento in (soporte_ajeno, adjunto_ajeno, adjunto_asociado):
+        ruta = f"/api/convenios/{convenio_listo.id}/documentos/{documento.id}"
+        for disposicion in ("inline", "attachment"):
+            consulta = client.get(f"{ruta}/contenido", params={"disposicion": disposicion})
+            assert consulta.status_code == (200 if documento == adjunto_asociado else 404)
+            descarga = client.get(f"{ruta}/descargar", params={"disposicion": disposicion})
+            assert descarga.status_code == (403 if rol == CodigoRol.REVISOR_ORI else 404)
+
+
+def test_revisor_elegible_consulta_asociados_sin_adquirir_gestion_ni_bandeja(
+    client, db, gestor, revisor, entrar_como, convenio_listo, tmp_path,
+):
+    servicio = ServicioConvenios(db)
+    servicio.finalizar_elaboracion(convenio_listo.id, gestor)
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+        RevisionConvenio.estado == "PENDIENTE",
+    ))
+    # La asignación al Gestor no impide la elegibilidad del Revisor en RJ1.
+    assert revision.responsable_id != revisor.id
+    soporte = _crear_documento_convenio(db, convenio_listo, tmp_path, tipo="SOPORTE")
+    solicitud = db.get(SolicitudConvenio, convenio_listo.solicitud_id)
+    adjunto = _crear_documento_solicitud(db, solicitud, tmp_path)
+    entrar_como(revisor)
+    base = f"/api/convenios/{convenio_listo.id}"
+    assert client.get(f"{base}/revision").status_code == 200
+    for documento in (soporte, adjunto):
+        assert client.get(f"{base}/documentos/{documento.id}/contenido").status_code == 200
+    assert client.get(f"{base}/documentos").status_code == 403
+    assert client.post(
+        f"{base}/documentos", files={"archivo": ("soporte.pdf", PDF_BYTES, "application/pdf")},
+    ).status_code == 403
+    assert client.get(f"{base}/documentos/{soporte.id}/descargar").status_code == 403
+    assert client.get("/api/solicitudes/recibidas").status_code == 403
+    assert client.get(
+        f"/api/solicitudes/recibidas/{solicitud.id}/documentos/{adjunto.id}/contenido"
+    ).status_code == 403
+
+
+def test_documentos_respetan_dos_instancias_y_conservan_solo_historial_autorizado(
+    client, db, gestor, revisor, crear_usuario, entrar_como, convenio_listo, tmp_path,
+):
+    servicio = ServicioConvenios(db)
+    servicio.finalizar_elaboracion(convenio_listo.id, gestor)
+    documento = _crear_documento_convenio(db, convenio_listo, tmp_path)
+    base = f"/api/convenios/{convenio_listo.id}"
+    contenido = f"{base}/documentos/{documento.id}/contenido"
+    otro = crear_usuario(CodigoRol.REVISOR_ORI)
+    ajeno = crear_usuario(CodigoRol.REVISOR_ORI)
+
+    for actor in (revisor, otro):
+        entrar_como(actor)
+        assert client.get(contenido).status_code == 200
+        pendiente = db.scalar(select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio_listo.id,
+            RevisionConvenio.estado == "PENDIENTE",
+        ))
+        servicio.aprobar(convenio_listo.id, pendiente.id, convenio_listo.version_actual, actor)
+        for disposicion in ("inline", "attachment"):
+            assert client.get(contenido, params={"disposicion": disposicion}).status_code == 404
+        assert client.get(f"{base}/revisiones").status_code == 200
+
+    # Tras RJ2, ambos participantes conservan HU-21, pero no el detalle operativo.
+    for actor in (revisor, otro):
+        entrar_como(actor)
+        assert client.get(f"{base}/revisiones").status_code == 200
+        assert client.get(contenido).status_code == 404
+    entrar_como(ajeno)
+    assert client.get(f"{base}/revisiones").status_code == 404
+    assert client.get(contenido).status_code == 404
+
+
+@pytest.mark.parametrize("limite", [
+    "otra_etapa", "otro_estado", "resuelta", "con_resultado", "sin_ronda",
+    "ronda_antigua", "segunda_sin_primera",
+])
+def test_documentos_exigen_elegibilidad_juridica_completa(
+    client, db, gestor, revisor, entrar_como, convenio_listo, tmp_path, limite,
+):
+    ServicioConvenios(db).finalizar_elaboracion(convenio_listo.id, gestor)
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id,
+        RevisionConvenio.estado == "PENDIENTE",
+    ))
+    documento = _crear_documento_convenio(db, convenio_listo, tmp_path)
+    if limite == "otra_etapa":
+        convenio_listo.etapa_actual = db.scalar(select(Etapa).where(Etapa.codigo == "REVISION_CONTRAPARTE"))
+    elif limite == "otro_estado":
+        convenio_listo.estado = "CANCELADO"
+    elif limite == "resuelta":
+        revision.estado = "RESUELTA"
+        revision.resultado = "DEVUELTA"
+    elif limite == "con_resultado":
+        revision.resultado = "APROBADA"
+    elif limite == "sin_ronda":
+        revision.numero_ronda = None
+        revision.instancia_juridica = None
+    elif limite == "ronda_antigua":
+        db.add(RevisionConvenio(
+            convenio_id=convenio_listo.id, tipo="JURIDICA", estado="RESUELTA",
+            resultado="DEVUELTA", numero_ronda=2, instancia_juridica=1,
+        ))
+    elif limite == "segunda_sin_primera":
+        revision.instancia_juridica = 2
+    db.commit()
+    entrar_como(revisor)
+    ruta = f"/api/convenios/{convenio_listo.id}/documentos/{documento.id}/contenido"
+    for disposicion in ("inline", "attachment"):
+        assert client.get(ruta, params={"disposicion": disposicion}).status_code == 404
+
+
+@pytest.mark.parametrize("estado", ["VIGENTE", "POR_VENCER", "VENCIDO", "FINALIZADO"])
+def test_consulta_historica_de_soportes_no_hereda_restriccion_de_carga(
+    client, db, gestor, convenio, tmp_path, estado,
+):
+    convenio.estado = estado
+    db.commit()
+    documento = _crear_documento_convenio(db, convenio, tmp_path, tipo="SOPORTE")
+    for endpoint in ("contenido", "descargar"):
+        respuesta = client.get(f"/api/convenios/{convenio.id}/documentos/{documento.id}/{endpoint}")
+        assert respuesta.status_code == 200
+        assert respuesta.content == PDF_BYTES

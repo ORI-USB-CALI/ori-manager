@@ -33,7 +33,19 @@ export function DocumentoPreviewModal({
   const [error, setError] = useState<string | null>(null)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [intento, setIntento] = useState(0)
+  const [abierto, setAbierto] = useState(true)
+  const [accesoDenegado, setAccesoDenegado] = useState(false)
   const blobUrlRef = useRef<string | null>(null)
+  const peticionRef = useRef<AbortController | null>(null)
+  const cierreNotificadoRef = useRef(false)
+  const mostrarDescarga = puedeDescargar && !accesoDenegado
+
+  function liberarUrl() {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = null
+    }
+  }
 
   // URL para descarga autenticada con attachment
   const descargaUrl = urlDescarga ?? (
@@ -47,33 +59,34 @@ export function DocumentoPreviewModal({
   }
 
   useEffect(() => {
-    focoPrevioRef.current = document.activeElement as HTMLElement | null
+    if (!dialogo.current?.open) {
+      focoPrevioRef.current = document.activeElement as HTMLElement | null
+    }
     dialogo.current?.showModal()
 
     return () => {
-      focoPrevioRef.current?.focus()
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current)
-        blobUrlRef.current = null
-      }
+      if (focoPrevioRef.current?.isConnected) focoPrevioRef.current.focus()
     }
   }, [])
 
   useEffect(() => {
-    if (!esPdfInicial) return
-
-    let cancelado = false
+    if (!abierto) return
+    const controlador = new AbortController()
+    peticionRef.current = controlador
 
     async function ejecutar() {
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current)
-        blobUrlRef.current = null
-      }
+      liberarUrl()
+      setBlobUrl(null)
+      setError(null)
+      setAccesoDenegado(false)
+      setIncompatible(!esPdfInicial)
+      setCargando(esPdfInicial)
+      if (!esPdfInicial) return
 
       try {
         const ruta = normalizarRutaApi(urlContenido)
-        const resultado = await apiFetchArchivo(ruta)
-        if (cancelado) return
+        const resultado = await apiFetchArchivo(ruta, controlador.signal)
+        if (controlador.signal.aborted) return
 
         // 1. Validar tipo MIME retornado por la respuesta
         const mimeRespuesta = resultado.blob.type?.trim().toLowerCase()
@@ -90,6 +103,8 @@ export function DocumentoPreviewModal({
         } catch {
           encabezado = ''
         }
+        // Blob.text() no es cancelable: comprobar de nuevo antes de crear recursos o estado.
+        if (controlador.signal.aborted) return
 
         if (!encabezado.startsWith('%PDF-')) {
           setIncompatible(true)
@@ -103,8 +118,9 @@ export function DocumentoPreviewModal({
         setError(null)
         setIncompatible(false)
       } catch (err: unknown) {
-        if (cancelado) return
+        if (controlador.signal.aborted) return
         if (err instanceof ApiError) {
+          setAccesoDenegado(err.status === 401 || err.status === 403)
           if (err.status === 401) {
             setError('Sesión expirada o no autenticada. Por favor inicie sesión nuevamente.')
           } else if (err.status === 403) {
@@ -112,17 +128,15 @@ export function DocumentoPreviewModal({
           } else if (err.status === 404) {
             setError('El documento solicitado no fue encontrado o no está vigente.')
           } else if (err.status === 502) {
-            setError(typeof err.detail === 'string' ? err.detail : (err.message || 'No fue posible recuperar el documento del almacenamiento.'))
+            setError('No fue posible recuperar el documento almacenado. Intente nuevamente.')
           } else {
-            setError(typeof err.detail === 'string' ? err.detail : (err.message || 'Error al recuperar el documento.'))
+            setError('No fue posible cargar el documento. Intente nuevamente.')
           }
-        } else if (err instanceof Error) {
-          setError(err.message)
         } else {
-          setError('Ocurrió un error inesperado al cargar la previsualización.')
+          setError('No fue posible conectar con el servidor. Compruebe su conexión e intente nuevamente.')
         }
       } finally {
-        if (!cancelado) {
+        if (!controlador.signal.aborted) {
           setCargando(false)
         }
       }
@@ -131,15 +145,15 @@ export function DocumentoPreviewModal({
     void ejecutar()
 
     return () => {
-      cancelado = true
+      controlador.abort()
+      liberarUrl()
+      if (peticionRef.current === controlador) peticionRef.current = null
     }
-  }, [urlContenido, esPdfInicial, intento])
+  }, [urlContenido, esPdfInicial, intento, abierto])
 
   const manejarReintentar = () => {
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current)
-      blobUrlRef.current = null
-    }
+    peticionRef.current?.abort()
+    liberarUrl()
     setBlobUrl(null)
     setError(null)
     setIncompatible(!esPdfInicial)
@@ -148,7 +162,19 @@ export function DocumentoPreviewModal({
   }
 
   const manejarCerrar = () => {
+    peticionRef.current?.abort()
+    liberarUrl()
     dialogo.current?.close()
+  }
+
+  const manejarCierre = () => {
+    if (cierreNotificadoRef.current) return
+    cierreNotificadoRef.current = true
+    peticionRef.current?.abort()
+    liberarUrl()
+    setAbierto(false)
+    if (focoPrevioRef.current?.isConnected) focoPrevioRef.current.focus()
+    onCerrar()
   }
 
   return (
@@ -157,8 +183,11 @@ export function DocumentoPreviewModal({
       className="modal modal-preview"
       aria-labelledby="modal-preview-titulo"
       aria-modal="true"
-      onCancel={onCerrar}
-      onClose={onCerrar}
+      onCancel={(evento) => {
+        evento.preventDefault()
+        manejarCerrar()
+      }}
+      onClose={manejarCierre}
     >
       <div className="modal-header">
         <h2 id="modal-preview-titulo" title={nombreArchivo}>
@@ -183,7 +212,7 @@ export function DocumentoPreviewModal({
               El formato de este archivo no puede previsualizarse mediante el visor del MVP.
               Actualmente solo se admite la previsualización de archivos PDF.
             </p>
-            {puedeDescargar && descargaUrl && (
+            {mostrarDescarga && descargaUrl && (
               <a
                 href={descargaUrl}
                 className="btn btn-primary"
@@ -204,14 +233,14 @@ export function DocumentoPreviewModal({
             <h3 className="preview-estado-error">No se pudo cargar el documento</h3>
             <p className="preview-estado-mensaje">{error}</p>
             <div className="preview-acciones-error">
-              <button
+              {!accesoDenegado && <button
                 type="button"
                 className="btn btn-outline"
                 onClick={manejarReintentar}
               >
                 Reintentar
-              </button>
-              {puedeDescargar && descargaUrl && (
+              </button>}
+              {mostrarDescarga && descargaUrl && (
                 <a
                   href={descargaUrl}
                   className="btn btn-primary"
@@ -233,7 +262,7 @@ export function DocumentoPreviewModal({
       </section>
 
       <div className="modal-acciones">
-        {puedeDescargar && descargaUrl && (
+        {mostrarDescarga && descargaUrl && (
           <a
             href={descargaUrl}
             className="btn btn-outline"
