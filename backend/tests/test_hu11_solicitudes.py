@@ -49,7 +49,7 @@ def tipo_convenio(db):
     return item
 
 
-def _payload(tipo_convenio_id: int) -> dict[str, object]:
+def _payload(tipo_convenio_id: int, pais_id: int) -> dict[str, object]:
     return {
         "solicitante_unidad": "Dependencia corregida para la solicitud",
         "solicitante_programa": "Programa de prueba",
@@ -57,9 +57,10 @@ def _payload(tipo_convenio_id: int) -> dict[str, object]:
         "nombre_aliado_propuesto": "Entidad contraparte",
         "tipo_identificacion_aliado_propuesto": "NIT",
         "identificacion_aliado_propuesto": "900123456",
+        "digito_verificacion_aliado_propuesto": "8",
         "tipo_aliado_propuesto": "EMPRESA",
         "correo_aliado_propuesto": "contacto@contraparte.com",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Avenida 1 # 2-3",
@@ -189,6 +190,7 @@ def test_ca01_interno_y_externo_crean_borrador_tipo_derivado(
 
 
 def test_ca02_ca03_ca05_ca06_ca07_radicacion_completa_sin_crear_dominio_posterior(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     usuario = _autenticar(
@@ -203,7 +205,7 @@ def test_ca02_ca03_ca05_ca06_ca07_radicacion_completa_sin_crear_dominio_posterio
     db.commit()
     aliados_antes = db.scalar(select(func.count()).select_from(Aliado))
     convenios_antes = db.scalar(select(func.count()).select_from(Convenio))
-    creado = client.post("/api/solicitudes", json=_payload(tipo_convenio.id))
+    creado = client.post("/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia))
     assert creado.status_code == 201, creado.text
     solicitud_id = creado.json()["id"]
     _subir_documentos(client, solicitud_id)
@@ -260,7 +262,7 @@ def test_ca04_incompleta_permanece_borrador_y_no_hay_efectos_parciales(
 @pytest.mark.parametrize(
     "campo",
     [
-        "pais_aliado_propuesto",
+        "pais_aliado_propuesto_id",
         "ciudad_aliado_propuesto",
         "telefono_aliado_propuesto",
         "direccion_aliado_propuesto",
@@ -277,6 +279,7 @@ def test_ca04_incompleta_permanece_borrador_y_no_hay_efectos_parciales(
     ],
 )
 def test_plantilla_campo_obligatorio_faltante_impide_radicar(
+    id_colombia,
     campo, db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     _autenticar(
@@ -289,7 +292,7 @@ def test_plantilla_campo_obligatorio_faltante_impide_radicar(
         cargo="Docente",
     )
     db.commit()
-    datos = _payload(tipo_convenio.id)
+    datos = _payload(tipo_convenio.id, id_colombia)
     datos.pop(campo)
     solicitud_id = client.post("/api/solicitudes", json=datos).json()["id"]
     _subir_documentos(client, solicitud_id)
@@ -342,6 +345,7 @@ def test_catalogo_contiene_las_seis_opciones_oficiales(
 
 
 def test_otro_soporte_no_reemplaza_documentacion_de_representacion(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     _autenticar(
@@ -355,7 +359,7 @@ def test_otro_soporte_no_reemplaza_documentacion_de_representacion(
     )
     db.commit()
     solicitud_id = client.post(
-        "/api/solicitudes", json=_payload(tipo_convenio.id)
+        "/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia)
     ).json()["id"]
     carga = client.post(
         f"/api/solicitudes/{solicitud_id}/documentos",
@@ -369,6 +373,7 @@ def test_otro_soporte_no_reemplaza_documentacion_de_representacion(
 
 
 def test_tipo_documental_generico_no_rompe_validacion_hu11(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     _autenticar(
@@ -382,7 +387,7 @@ def test_tipo_documental_generico_no_rompe_validacion_hu11(
     )
     db.commit()
     solicitud_id = client.post(
-        "/api/solicitudes", json=_payload(tipo_convenio.id)
+        "/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia)
     ).json()["id"]
     db.add(
         Documento(
@@ -412,6 +417,7 @@ def test_storage_local_falla_cerrado_fuera_de_desarrollo(monkeypatch):
 
 
 def test_radicacion_verifica_existencia_en_storage_resuelto(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     class StorageRemotoFalso:
@@ -439,7 +445,7 @@ def test_radicacion_verifica_existencia_en_storage_resuelto(
     )
     db.commit()
     solicitud_id = client.post(
-        "/api/solicitudes", json=_payload(tipo_convenio.id)
+        "/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia)
     ).json()["id"]
     _subir_documentos(client, solicitud_id)
     storage_remoto = StorageRemotoFalso()
@@ -455,6 +461,7 @@ def test_radicacion_verifica_existencia_en_storage_resuelto(
 
 
 def test_interno_programa_precarga_y_radica_con_programa_y_padre(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     programa = UnidadOrganizacional(
@@ -475,7 +482,7 @@ def test_interno_programa_precarga_y_radica_con_programa_y_padre(
         cargo="Docente",
     )
     db.commit()
-    datos = _payload(tipo_convenio.id)
+    datos = _payload(tipo_convenio.id, id_colombia)
     datos.pop("solicitante_unidad")
     datos.pop("solicitante_programa")
     solicitud_id = client.post("/api/solicitudes", json=datos).json()["id"]
@@ -487,6 +494,7 @@ def test_interno_programa_precarga_y_radica_con_programa_y_padre(
 
 
 def test_interno_facultad_radica_sin_inventar_programa(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad, tipo_convenio
 ):
     _autenticar(
@@ -499,7 +507,7 @@ def test_interno_facultad_radica_sin_inventar_programa(
         cargo="Docente",
     )
     db.commit()
-    datos = _payload(tipo_convenio.id)
+    datos = _payload(tipo_convenio.id, id_colombia)
     datos.pop("solicitante_unidad")
     datos.pop("solicitante_programa")
     solicitud_id = client.post("/api/solicitudes", json=datos).json()["id"]
@@ -511,6 +519,7 @@ def test_interno_facultad_radica_sin_inventar_programa(
 
 
 def test_interno_unidad_administrativa_radica_sin_programa(
+    id_colombia,
     db, client, crear_usuario, entrar_como, tipo_convenio
 ):
     unidad = UnidadOrganizacional(
@@ -530,7 +539,7 @@ def test_interno_unidad_administrativa_radica_sin_programa(
         cargo="Profesional",
     )
     db.commit()
-    datos = _payload(tipo_convenio.id)
+    datos = _payload(tipo_convenio.id, id_colombia)
     datos.pop("solicitante_unidad")
     datos.pop("solicitante_programa")
     solicitud_id = client.post("/api/solicitudes", json=datos).json()["id"]
@@ -542,6 +551,7 @@ def test_interno_unidad_administrativa_radica_sin_programa(
 
 
 def test_interno_sin_informacion_organizacional_no_puede_radicar(
+    id_colombia,
     db, client, crear_usuario, entrar_como, tipo_convenio
 ):
     _autenticar(
@@ -553,7 +563,7 @@ def test_interno_sin_informacion_organizacional_no_puede_radicar(
         cargo="Docente",
     )
     db.commit()
-    datos = _payload(tipo_convenio.id)
+    datos = _payload(tipo_convenio.id, id_colombia)
     datos.pop("solicitante_unidad")
     datos.pop("solicitante_programa")
     solicitud_id = client.post("/api/solicitudes", json=datos).json()["id"]

@@ -51,8 +51,9 @@ ESTADOS_ORIGEN_RENOVACION = frozenset(
 CAMPOS_SOLICITUD_RENOVACION = (
     "tipo_solicitante", "solicitante_id", "unidad_organizacional_id",
     "nombre_aliado_propuesto", "tipo_identificacion_aliado_propuesto",
-    "identificacion_aliado_propuesto", "tipo_aliado_propuesto",
-    "correo_aliado_propuesto", "pais_aliado_propuesto", "ciudad_aliado_propuesto",
+    "identificacion_aliado_propuesto", "digito_verificacion_aliado_propuesto",
+    "tipo_aliado_propuesto", "correo_aliado_propuesto", "pais_aliado_propuesto_id",
+    "pais_aliado_propuesto", "ciudad_aliado_propuesto",
     "telefono_aliado_propuesto", "direccion_aliado_propuesto",
     "sector_economico_aliado_propuesto", "justificacion", "actividades_por_parte",
     "metas_esperadas", "vigencia_estimada", "requisitos_renovacion",
@@ -62,7 +63,8 @@ CAMPOS_SOLICITUD_RENOVACION = (
     "supervisor_usb_correo", "supervisor_contraparte_nombre",
     "supervisor_contraparte_cargo", "supervisor_contraparte_telefono",
     "supervisor_contraparte_correo", "solicitante_nombre", "solicitante_correo",
-    "solicitante_documento", "solicitante_cargo", "solicitante_entidad",
+    "solicitante_tipo_documento", "solicitante_documento",
+    "solicitante_digito_verificacion", "solicitante_cargo", "solicitante_entidad",
     "solicitante_unidad", "solicitante_programa",
 )
 

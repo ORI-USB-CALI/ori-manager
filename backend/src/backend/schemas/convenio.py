@@ -10,6 +10,7 @@ from pydantic import (
     field_validator,
 )
 
+from backend.core.validaciones import identificacion_completa
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
@@ -127,8 +128,17 @@ class AliadoResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     nombre: str
+    tipo_identificacion: str
     identificacion: str
+    digito_verificacion: str | None
     activo: bool
+
+    @computed_field
+    @property
+    def identificacion_completa(self) -> str:
+        return identificacion_completa(
+            self.tipo_identificacion, self.identificacion, self.digito_verificacion
+        )
 
 
 class ConvenioLeer(ConvenioCamposEditables):
@@ -234,7 +244,9 @@ class SolicitudAntecedenteLeer(BaseModel):
 
     # Contraparte tal como se propuso: sigue visible aunque ya exista aliado formal.
     nombre_aliado_propuesto: str | None
+    tipo_identificacion_aliado_propuesto: str | None
     identificacion_aliado_propuesto: str | None
+    digito_verificacion_aliado_propuesto: str | None
     tipo_aliado_propuesto: str | None
     correo_aliado_propuesto: str | None
     pais_aliado_propuesto: str | None
@@ -254,6 +266,15 @@ class SolicitudAntecedenteLeer(BaseModel):
     supervisor_contraparte_cargo: str | None
     supervisor_contraparte_telefono: str | None
     supervisor_contraparte_correo: str | None
+
+    @computed_field
+    @property
+    def identificacion_aliado_propuesto_completa(self) -> str | None:
+        return identificacion_completa(
+            self.tipo_identificacion_aliado_propuesto,
+            self.identificacion_aliado_propuesto,
+            self.digito_verificacion_aliado_propuesto,
+        )
 
 
 class ConvenioElaboracionLeer(ConvenioLeer):
