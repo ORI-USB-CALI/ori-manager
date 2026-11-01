@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { referenciaConvenio } from './epica02'
@@ -18,6 +19,10 @@ interface DocumentoAprobadoFirma {
 
 export function DocumentoAprobadoFirmaPage() {
   const convenioId = Number(useParams().convenioId)
+  const { sesion } = useSesion()
+  const accionVolver = <AccionVolver alternativo={sesion?.rol.codigo === 'REVISOR_ORI'
+    ? { to: '/convenios', texto: 'Volver a la consulta de convenios' }
+    : { to: `/convenios/${convenioId}`, texto: 'Volver al convenio' }} />
   const documento = useQuery({
     queryKey: ['convenio', convenioId, 'firmas', 'documento-aprobado'],
     queryFn: () => apiFetch<DocumentoAprobadoFirma>(
@@ -33,7 +38,7 @@ export function DocumentoAprobadoFirmaPage() {
       && (documento.error.status === 404 || documento.error.status === 409)
     return (
       <>
-        <AccionVolver alternativo={{ to: `/convenios/${convenioId}`, texto: 'Volver al convenio' }} />
+        {accionVolver}
         <section className="card estado-vacio">
           <h1>{noDisponible ? 'Documento aprobado no disponible' : 'No se pudo consultar el documento aprobado'}</h1>
         </section>
@@ -45,7 +50,7 @@ export function DocumentoAprobadoFirmaPage() {
 
   return (
     <article className="documento-aprobado-page">
-      <AccionVolver alternativo={{ to: `/convenios/${datos.convenio_id}`, texto: 'Volver al convenio' }} />
+      {accionVolver}
       <header className="documento-aprobado-cabecera">
         <div>
           <h1>Documento aprobado para firma</h1>

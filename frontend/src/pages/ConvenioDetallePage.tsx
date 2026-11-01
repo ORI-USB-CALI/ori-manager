@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
+import { volverA } from '../components/retornoVolver'
 import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
@@ -72,6 +73,8 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
 ]
 
 export function ConvenioDetallePage() {
+  const ubicacion = useLocation()
+  const retorno = volverA(ubicacion, 'Volver al convenio')
   const id = Number(useParams().convenioId)
   const [parametros, setParametros] = useSearchParams()
   const pestana: Pestana = parametros.get('pestana') === 'historial' ? 'historial' : 'resumen'
@@ -83,7 +86,7 @@ export function ConvenioDetallePage() {
       if (nueva === 'historial') siguientes.set('pestana', 'historial')
       else siguientes.delete('pestana')
       return siguientes
-    }, { replace: true })
+    }, { replace: true, state: retorno.volver.estado })
   }
 
   // Patrón de pestañas WAI-ARIA con activación automática: las flechas, Inicio y Fin
@@ -472,7 +475,7 @@ export function ConvenioDetallePage() {
           ) : (
             <>
               <div className="page-toolbar">
-                {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Continuar elaboración</Link>}
+                {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`} state={retorno}>Continuar elaboración</Link>}
               </div>
               <section className="card"><h2>Información base</h2><dl><dt>Origen</dt><dd>{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</dd><dt>Creado el</dt><dd>{fecha(datos.creado_en)}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
               <SoportesConvenio

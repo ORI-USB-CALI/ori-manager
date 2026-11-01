@@ -158,7 +158,7 @@ export function RenovacionesPage() {
       {ultima?.tipo === 'iniciar' && (
         <div className="alert-success renovaciones-resultado" role="status">
           <p>La nueva elaboración está disponible.</p>
-          <Link className="btn btn-outline btn-small" to={`/convenios/${ultima.datos.convenio_renovacion_id}`}>Ver renovación creada</Link>
+          <Link className="btn btn-outline btn-small" to={`/convenios/${ultima.datos.convenio_renovacion_id}`} state={retorno}>Ver renovación creada</Link>
         </div>
       )}
 

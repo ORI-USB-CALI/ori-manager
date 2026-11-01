@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
+import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
@@ -133,7 +134,14 @@ function esConflictoBorrador(error: unknown): error is ApiError {
 }
 
 export function ConvenioElaboracionPage() {
+  const retorno = volverA(useLocation(), 'Volver al proyecto de convenio')
   const id = Number(useParams().convenioId)
+  const { puede, sesion } = useSesion()
+  const accionVolver = <AccionVolver alternativo={sesion?.rol.codigo === 'REVISOR_ORI'
+    ? { to: '/convenios', texto: 'Volver a la consulta de convenios' }
+    : Number.isInteger(id) && id > 0
+    ? { to: `/convenios/${id}`, texto: 'Volver al convenio' }
+    : { to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }} />
   const elaboracion = useElaboracionConvenio(id)
   const catalogos = useCatalogosElaboracion()
   const aliados = useAliados(true)
@@ -144,7 +152,6 @@ export function ConvenioElaboracionPage() {
     enabled: Number.isInteger(id) && id > 0,
     retry: false,
   })
-  const { puede } = useSesion()
   const notify = useNotifications()
   const queryClient = useQueryClient()
   // Documento, metadatos y revisión pertenecen a la misma lectura del servidor.
@@ -239,7 +246,12 @@ export function ConvenioElaboracionPage() {
 
   if (elaboracion.isPending) return <p className="estado-pagina">Cargando elaboración…</p>
   if (elaboracion.isError && !elaboracion.data) {
-    return <section className="card estado-vacio"><h1>No se pudo consultar el proyecto de convenio</h1></section>
+    return (
+      <>
+        {accionVolver}
+        <section className="card estado-vacio"><h1>No se pudo consultar el proyecto de convenio</h1></section>
+      </>
+    )
   }
 
   const datos = elaboracion.data!
@@ -313,7 +325,7 @@ export function ConvenioElaboracionPage() {
 
   return (
     <>
-      <AccionVolver alternativo={{ to: `/convenios/${datos.id}`, texto: 'Volver al convenio' }} />
+      {accionVolver}
 
       <section className="header-banner">
         <h1>Proyecto de convenio {referenciaConvenio(datos.codigo, datos.id)}</h1>
@@ -550,7 +562,7 @@ export function ConvenioElaboracionPage() {
                     <span><strong>Fecha:</strong> {fechaHora(version.creado_en)}</span>
                     <span><strong>Contexto:</strong> {contextoVersion(version.contexto)}</span>
                     {puede('convenios.ver') && (
-                      <Link className="version-enlace" to={`/convenios/${id}/versiones/${version.numero}`} aria-label={`Ver contenido de la versión ${version.numero}`}>
+                      <Link className="version-enlace" to={`/convenios/${id}/versiones/${version.numero}`} state={retorno} aria-label={`Ver contenido de la versión ${version.numero}`}>
                         Ver contenido
                       </Link>
                     )}

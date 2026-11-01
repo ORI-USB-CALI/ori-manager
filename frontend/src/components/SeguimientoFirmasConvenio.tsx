@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { ConfirmacionModal } from './ConfirmacionModal'
+import { volverA } from './retornoVolver'
 
 interface DocumentoFirma {
   id: number
@@ -222,6 +223,7 @@ function ConfiguracionFirma({ convenioId, firma }: { convenioId: number; firma: 
 }
 
 export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }) {
+  const retorno = volverA(useLocation(), 'Volver al convenio')
   const cliente = useQueryClient()
   const notify = useNotifications()
   const navigate = useNavigate()
@@ -286,7 +288,7 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
         type: 'success',
         message: 'El proceso de firmas fue cancelado y el convenio volvió a Elaboración. Debes atender el cambio, crear una nueva versión y repetir las revisiones.',
       })
-      navigate(`/convenios/${convenioId}/elaboracion`)
+      navigate(`/convenios/${convenioId}/elaboracion`, { state: retorno })
     },
     onError: (error) => notify({
       type: 'error',
@@ -346,7 +348,7 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
       </div>
       <div className="page-toolbar">
         {(datos.estado === 'CONFIGURACION' || datos.estado === 'EN_CURSO') && (
-          <Link className="btn btn-outline" to={`/convenios/${convenioId}/firmas/documento-aprobado`}>
+          <Link className="btn btn-outline" to={`/convenios/${convenioId}/firmas/documento-aprobado`} state={retorno}>
             Ver documento aprobado · Versión {datos.version_numero}
           </Link>
         )}

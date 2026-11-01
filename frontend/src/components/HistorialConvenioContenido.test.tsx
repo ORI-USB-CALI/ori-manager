@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
@@ -42,7 +43,9 @@ function preparar(datos: ObservacionRevision) {
   cliente.setQueryData(CLAVE_SESION, sesion)
   render(
     <QueryClientProvider client={cliente}>
-      <HistorialConvenioContenido convenioId={41} solicitudId={null} />
+      <MemoryRouter initialEntries={['/convenios/41/historial']}>
+        <HistorialConvenioContenido convenioId={41} solicitudId={null} />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
   return fetch

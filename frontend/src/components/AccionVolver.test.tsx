@@ -10,20 +10,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TableroConveniosPage } from '../pages/TableroConveniosPage'
 import type { TableroConvenios } from '../pages/epica02'
 import { AccionVolver } from './AccionVolver'
-import { esRutaInternaSegura, retornoSeguro, volverA } from './retornoVolver'
+import { type EstadoVolver, esRutaInternaSegura, retornoSeguro, volverA } from './retornoVolver'
 
 const ALTERNATIVO = { to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }
 
 function Ubicacion() {
-  const { pathname, search } = useLocation()
-  return <output data-testid="ubicacion">{`${pathname}${search}`}</output>
+  const { pathname, search, state } = useLocation()
+  return <><output data-testid="ubicacion">{`${pathname}${search}`}</output><output data-testid="estado">{JSON.stringify(state)}</output></>
 }
 
-function renderizar(entrada: string | { pathname: string; state?: unknown }) {
+function renderizar(entrada: string | { pathname: string; state?: unknown }, estado?: unknown) {
   render(
     <MemoryRouter initialEntries={[entrada]}>
       <Routes>
-        <Route path="/convenios/:id" element={<><AccionVolver alternativo={ALTERNATIVO} /><h1>Detalle</h1></>} />
+        <Route path="/convenios/:id" element={<><AccionVolver alternativo={ALTERNATIVO} estado={estado} /><h1>Detalle</h1></>} />
         <Route path="/convenios/tablero" element={<Ubicacion />} />
         <Route path="*" element={<Ubicacion />} />
       </Routes>
@@ -82,6 +82,15 @@ describe('AccionVolver (HT-12)', () => {
     // La flecha es decorativa: el nombre accesible es solo el texto.
     expect(volver.querySelector('[aria-hidden="true"]')?.textContent).toBe('←')
   })
+
+  it.each([
+    [{ volver: { to: '/convenios?buscar=x', texto: 'Consulta' }, ajeno: true }, { volver: { to: '/convenios?buscar=x', texto: 'Consulta' } }],
+    [{ volver: { to: '//externo.example', texto: 'Salir' } }, null],
+  ])('la propiedad estado mantiene solo el contrato validado (%j)', async (estado, esperado) => {
+    renderizar('/convenios/41', estado)
+    await userEvent.click(screen.getByRole('link', { name: 'Volver al tablero de convenios' }))
+    expect(screen.getByTestId('estado').textContent).toBe(JSON.stringify(esperado))
+  })
 })
 
 describe('retorno seguro', () => {
@@ -95,6 +104,38 @@ describe('retorno seguro', () => {
     expect(esRutaInternaSegura(`/${'a'.repeat(2048)}`)).toBe(false)
     expect(retornoSeguro(null)).toBeNull()
     expect(retornoSeguro({ volver: 'texto' })).toBeNull()
+  })
+
+  it('propaga exclusivamente retornos validados y descarta un ancestro externo', () => {
+    const estado = { secreto: 'no propagar', volver: {
+      to: '/convenios/41?extra=1', texto: 'Volver al convenio', inyectado: true,
+      estado: { volver: { to: '//externo.example', texto: 'Salir' }, otro: true },
+    } }
+    expect(volverA({ pathname: '/convenios/41/elaboracion', search: '', state: estado }, 'Volver al proyecto'))
+      .toEqual({ volver: { to: '/convenios/41/elaboracion', texto: 'Volver al proyecto', estado: {
+        volver: { to: '/convenios/41?extra=1', texto: 'Volver al convenio' },
+      } } })
+  })
+
+  it('recorta autorreferencias y estados excesivamente profundos sin lanzar errores', () => {
+    const ciclico: EstadoVolver = { volver: { to: '/convenios', texto: 'Consulta' } }
+    ciclico.volver.estado = ciclico
+    expect(retornoSeguro(ciclico)).toEqual({ to: '/convenios', texto: 'Consulta' })
+    let profundo: EstadoVolver = ciclico
+    for (let i = 0; i < 100; i++) profundo = { volver: { to: `/convenios/${i}`, texto: 'Volver', estado: profundo } }
+    let retorno = retornoSeguro(profundo)
+    let niveles = 0
+    while (retorno) { niveles++; retorno = retorno.estado?.volver ?? null }
+    expect(niveles).toBe(8)
+  })
+
+  it('recupera el origen anterior al revisitar una pantalla, incluso con otra búsqueda', () => {
+    const origen = volverA({ pathname: '/renovaciones', search: '?estado=PENDIENTE_DE_DECISION' }, 'Renovaciones')
+    const detalle = volverA({ pathname: '/convenios/41', search: '?pestana=historial', state: origen }, 'Detalle')
+    const proyecto = volverA({ pathname: '/convenios/41/elaboracion', search: '', state: detalle }, 'Proyecto')
+    const version = volverA({ pathname: '/convenios/41/versiones/1', search: '', state: proyecto }, 'Versión')
+    expect(retornoSeguro(version, '/convenios/41/elaboracion')).toEqual(detalle.volver)
+    expect(retornoSeguro(detalle, '/convenios/41')).toEqual(origen.volver)
   })
 })
 
@@ -142,6 +183,13 @@ describe('contraste de la acción Volver', () => {
   })
 
   it('el borde se distingue del fondo de la página (3:1)', () => {
+    expect(contraste(variable('--text-primary'), variable('--bg-main'))).toBeGreaterThanOrEqual(3)
+  })
+
+  it('mantiene un foco oscuro de 3px separado del borde, con contraste de al menos 3:1', () => {
+    const foco = regla('.accion-volver:focus-visible')
+    expect(foco).toMatch(/outline:\s*3px solid var\(--text-primary\)/)
+    expect(foco).toMatch(/outline-offset:\s*2px/)
     expect(contraste(variable('--text-primary'), variable('--bg-main'))).toBeGreaterThanOrEqual(3)
   })
 })

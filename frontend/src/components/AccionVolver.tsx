@@ -13,11 +13,14 @@ interface Props {
    de la vista, antes del encabezado, con el mismo tratamiento visual. */
 export function AccionVolver({ alternativo, estado }: Props) {
   const ubicacion = useLocation()
-  const { to, texto } = retornoSeguro(ubicacion.state) ?? alternativo
+  const retorno = retornoSeguro(ubicacion.state, ubicacion.pathname) ?? alternativo
+  const { to, texto } = retorno
+  const explicito = retornoSeguro(estado, to)
+  const estadoDestino = estado === undefined ? retorno.estado : explicito ? { volver: explicito } : undefined
 
   return (
     <div className="accion-volver-barra">
-      <Link className="btn accion-volver" to={to} state={estado}>
+      <Link className="btn accion-volver" to={to} state={estadoDestino}>
         <span aria-hidden="true">←</span>
         {texto}
       </Link>

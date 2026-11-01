@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useMemo } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
 import { volverA } from '../components/retornoVolver'
@@ -31,9 +31,19 @@ interface RevisionJuridicaPendiente {
 
 export function RevisionesJuridicasPage() {
   const retorno = volverA(useLocation(), 'Volver a revisiones jurídicas')
-  const [busqueda, setBusqueda] = useState('')
-  const [tipoConvenio, setTipoConvenio] = useState('')
-  const [responsable, setResponsable] = useState('')
+  const [parametros, setParametros] = useSearchParams()
+  const busqueda = parametros.get('buscar') ?? ''
+  const tipoConvenio = parametros.get('tipo') ?? ''
+  const responsable = parametros.get('responsable') ?? ''
+
+  function cambiarFiltro(nombre: string, valor: string) {
+    setParametros((actuales) => {
+      const siguientes = new URLSearchParams(actuales)
+      if (valor) siguientes.set(nombre, valor)
+      else siguientes.delete(nombre)
+      return siguientes
+    }, { replace: true })
+  }
   const consulta = useQuery({
     queryKey: ['revisiones-juridicas', 'pendientes'],
     queryFn: () => apiFetch<RevisionJuridicaPendiente[]>('/convenios/revisiones-juridicas/pendientes'),
@@ -65,9 +75,11 @@ export function RevisionesJuridicasPage() {
   }, [busqueda, consulta.data, responsable, tipoConvenio])
 
   function limpiarFiltros() {
-    setBusqueda('')
-    setTipoConvenio('')
-    setResponsable('')
+    setParametros((actuales) => {
+      const siguientes = new URLSearchParams(actuales)
+      for (const nombre of ['buscar', 'tipo', 'responsable']) siguientes.delete(nombre)
+      return siguientes
+    }, { replace: true })
   }
 
   const columns: DataTableColumn<RevisionJuridicaPendiente>[] = [
@@ -111,10 +123,10 @@ export function RevisionesJuridicasPage() {
           <TableFilters hasActiveFilters={hayFiltros} onClear={limpiarFiltros}>
             <div className="form-group">
               <label className="form-label" htmlFor="revisiones-busqueda">Buscar</label>
-              <input id="revisiones-busqueda" type="search" className="form-control" placeholder="Convenio, solicitud, objeto o responsable" value={busqueda} onChange={(event) => setBusqueda(event.target.value)} />
+              <input id="revisiones-busqueda" type="search" className="form-control" placeholder="Convenio, solicitud, objeto o responsable" value={busqueda} onChange={(event) => cambiarFiltro('buscar', event.target.value)} />
             </div>
-            <Select id="revisiones-tipo" label="Tipo convenio" value={tipoConvenio} opciones={[{ value: '', label: 'Todos' }, ...tiposConvenio.map((value) => ({ value, label: value }))]} onChange={(event) => setTipoConvenio(event.target.value)} />
-            <Select id="revisiones-responsable" label="Responsable" value={responsable} opciones={[{ value: '', label: 'Todos' }, ...responsables.map(([value, label]) => ({ value: String(value), label }))]} onChange={(event) => setResponsable(event.target.value)} />
+            <Select id="revisiones-tipo" label="Tipo convenio" value={tipoConvenio} opciones={[{ value: '', label: 'Todos' }, ...tiposConvenio.map((value) => ({ value, label: value }))]} onChange={(event) => cambiarFiltro('tipo', event.target.value)} />
+            <Select id="revisiones-responsable" label="Responsable" value={responsable} opciones={[{ value: '', label: 'Todos' }, ...responsables.map(([value, label]) => ({ value: String(value), label }))]} onChange={(event) => cambiarFiltro('responsable', event.target.value)} />
           </TableFilters>
           <ResultsCount count={items.length} />
           {items.length > 0 ? (

@@ -1,7 +1,9 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { ApiError } from '../app/api'
+import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
+import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor } from '../components/ConvenioEditor'
 import { contextoVersion, useVersionConvenio } from './epica02'
 
@@ -39,16 +41,21 @@ function valorSnapshot(valor: unknown) {
  * y no consulta el borrador de trabajo para no alterarlo ni confundirlo.
  */
 export function ConvenioVersionPage() {
+  const retorno = volverA(useLocation(), 'Volver a la versión del convenio')
+  const { sesion } = useSesion()
   const params = useParams()
   const id = Number(params.convenioId)
   const numero = Number(params.numero)
   const parametrosValidos = Number.isInteger(id) && id > 0 && Number.isInteger(numero) && numero > 0
   const version = useVersionConvenio(id, numero)
 
-  const accionVolver = <AccionVolver alternativo={{ to: `/convenios/${id}?pestana=historial`, texto: 'Volver al historial del convenio' }} />
+  // HU-21: una versión histórica no implica acceso al detalle operativo.
+  const accionVolver = <AccionVolver alternativo={sesion?.rol.codigo === 'REVISOR_ORI' || !Number.isInteger(id) || id <= 0
+    ? { to: '/convenios', texto: 'Volver a la consulta de convenios' }
+    : { to: `/convenios/${id}?pestana=historial`, texto: 'Volver al historial del convenio' }} />
   const navegacion = (
     <nav className="page-toolbar" aria-label="Navegación de la versión">
-      <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`}>Ir al proyecto de convenio</Link>
+      <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`} state={retorno}>Ir al proyecto de convenio</Link>
     </nav>
   )
 
