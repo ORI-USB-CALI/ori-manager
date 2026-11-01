@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { AccionVolver } from '../components/AccionVolver'
+import { volverA } from '../components/retornoVolver'
 import { ActividadesUtilizacionConvenio } from '../components/ActividadesUtilizacionConvenio'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
@@ -71,6 +73,8 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
 ]
 
 export function ConvenioDetallePage() {
+  const ubicacion = useLocation()
+  const retorno = volverA(ubicacion, 'Volver al convenio')
   const id = Number(useParams().convenioId)
   const [parametros, setParametros] = useSearchParams()
   const pestana: Pestana = parametros.get('pestana') === 'historial' ? 'historial' : 'resumen'
@@ -82,7 +86,7 @@ export function ConvenioDetallePage() {
       if (nueva === 'historial') siguientes.set('pestana', 'historial')
       else siguientes.delete('pestana')
       return siguientes
-    }, { replace: true })
+    }, { replace: true, state: retorno.volver.estado })
   }
 
   // Patrón de pestañas WAI-ARIA con activación automática: las flechas, Inicio y Fin
@@ -252,7 +256,14 @@ export function ConvenioDetallePage() {
   })
 
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
-  if (convenio.isError) return <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
+  if (convenio.isError) {
+    return (
+      <>
+        <AccionVolver alternativo={{ to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }} />
+        <section className="card estado-vacio"><h1>{convenio.error instanceof ApiError && convenio.error.status === 404 ? 'Convenio no encontrado' : 'No se pudo consultar el convenio'}</h1></section>
+      </>
+    )
+  }
   if (!convenio.data) return null
   const datos = convenio.data
   const etapaActual = flujoContraparte.data?.etapa_actual?.codigo
@@ -273,14 +284,17 @@ export function ConvenioDetallePage() {
 
   return (
     <>
+      <AccionVolver
+        alternativo={esProyecto
+          ? { to: '/convenios/tablero', texto: 'Volver al tablero de convenios' }
+          : { to: '/convenios', texto: 'Volver a la consulta de convenios' }}
+      />
+
       <section className="header-banner">
         <div className="header-banner-fila">
           <div>
             <h1>{datos.estado === 'EN_TRAMITE' ? 'Elaboración de convenio' : 'Convenio'} {referenciaConvenio(datos.codigo, datos.id)}</h1>
             <p><span className="badge">{datos.estado}</span></p>
-            <Link to={esProyecto ? '/convenios/tablero' : '/convenios'}>
-              {esProyecto ? 'Volver al tablero de convenios' : 'Volver a la consulta de convenios'}
-            </Link>
           </div>
           <ExportarConvenioMenu
             convenioId={datos.id}
@@ -461,7 +475,7 @@ export function ConvenioDetallePage() {
           ) : (
             <>
               <div className="page-toolbar">
-                {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`}>Continuar elaboración</Link>}
+                {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`} state={retorno}>Continuar elaboración</Link>}
               </div>
               <section className="card"><h2>Información base</h2><dl><dt>Origen</dt><dd>{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</dd><dt>Creado el</dt><dd>{fecha(datos.creado_en)}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
               <SoportesConvenio

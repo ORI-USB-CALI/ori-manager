@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RevisionesJuridicasPage } from './RevisionesJuridicasPage'
@@ -39,7 +39,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function preparar(items: unknown[]) {
+function Ubicacion() {
+  return <output data-testid="busqueda-url">{useLocation().search}</output>
+}
+
+function preparar(items: unknown[], entrada = '/revisiones-juridicas') {
   const fetch = vi.fn(async () =>
     new Response(JSON.stringify(items), {
       status: 200,
@@ -52,7 +56,8 @@ function preparar(items: unknown[]) {
   })
   render(
     <QueryClientProvider client={cliente}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entrada]}>
+        <Ubicacion />
         <RevisionesJuridicasPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -95,5 +100,21 @@ describe('RevisionesJuridicasPage identifica los convenios (HT-06 FE-02, CA-01)'
 
     expect(screen.getByText('USB-ORI-2026-00007')).toBeTruthy()
     expect(screen.queryByText('Convenio provisional #41')).toBeNull()
+  })
+})
+
+describe('HT-12: filtros jurídicos persistentes en URL', () => {
+  it('actualiza y limpia solo sus filtros sin perder parámetros ajenos', async () => {
+    const usuario = preparar([SIN_CODIGO, CON_CODIGO], '/revisiones-juridicas?extra=conservar')
+    await screen.findByText('Convenio provisional #41')
+    await usuario.type(screen.getByRole('searchbox'), 'provisional')
+    await usuario.selectOptions(screen.getByLabelText('Tipo convenio'), 'Marco')
+    await usuario.selectOptions(screen.getByLabelText('Responsable'), '7')
+    const parametros = new URLSearchParams(screen.getByTestId('busqueda-url').textContent ?? '')
+    expect(Object.fromEntries(parametros)).toEqual({ extra: 'conservar', buscar: 'provisional', tipo: 'Marco', responsable: '7' })
+    await usuario.click(screen.getByRole('button', { name: /Limpiar/ }))
+    expect(screen.getByTestId('busqueda-url').textContent).toBe('?extra=conservar')
+    expect(screen.getByRole('searchbox')).toHaveProperty('value', '')
+    expect(screen.getByText('USB-ORI-2026-00007')).toBeTruthy()
   })
 })
