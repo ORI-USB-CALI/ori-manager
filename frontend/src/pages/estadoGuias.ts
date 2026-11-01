@@ -12,8 +12,8 @@ export interface GuiaUsuario {
 }
 
 /** Consulta la guía del usuario autenticado. Nunca se envía un ID de usuario. */
-export function consultarGuia(guia: CodigoGuia): Promise<GuiaUsuario> {
-  return apiFetch<GuiaUsuario>(`/guias/${guia}`)
+export function consultarGuia(guia: CodigoGuia, signal?: AbortSignal): Promise<GuiaUsuario> {
+  return apiFetch<GuiaUsuario>(`/guias/${guia}`, { signal })
 }
 
 /** El backend conserva COMPLETADO como estado irreversible. */

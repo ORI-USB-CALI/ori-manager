@@ -1,7 +1,9 @@
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.core.roles import CodigoRol
 from backend.models.enums import CodigoGuia, EstadoGuia
 from backend.models.estado_guia_usuario import EstadoGuiaUsuario
 from backend.models.usuario import Usuario
@@ -31,6 +33,23 @@ class ServicioGuias:
     def __init__(self, db: Session):
         self.db = db
 
+    @staticmethod
+    def _autorizado(usuario: Usuario, guia: CodigoGuia) -> bool:
+        # HU-38 CA-05: esta introducción solo corresponde a solicitantes.
+        # GUIA_RADICACION conserva el contrato compartido que consume HU-39;
+        # esta corrección no amplía ni redefine su política de acceso.
+        return guia != CodigoGuia.ONBOARDING_INICIAL or usuario.rol.codigo in {
+            CodigoRol.SOLICITANTE_INTERNO,
+            CodigoRol.SOLICITANTE_EXTERNO,
+        }
+
+    def _autorizar(self, usuario: Usuario, guia: CodigoGuia) -> None:
+        if not self._autorizado(usuario, guia):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Esta guía no está disponible para su rol",
+            )
+
     def _registro(
         self, usuario: Usuario, guia: CodigoGuia, bloquear: bool = False
     ) -> EstadoGuiaUsuario | None:
@@ -49,9 +68,14 @@ class ServicioGuias:
                 select(EstadoGuiaUsuario).where(EstadoGuiaUsuario.usuario_id == usuario.id)
             )
         }
-        return [_leer(guia, registros.get(guia.value)) for guia in CodigoGuia]
+        return [
+            _leer(guia, registros.get(guia.value))
+            for guia in CodigoGuia
+            if self._autorizado(usuario, guia)
+        ]
 
     def obtener(self, usuario: Usuario, guia: CodigoGuia) -> EstadoGuiaLeer:
+        self._autorizar(usuario, guia)
         return _leer(guia, self._registro(usuario, guia))
 
     def registrar(
@@ -60,6 +84,7 @@ class ServicioGuias:
         """CA-07 y CA-08. El primer estado final se guarda tal cual; después,
         solo OMITIDO puede pasar a COMPLETADO. Cerrar una reproducción manual
         de una guía completada no la modifica."""
+        self._autorizar(usuario, guia)
         registro = self._registro(usuario, guia, bloquear=True)
         if registro is None:
             registro = EstadoGuiaUsuario(

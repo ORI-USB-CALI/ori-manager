@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy import func, select
 
@@ -47,17 +49,65 @@ def test_requiere_autenticacion(client, metodo, url):
 
 
 @pytest.mark.parametrize("rol", list(CodigoRol))
-def test_cualquier_rol_autenticado_gestiona_sus_guias(
+def test_onboarding_solo_para_solicitantes_sin_cambiar_el_contrato_de_radicacion(
     client, crear_usuario, entrar_como, rol
 ):
-    entrar_como(crear_usuario(rol))
-    assert client.get(URL_ONBOARDING).status_code == 200
-    assert _guardar(client, URL_ONBOARDING, "OMITIDO").status_code == 200
+    usuario = crear_usuario(rol, TipoUsuario.EXTERNO if rol == CodigoRol.SOLICITANTE_EXTERNO else TipoUsuario.INTERNO)
+    entrar_como(usuario)
+    solicitante = rol in {CodigoRol.SOLICITANTE_INTERNO, CodigoRol.SOLICITANTE_EXTERNO}
+    esperado = 200 if solicitante else 403
+    assert client.get(URL_ONBOARDING).status_code == esperado
+    assert _guardar(client, URL_ONBOARDING, "OMITIDO").status_code == esperado
+    guias = {guia["guia"] for guia in client.get(URL_GUIAS).json()}
+    assert ("ONBOARDING_INICIAL" in guias) is solicitante
+    assert client.get(URL_RADICACION).status_code == 200
+    assert _guardar(client, URL_RADICACION, "OMITIDO").status_code == 200
 
 
 def test_guia_desconocida_se_rechaza(client, solicitante):
     assert client.get(f"{URL_GUIAS}/GUIA_INVENTADA").status_code == 422
     assert _guardar(client, f"{URL_GUIAS}/GUIA_INVENTADA", "COMPLETADO").status_code == 422
+
+
+def test_sesion_expirada_no_consulta_ni_actualiza(client, solicitante, sesiones):
+    token = "sesion-expirada-hu38"
+    sesiones.crear(solicitante.id, token, datetime.now(UTC) - timedelta(seconds=1))
+    client.cookies.set("session_id", token)
+    assert client.get(URL_GUIAS).status_code == 401
+    assert client.get(URL_ONBOARDING).status_code == 401
+    assert _guardar(client, URL_ONBOARDING, "COMPLETADO").status_code == 401
+
+
+def test_no_acepta_id_de_otra_cuenta_en_cuerpo_ruta_o_consulta(
+    client, db, solicitante, crear_usuario
+):
+    otro = crear_usuario(CodigoRol.SOLICITANTE_INTERNO, TipoUsuario.INTERNO)
+    respuesta = client.put(URL_ONBOARDING, json={
+        "estado": "COMPLETADO", "version": 1, "usuario_id": otro.id,
+    })
+    assert respuesta.status_code == 422
+    assert client.put(f"{URL_GUIAS}/{otro.id}/ONBOARDING_INICIAL", json={
+        "estado": "COMPLETADO", "version": 1,
+    }).status_code == 404
+    assert _guardar(client, f"{URL_ONBOARDING}?usuario_id={otro.id}", "COMPLETADO").status_code == 200
+    assert client.get(f"{URL_ONBOARDING}?usuario_id={otro.id}").json()["estado"] == "COMPLETADO"
+    assert _filas(db, solicitante) == 1
+    assert _filas(db, otro) == 0
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.ADMINISTRADOR_ORI, CodigoRol.GESTOR_ORI, CodigoRol.REVISOR_ORI])
+def test_servicio_no_permite_saltar_autorizacion_de_onboarding(db, crear_usuario, rol):
+    from fastapi import HTTPException
+
+    usuario = crear_usuario(rol)
+    servicio = ServicioGuias(db)
+    with pytest.raises(HTTPException) as error:
+        servicio.obtener(usuario, CodigoGuia.ONBOARDING_INICIAL)
+    assert error.value.status_code == 403
+    with pytest.raises(HTTPException) as error:
+        servicio.registrar(usuario, CodigoGuia.ONBOARDING_INICIAL, EstadoGuia.COMPLETADO, 1)
+    assert error.value.status_code == 403
+    assert _filas(db, usuario) == 0
 
 
 # --- Consulta (RN-03) ---------------------------------------------------------

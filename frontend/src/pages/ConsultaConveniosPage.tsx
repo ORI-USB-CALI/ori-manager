@@ -1,7 +1,8 @@
 import { type FormEvent, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { ApiError } from '../app/api'
+import { volverA } from '../components/retornoVolver'
 import {
   DataTable,
   ResultsCount,
@@ -63,6 +64,7 @@ function contraparte(convenio: ConvenioConsulta) {
 }
 
 export function ConsultaConveniosPage() {
+  const retorno = volverA(useLocation(), 'Volver a la consulta de convenios')
   const [parametros, setParametros] = useSearchParams()
   const buscarActivo = parametros.get('buscar') ?? ''
   const tipoFechaActivo = esTipoFiltroFecha(parametros.get('tipo_fecha'))
@@ -381,6 +383,7 @@ export function ConsultaConveniosPage() {
           to={convenio.puede_ver_detalle
             ? `/convenios/${convenio.id}`
             : `/convenios/${convenio.id}/historial`}
+          state={retorno}
         >
           {convenio.puede_ver_detalle ? 'Ver' : 'Ver historial'}
         </Link>
