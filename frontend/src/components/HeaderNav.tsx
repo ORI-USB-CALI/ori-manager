@@ -97,6 +97,7 @@ function HeaderNavInteractiva({ enlaces }: HeaderNavProps) {
         ref={botonRef}
         type="button"
         className="navbar-menu-boton"
+        data-tour="navegacion-menu"
         aria-label={abierto ? 'Cerrar menú de navegación' : 'Abrir menú de navegación'}
         aria-expanded={abierto}
         aria-controls={idPanel}
@@ -118,6 +119,7 @@ function HeaderNavInteractiva({ enlaces }: HeaderNavProps) {
         id={idPanel}
         className={`navbar-links${abierto ? ' navbar-links-abierto' : ''}`}
         aria-label="Navegación principal"
+        data-tour="navegacion-principal"
       >
         {enlaces.map((elemento, indice) => 'enlaces' in elemento ? (
           <div

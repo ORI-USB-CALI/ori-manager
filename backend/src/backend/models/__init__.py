@@ -7,6 +7,7 @@ from backend.models.contador_codigo_convenio import ContadorCodigoConvenio
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.documento import Documento
+from backend.models.estado_guia_usuario import EstadoGuiaUsuario
 from backend.models.etapa import Etapa
 from backend.models.evaluacion_convenio import EvaluacionConvenio
 from backend.models.firma_convenio import FirmaConvenio
@@ -41,6 +42,7 @@ __all__ = [
     "Convenio",
     "DecisionNoRenovacion",
     "Documento",
+    "EstadoGuiaUsuario",
     "Etapa",
     "EvaluacionConvenio",
     "FirmaConvenio",

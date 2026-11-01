@@ -11,6 +11,7 @@ from backend.api.routers import (
     auth,
     convenios,
     firma_convenio_publica,
+    guias,
     notificaciones,
     revision_contraparte_publica,
     solicitudes,
@@ -31,6 +32,7 @@ app.include_router(revision_contraparte_publica.router, prefix="/api")
 app.include_router(notificaciones.router, prefix="/api")
 app.include_router(solicitudes.router, prefix="/api")
 app.include_router(auditoria.router, prefix="/api")
+app.include_router(guias.router, prefix="/api")
 
 DatabaseSession = Annotated[Session, Depends(get_db)]
 
