@@ -11,6 +11,10 @@ export type CodigoGuia = 'ONBOARDING_INICIAL' | 'GUIA_RADICACION'
 export interface PasoRecorrido {
   /** Valor del atributo `data-tour` del elemento a resaltar. Sin destino, el paso se muestra centrado. */
   destino?: string
+  /** Destinos equivalentes del DOM responsive, sin reproducir su lógica de menú. */
+  destinosAlternativos?: string[]
+  /** Conserva la explicación centrada si desaparece un destino esencial. */
+  mantenerSinDestino?: boolean
   titulo: string
   descripcion: string
   /** Si se indica, el paso solo se muestra a quien tenga este permiso (HU-38 CA-05). */
@@ -46,9 +50,11 @@ export function useRecorrido() {
 
 const selector = (destino: string) => `[data-tour="${destino}"]`
 
-function esVisible(destino: string) {
+function elementoVisible(destino: string) {
   // Descarta destinos ausentes u ocultos, por ejemplo dentro del menú móvil cerrado.
-  return (document.querySelector(selector(destino))?.getClientRects().length ?? 0) > 0
+  const elemento = document.querySelector(selector(destino))
+  if (!elemento || elemento.getClientRects().length === 0 || getComputedStyle(elemento).visibility === 'hidden') return undefined
+  return elemento
 }
 
 export function pasosVisibles(
@@ -59,11 +65,20 @@ export function pasosVisibles(
     .filter((paso) =>
       (!paso.permiso || sesion.permisos.includes(paso.permiso))
       && (!paso.roles || paso.roles.includes(sesion.rol.codigo))
-      && (!paso.destino || esVisible(paso.destino)))
-    .map((paso) => ({
-      element: paso.destino ? selector(paso.destino) : undefined,
-      popover: { title: paso.titulo, description: paso.descripcion },
-    }))
+      && (!paso.destino || paso.mantenerSinDestino || elementoVisible(paso.destino)
+        || paso.destinosAlternativos?.some((destino) => elementoVisible(destino))))
+    .map((paso) => {
+      const resolver = () => [paso.destino, ...(paso.destinosAlternativos ?? [])]
+        .flatMap((destino) => destino ? [elementoVisible(destino)] : [])
+        .find((elemento) => elemento !== undefined)
+      return {
+        // En 1.9 el runtime centra el paso si el resolver devuelve undefined;
+        // su declaración TypeScript todavía exige Element en ese callback.
+        element: paso.destino ? resolver as DriveStep['element'] : undefined,
+        skipMissingElement: paso.mantenerSinDestino ? false : undefined,
+        popover: { title: paso.titulo, description: paso.descripcion },
+      }
+    })
 }
 
 /**
@@ -85,6 +100,7 @@ export function abrirRecorrido(
   const terminar = (completo: boolean) => {
     if (cerrado) return
     cerrado = true
+    window.removeEventListener('resize', adaptarDestino)
     instancia.destroy()
     alCerrar()
     if (silencioso) return
@@ -93,6 +109,7 @@ export function abrirRecorrido(
   }
   const instancia = driver({
     steps,
+    animate: !(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false),
     showProgress: true,
     progressText: '{{current}} de {{total}}',
     nextBtnText: 'Siguiente',
@@ -117,6 +134,18 @@ export function abrirRecorrido(
     // La X y Esc piden cerrar por aquí.
     onDestroyStarted: () => terminar(false),
   })
+  // driver.js reposiciona sus tooltips. Solo resolvemos de nuevo el destino
+  // equivalente si cambió el DOM responsive del paso actual.
+  const adaptarDestino = () => {
+    const paso = instancia.getActiveStep()
+    if (typeof paso?.element !== 'function') return
+    const destino = paso.element()
+    const actual = instancia.getActiveElement()
+    if (destino !== actual && !(destino === undefined && actual?.id === 'driver-dummy-element')) {
+      instancia.moveTo(instancia.getActiveIndex() ?? 0)
+    }
+  }
+  window.addEventListener('resize', adaptarDestino)
   instancia.drive()
 
   return () => {

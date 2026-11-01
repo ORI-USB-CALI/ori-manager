@@ -53,7 +53,7 @@ export function AppLayout() {
         <HeaderNav enlaces={enlaces} />
 
         <div className="user-profile">
-          <OnboardingSolicitantes sesion={sesion} />
+          <OnboardingSolicitantes key={`${sesion.id}:${sesion.rol.codigo}`} sesion={sesion} />
           <BandejaNotificaciones
             nombre="Centro de notificaciones"
             contador={centro.contador}

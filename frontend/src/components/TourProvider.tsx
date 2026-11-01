@@ -9,7 +9,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const [activo, setActivo] = useState<CodigoGuia | null>(null)
   const cerrarActual = useRef<(() => void) | null>(null)
 
-  useEffect(() => () => cerrarActual.current?.(), [])
+  // Cerrar silenciosamente también al expirar la sesión o cambiar de cuenta/rol.
+  useEffect(() => () => cerrarActual.current?.(), [sesion?.id, sesion?.rol.codigo])
 
   const iniciar = useCallback((opciones: OpcionesRecorrido) => {
     if (cerrarActual.current || !sesion) return false

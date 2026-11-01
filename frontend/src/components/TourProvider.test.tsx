@@ -169,6 +169,34 @@ describe('motor de recorridos', () => {
     expect(screen.getByText('Guía activa: ninguna')).toBeTruthy()
   })
 
+  it('resuelve el menú real de HT-04 y cambia al botón al colapsarse durante el recorrido', async () => {
+    preparar()
+    document.body.insertAdjacentHTML('beforeend', '<nav data-tour="navegacion-principal">Inicio</nav><button hidden data-tour="navegacion-menu">Abrir menú</button>')
+    const nav = document.querySelector('[data-tour="navegacion-principal"]') as HTMLElement
+    const boton = document.querySelector('[data-tour="navegacion-menu"]') as HTMLElement
+    iniciar([{ titulo: 'Navegación', descripcion: '.', destino: 'navegacion-principal', destinosAlternativos: ['navegacion-menu'], mantenerSinDestino: true }])
+    await waitFor(() => expect(nav.classList.contains('driver-active-element')).toBe(true))
+    nav.hidden = true
+    boton.hidden = false
+    fireEvent(window, new Event('resize'))
+    await waitFor(() => expect(boton.classList.contains('driver-active-element')).toBe(true))
+    expect(screen.getByText('1 de 1')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Omitir' })).toHaveLength(1)
+    // Con el menú móvil abierto ambos destinos están disponibles: se usa el panel.
+    nav.hidden = false
+    fireEvent(window, new Event('resize'))
+    await waitFor(() => expect(nav.classList.contains('driver-active-element')).toBe(true))
+  })
+
+  it('conserva centrada una explicación esencial si su destino no existe o está oculto', async () => {
+    preparar()
+    document.body.insertAdjacentHTML('beforeend', '<a data-tour="oculto" style="visibility:hidden">Oculto</a>')
+    iniciar([{ titulo: 'Explicación esencial', descripcion: 'Conserva este contenido', destino: 'oculto', mantenerSinDestino: true }])
+    await waitFor(() => expect(tituloActual()).toBe('Explicación esencial'))
+    expect(document.getElementById('driver-dummy-element')?.classList.contains('driver-active-element')).toBe(true)
+    expect(screen.getByText('1 de 1')).toBeTruthy()
+  })
+
   it('al desmontarse cierra el recorrido sin informar omisión', async () => {
     const { unmount } = preparar()
     const { onComplete, onSkip } = iniciar()
