@@ -59,6 +59,14 @@ describe('HU-39 FE-03: acciones y seguimiento de radicación', () => {
     expect(ultimo?.descripcion).toContain('no cambia de página')
   })
 
+  it.each([false, true])('explica cómo retomar borradores y corregir devueltas (CA-08, devuelta: %s)', (esDevuelta) => {
+    const ultimo = crearPasosAccionesRadicacion(esDevuelta).at(-1)
+    expect(ultimo?.descripcion).toContain('Mis solicitudes')
+    expect(ultimo?.descripcion).toContain('borrador para retomarlo')
+    expect(ultimo?.descripcion).toContain('solicitud devuelta para corregirla')
+    expect(ultimo?.descripcion).toContain('Ayuda')
+  })
+
   it('devuelve copias independientes para no mezclar las aperturas del recorrido', () => {
     const primera = crearPasosAccionesRadicacion()
     primera[0].titulo = 'Modificado temporalmente'

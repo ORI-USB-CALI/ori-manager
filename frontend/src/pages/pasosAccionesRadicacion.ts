@@ -62,7 +62,9 @@ const PASO_SEGUIMIENTO: PasoAccionRadicacion = {
   titulo: 'Consultar Mis solicitudes',
   descripcion:
     'Para consultar el estado y el seguimiento de sus trámites, vaya a Mis solicitudes. '
+    + 'Allí puede abrir un borrador para retomarlo o una solicitud devuelta para corregirla y volver a radicarla. '
     + 'Desde este formulario puede utilizar Volver para regresar al listado de solicitudes. '
+    + 'Para repetir esta guía, use Ayuda. '
     + 'La guía no cambia de página ni envía solicitudes automáticamente.',
 }
 
