@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
+import { volverA } from '../components/retornoVolver'
 import { type ConvenioTablero, referenciaConvenio, useTableroConvenios } from './epica02'
 
 function identificador(convenio: ConvenioTablero) {
@@ -11,6 +12,7 @@ function contraparte(convenio: ConvenioTablero) {
 }
 
 export function TableroConveniosPage() {
+  const retorno = volverA(useLocation(), 'Volver al tablero de convenios')
   const consulta = useTableroConvenios()
 
   return (
@@ -62,7 +64,7 @@ export function TableroConveniosPage() {
                         <dd>{convenio.responsable?.nombre_completo ?? etapa.area_responsable ?? 'Por definir'}</dd>
                       </dl>
                       {convenio.puede_ver_detalle && (
-                        <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`}>Ver detalle</Link>
+                        <Link className="btn btn-outline btn-small" to={`/convenios/${convenio.id}`} state={retorno}>Ver detalle</Link>
                       )}
                     </article>
                   ))}

@@ -1,6 +1,9 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { ApiError } from '../app/api'
+import { useSesion } from '../auth/sesion'
+import { AccionVolver } from '../components/AccionVolver'
+import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor } from '../components/ConvenioEditor'
 import { contextoVersion, useVersionConvenio } from './epica02'
 
@@ -38,16 +41,21 @@ function valorSnapshot(valor: unknown) {
  * y no consulta el borrador de trabajo para no alterarlo ni confundirlo.
  */
 export function ConvenioVersionPage() {
+  const retorno = volverA(useLocation(), 'Volver a la versión del convenio')
+  const { sesion } = useSesion()
   const params = useParams()
   const id = Number(params.convenioId)
   const numero = Number(params.numero)
   const parametrosValidos = Number.isInteger(id) && id > 0 && Number.isInteger(numero) && numero > 0
   const version = useVersionConvenio(id, numero)
 
-  const volver = (
+  // HU-21: una versión histórica no implica acceso al detalle operativo.
+  const accionVolver = <AccionVolver alternativo={sesion?.rol.codigo === 'REVISOR_ORI' || !Number.isInteger(id) || id <= 0
+    ? { to: '/convenios', texto: 'Volver a la consulta de convenios' }
+    : { to: `/convenios/${id}?pestana=historial`, texto: 'Volver al historial del convenio' }} />
+  const navegacion = (
     <nav className="page-toolbar" aria-label="Navegación de la versión">
-      <Link className="btn btn-outline" to={`/convenios/${id}?pestana=historial`}>Volver al historial del convenio</Link>
-      <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`}>Ir al proyecto de convenio</Link>
+      <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`} state={retorno}>Ir al proyecto de convenio</Link>
     </nav>
   )
 
@@ -56,6 +64,7 @@ export function ConvenioVersionPage() {
     const noExiste = !parametrosValidos || (version.error instanceof ApiError && version.error.status === 404)
     return (
       <>
+        {accionVolver}
         <section className="card estado-vacio" role="alert">
           <h1>{noExiste ? 'Versión no encontrada' : 'No se pudo consultar la versión'}</h1>
           <p>
@@ -64,7 +73,7 @@ export function ConvenioVersionPage() {
               : version.error instanceof Error ? version.error.message : 'Intenta de nuevo más tarde.'}
           </p>
         </section>
-        {volver}
+        {navegacion}
       </>
     )
   }
@@ -74,6 +83,7 @@ export function ConvenioVersionPage() {
 
   return (
     <>
+      {accionVolver}
       <section className="header-banner">
         <h1>Versión {datos.numero} del convenio</h1>
         <p>
@@ -132,7 +142,7 @@ export function ConvenioVersionPage() {
         </aside>
       </div>
 
-      {volver}
+      {navegacion}
     </>
   )
 }

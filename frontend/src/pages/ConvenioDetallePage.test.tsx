@@ -56,6 +56,7 @@ function preparar({
   sesionUsuario = sesion,
   elaboracionData = null,
   revisionData = null,
+  estado = undefined,
 }: {
   ruta?: string
   lineaTiempoDisponible?: boolean
@@ -64,6 +65,7 @@ function preparar({
   sesionUsuario?: Sesion
   elaboracionData?: unknown
   revisionData?: unknown
+  estado?: unknown
 } = {}) {
   const fetch = vi.fn(async (url: string) => {
     if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
@@ -98,7 +100,7 @@ function preparar({
   render(
     <QueryClientProvider client={cliente}>
       <NotificationsContext.Provider value={vi.fn()}>
-        <MemoryRouter initialEntries={[ruta]}>
+        <MemoryRouter initialEntries={[estado === undefined ? ruta : { pathname: ruta, state: estado }]}>
           <Routes>
             <Route path="/convenios/:convenioId" element={<><ConvenioDetallePage /><Ubicacion /></>} />
           </Routes>
@@ -112,6 +114,14 @@ function preparar({
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('pestañas del detalle del convenio', () => {
+  it('ubica Volver antes del encabezado y regresa al listado desde el que se abrió (HT-12)', () => {
+    preparar({ estado: { volver: { to: '/revisiones-juridicas', texto: 'Volver a revisiones jurídicas' } } })
+    const volver = screen.getByRole('link', { name: 'Volver a revisiones jurídicas' })
+    expect(volver.getAttribute('href')).toBe('/revisiones-juridicas')
+    expect(volver.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getAllByRole('link', { name: /^Volver/ })).toHaveLength(1)
+  })
+
   it('muestra el historial manual sin consultar solicitudes y vuelve al tablero', async () => {
     const { fetch, usuario } = preparar({
       ruta: '/convenios/41?pestana=historial',
