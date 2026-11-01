@@ -17,10 +17,11 @@ const DIGITO = /^\d$/
 const CEDULA_EXTRANJERIA = /^[A-Z0-9]{3,15}$/
 const PASAPORTE = /^[A-Z0-9]{5,20}$/
 const IDENTIFICACION_LIBRE = /^[A-Za-z0-9\-./ ]{3,40}$/
-const TELEFONO_LIGERO = /^\+?[\d\s\-().]{5,25}$/
-const CIUDAD = /^[^\W\d_](?:[^\W\d_]|[\s\-.'])*$/u
-const LETRA = /[^\W\d_]/u
-const DIRECCION = /^(?:[^\W_]|[\s#\-.,/°º()'])+$/u
+const TELEFONO_LIGERO = /^\+?[\d\s\-().]{5,25}(?:\s*(?:ext\.?|extensi[oó]n|x)\s*\d{1,6})?$/i
+// En JavaScript `\w` solo incluye ASCII, incluso con /u: tildes y eñes requieren \p{...}.
+const CIUDAD = /^\p{L}[\p{L}\p{M}\s\-.']*$/u
+const LETRA = /\p{L}/u
+const DIRECCION = /^[\p{L}\p{M}\p{N}\s#\-.,/°º()']+$/u
 
 function colapsarEspacios(valor: string): string {
   return valor.trim().split(/\s+/).join(' ')
