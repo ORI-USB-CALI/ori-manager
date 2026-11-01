@@ -40,6 +40,33 @@ describe('HU-38 FE-02: pasos de onboarding', () => {
     const pasos = pasosOnboardingInicial(sesion('SOLICITANTE_INTERNO', []))
     expect(pasos.find((paso) => paso.destino === 'inicio-nueva-solicitud')?.permiso).toBe('solicitudes.crear')
     expect(pasos.find((paso) => paso.destino === 'inicio-mis-solicitudes')?.permiso).toBe('solicitudes.ver_propias')
-    expect(pasos.filter((paso) => !paso.destino)).toHaveLength(2)
+    expect(pasos.find((paso) => paso.destino === 'inicio-revisiones-contraparte')?.permiso).toBe('convenios.revisar_contraparte_propia')
+    expect(pasos.filter((paso) => !paso.destino)).toHaveLength(4)
+  })
+
+  it.each(['SOLICITANTE_INTERNO', 'SOLICITANTE_EXTERNO'] as const)(
+    'explica el propósito de la plataforma a %s (CA-02)', (rol) => {
+      const [bienvenida] = pasosOnboardingInicial(sesion(rol, []))
+      expect(bienvenida.descripcion).toContain('gestionar los convenios')
+    },
+  )
+
+  it('explica el flujo general y diferencia solicitar de formalizar (CA-03)', () => {
+    const pasos = pasosOnboardingInicial(sesion('SOLICITANTE_EXTERNO', []))
+    const proceso = pasos.find((paso) => paso.titulo === 'El proceso de un convenio')?.descripcion
+    for (const etapa of ['radicas', 'revisa', 'elabora', 'formalizado']) expect(proceso).toContain(etapa)
+    const diferencia = pasos.find((paso) => paso.titulo === 'Solicitar no es formalizar')?.descripcion
+    expect(diferencia).toContain('no significa que el convenio ya exista')
+  })
+
+  it.each([
+    ['inicio-accesos-rapidos', 'Inicio'],
+    ['inicio-nueva-solicitud', 'Nueva solicitud'],
+    ['inicio-mis-solicitudes', 'Mis solicitudes'],
+    ['inicio-revisiones-contraparte', 'Revisiones de contraparte'],
+    ['centro-notificaciones', 'Notificaciones'],
+  ])('presenta el módulo de %s con su nombre real (CA-04)', (destino, modulo) => {
+    const paso = pasosOnboardingInicial(sesion('SOLICITANTE_INTERNO', [])).find((candidato) => candidato.destino === destino)
+    expect(`${paso?.titulo} ${paso?.descripcion}`).toContain(modulo)
   })
 })

@@ -37,6 +37,7 @@ const ACCESOS_RAPIDOS: AccesoRapido[] = [
     ruta: '/revisiones-contraparte',
     cta: 'Ver revisiones',
     icono: 'revision-contraparte',
+    dataTour: 'inicio-revisiones-contraparte',
   },
   {
     permiso: 'solicitudes.ver_recibidas',

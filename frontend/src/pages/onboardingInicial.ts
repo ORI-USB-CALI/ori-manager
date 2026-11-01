@@ -28,15 +28,30 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
   return [
     {
       titulo: '¡Bienvenido a ORI Manager!',
-      descripcion: esInterno
-        ? 'Como solicitante interno, aquí puedes iniciar solicitudes de convenio y hacer seguimiento desde la Universidad.'
-        : 'Como solicitante externo, aquí puedes proponer un convenio y consultar el estado de tus solicitudes.',
+      descripcion: 'ORI Manager es la plataforma de la Oficina de Relaciones Internacionales para gestionar los convenios '
+        + 'de la Universidad. Reúne en un solo lugar cada solicitud, sus documentos, observaciones y estado. '
+        + (esInterno
+          ? 'Como solicitante interno, aquí puedes iniciar solicitudes de convenio y hacer seguimiento desde la Universidad.'
+          : 'Como solicitante externo, aquí puedes proponer un convenio y consultar el estado de tus solicitudes.'),
+      roles: [rol],
+    },
+    {
+      titulo: 'El proceso de un convenio',
+      descripcion: 'Primero creas y radicas tu solicitud. La ORI la revisa y puede aceptarla, devolverla para corrección '
+        + 'o rechazarla. Si la acepta, elabora el proyecto de convenio, que pasa por revisiones y aprobaciones. '
+        + 'Por último se recogen las firmas y el convenio queda formalizado.',
+      roles: [rol],
+    },
+    {
+      titulo: 'Solicitar no es formalizar',
+      descripcion: 'Radicar una solicitud no significa que el convenio ya exista: solo inicia el trámite ante la ORI. '
+        + 'El convenio se formaliza cuando se completan todas las revisiones, aprobaciones y firmas requeridas.',
       roles: [rol],
     },
     {
       destino: 'inicio-accesos-rapidos',
-      titulo: 'Tus accesos rápidos',
-      descripcion: 'En esta sección encontrarás las opciones disponibles para tu cuenta.',
+      titulo: 'Inicio y accesos rápidos',
+      descripcion: 'Esta es tu página de Inicio. En esta sección encontrarás las opciones disponibles para tu cuenta.',
       roles: [rol],
     },
     {
@@ -51,6 +66,13 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
       titulo: 'Consulta tus solicitudes',
       descripcion: 'En Mis solicitudes puedes revisar el estado, consultar observaciones y continuar las solicitudes editables.',
       permiso: 'solicitudes.ver_propias',
+      roles: [rol],
+    },
+    {
+      destino: 'inicio-revisiones-contraparte',
+      titulo: 'Revisiones de contraparte',
+      descripcion: 'Cuando la ORI te envíe una elaboración de convenio para revisar, aquí podrás consultarla y decidir sobre ella.',
+      permiso: 'convenios.revisar_contraparte_propia',
       roles: [rol],
     },
     {
