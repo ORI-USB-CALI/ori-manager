@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError } from '../app/api'
+import { AccionVolver } from '../components/AccionVolver'
 import { ConvenioEditor } from '../components/ConvenioEditor'
 import { contextoVersion, useVersionConvenio } from './epica02'
 
@@ -44,9 +45,9 @@ export function ConvenioVersionPage() {
   const parametrosValidos = Number.isInteger(id) && id > 0 && Number.isInteger(numero) && numero > 0
   const version = useVersionConvenio(id, numero)
 
-  const volver = (
+  const accionVolver = <AccionVolver alternativo={{ to: `/convenios/${id}?pestana=historial`, texto: 'Volver al historial del convenio' }} />
+  const navegacion = (
     <nav className="page-toolbar" aria-label="Navegación de la versión">
-      <Link className="btn btn-outline" to={`/convenios/${id}?pestana=historial`}>Volver al historial del convenio</Link>
       <Link className="btn btn-outline" to={`/convenios/${id}/elaboracion`}>Ir al proyecto de convenio</Link>
     </nav>
   )
@@ -56,6 +57,7 @@ export function ConvenioVersionPage() {
     const noExiste = !parametrosValidos || (version.error instanceof ApiError && version.error.status === 404)
     return (
       <>
+        {accionVolver}
         <section className="card estado-vacio" role="alert">
           <h1>{noExiste ? 'Versión no encontrada' : 'No se pudo consultar la versión'}</h1>
           <p>
@@ -64,7 +66,7 @@ export function ConvenioVersionPage() {
               : version.error instanceof Error ? version.error.message : 'Intenta de nuevo más tarde.'}
           </p>
         </section>
-        {volver}
+        {navegacion}
       </>
     )
   }
@@ -74,6 +76,7 @@ export function ConvenioVersionPage() {
 
   return (
     <>
+      {accionVolver}
       <section className="header-banner">
         <h1>Versión {datos.numero} del convenio</h1>
         <p>
@@ -132,7 +135,7 @@ export function ConvenioVersionPage() {
         </aside>
       </div>
 
-      {volver}
+      {navegacion}
     </>
   )
 }
