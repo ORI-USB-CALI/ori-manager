@@ -1,0 +1,12 @@
+.onboarding-ayuda {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.onboarding-ayuda-error {
+  color: var(--color-error, #8d2525);
+  font-size: 0.75rem;
+  max-width: 16rem;
+}
