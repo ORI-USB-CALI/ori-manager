@@ -25,6 +25,7 @@ const DESTINOS_INICIO = [
   'inicio-accesos-rapidos',
   'inicio-nueva-solicitud',
   'inicio-mis-solicitudes',
+  'inicio-revisiones-contraparte',
   'navegacion-principal',
   'centro-notificaciones',
 ] as const
@@ -34,7 +35,7 @@ function sesionSolicitante(codigo: 'SOLICITANTE_INTERNO' | 'SOLICITANTE_EXTERNO'
     id: 7, correo: 'ana@usb.edu.co', nombre_completo: 'Ana', activo: true,
     tipo_usuario: codigo === 'SOLICITANTE_INTERNO' ? 'INTERNO' : 'EXTERNO',
     rol: { codigo, nombre: codigo },
-    permisos: ['solicitudes.crear', 'solicitudes.ver_propias'],
+    permisos: ['solicitudes.crear', 'solicitudes.ver_propias', 'convenios.revisar_contraparte_propia'],
   }
 }
 
@@ -73,7 +74,7 @@ afterEach(() => {
 
 describe('HU-38 FE-04: identificadores estables del recorrido', () => {
   it.each(['SOLICITANTE_INTERNO', 'SOLICITANTE_EXTERNO'] as const)(
-    'marca en Inicio y en la navegación los cinco destinos que espera el onboarding para %s',
+    'marca en Inicio y en la navegación los destinos que espera el onboarding para %s',
     async (rol) => {
       montar(sesionSolicitante(rol))
       await screen.findByRole('heading', { name: 'Accesos rápidos' })
@@ -83,7 +84,7 @@ describe('HU-38 FE-04: identificadores estables del recorrido', () => {
     },
   )
 
-  it('el motor considera visibles los cinco destinos (pasosVisibles no descarta ninguno)', async () => {
+  it('el motor considera visibles todos los destinos (pasosVisibles no descarta ninguno)', async () => {
     montar(sesionSolicitante())
     await screen.findByRole('heading', { name: 'Accesos rápidos' })
     const pasos: PasoRecorrido[] = DESTINOS_INICIO.map((destino) => ({
