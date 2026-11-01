@@ -8,7 +8,7 @@ from html import escape as _escapar
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -168,8 +168,29 @@ def _texto_seguro(valor: str | None) -> str | None:
         return f"'{valor}"
     return valor
 
-# Suman el ancho útil de una página carta con márgenes de 1.5cm (527pt).
-_ANCHOS_COLUMNAS_CM = (1.9, 3.4, 2.4, 1.9, 2.1, 1.9, 1.5, 1.6, 1.5)
+# HT-07: carta horizontal. En vertical, nueve columnas no cabían en 527pt y
+# los encabezados se sobreponían. Los anchos suman el ancho útil con márgenes
+# de 1.5cm (707pt): código, fechas y conteo de actividades caben en una línea
+# y el objeto, que se ajusta en varias, se lleva el espacio restante.
+_PAGINA = landscape(letter)
+_MARGEN = 1.5 * cm
+_ANCHOS_COLUMNAS_CM = (3.1, 4.5, 3.0, 2.3, 2.8, 2.8, 2.0, 2.0, 2.4)
+_ANCHOS_ACTIVIDADES_CM = (12.9, 4.0, 4.0, 4.0)
+_RELLENO_HORIZONTAL = 4
+# Ninguna fila supera este alto, así cabe completa en cualquier página (alto
+# útil ≈ 515pt). Un objeto más extenso sigue en filas de continuación: ni se
+# parte una fila entre páginas ni deja de generarse el PDF.
+_ALTO_MAXIMO_OBJETO = 15 * cm
+
+_ESTILO_CELDA = ParagraphStyle(
+    "CeldaReporte", fontName="Helvetica", fontSize=8, leading=10
+)
+_ESTILO_ENCABEZADO = ParagraphStyle(
+    "EncabezadoReporte",
+    parent=_ESTILO_CELDA,
+    fontName="Helvetica-Bold",
+    textColor=colors.white,
+)
 
 
 def _texto_actividades(convenio: ConvenioReporteActivo) -> str:
@@ -178,7 +199,23 @@ def _texto_actividades(convenio: ConvenioReporteActivo) -> str:
     return f"{len(convenio.actividades)} registrada(s)"
 
 
-def _fila(convenio: ConvenioReporteActivo, estilo_celda) -> list:
+def _encabezados(textos) -> list[Paragraph]:
+    # HT-07: como Paragraph, el encabezado se ajusta al ancho de su columna;
+    # en texto plano se dibujaba en una sola línea e invadía la vecina.
+    return [Paragraph(_escapar(texto), _ESTILO_ENCABEZADO) for texto in textos]
+
+
+def _estilo_tabla(color_encabezado: str) -> list:
+    return [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(color_encabezado)),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), _RELLENO_HORIZONTAL),
+        ("RIGHTPADDING", (0, 0), (-1, -1), _RELLENO_HORIZONTAL),
+    ]
+
+
+def _fila(convenio: ConvenioReporteActivo) -> list:
     valores = [
         identificacion(convenio.id, convenio.codigo),
         convenio.objeto or "—",
@@ -193,59 +230,74 @@ def _fila(convenio: ConvenioReporteActivo, estilo_celda) -> list:
     # Cada celda se envuelve en un Paragraph para que reportlab ajuste el
     # texto largo dentro del ancho de la columna en vez de desbordarlo. Se
     # escapa el texto porque Paragraph interpreta un mini-XML propio.
-    return [Paragraph(_escapar(str(valor)), estilo_celda) for valor in valores]
+    return [Paragraph(_escapar(str(valor)), _ESTILO_CELDA) for valor in valores]
 
 
-def _tabla_convenios(convenios: list[ConvenioReporteActivo], estilo_celda) -> Table:
-    datos = [list(_ENCABEZADOS)] + [_fila(c, estilo_celda) for c in convenios]
+def _partes_objeto(objeto: Paragraph) -> list[Paragraph]:
+    ancho = _ANCHOS_COLUMNAS_CM[1] * cm - 2 * _RELLENO_HORIZONTAL
+    partes = [objeto]
+    while partes[-1].wrap(ancho, _ALTO_MAXIMO_OBJETO)[1] > _ALTO_MAXIMO_OBJETO:
+        division = partes[-1].split(ancho, _ALTO_MAXIMO_OBJETO)
+        if len(division) < 2:
+            break
+        partes[-1:] = division
+    return partes
+
+
+def _filas(convenio: ConvenioReporteActivo) -> list[list]:
+    fila = _fila(convenio)
+    fila[1], *continuacion = _partes_objeto(fila[1])
+    referencia = _escapar(f"{identificacion(convenio.id, convenio.codigo)} (continuación)")
+    return [fila] + [
+        [Paragraph(referencia, _ESTILO_CELDA), parte] + [""] * (len(fila) - 2)
+        for parte in continuacion
+    ]
+
+
+def _tabla_convenios(convenios: list[ConvenioReporteActivo]) -> Table:
+    datos = [_encabezados(_ENCABEZADOS)]
+    estilo = _estilo_tabla("#F36C21")
+    for indice, convenio in enumerate(convenios):
+        filas = _filas(convenio)
+        if indice % 2:
+            # Las filas de continuación conservan el fondo de su convenio.
+            estilo.append(
+                (
+                    "BACKGROUND",
+                    (0, len(datos)),
+                    (-1, len(datos) + len(filas) - 1),
+                    colors.HexColor("#F8FAFC"),
+                )
+            )
+        datos.extend(filas)
     tabla = Table(datos, repeatRows=1, colWidths=[a * cm for a in _ANCHOS_COLUMNAS_CM])
-    tabla.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F36C21")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 7),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ]
-        )
-    )
+    tabla.setStyle(TableStyle(estilo))
     return tabla
 
 
-def _tabla_actividades(convenio: ConvenioReporteActivo, estilo_celda) -> Table:
+def _tabla_actividades(convenio: ConvenioReporteActivo) -> Table:
     encabezados = ["Actividad", "Estado", "Fecha planificada", "Fecha ejecución"]
     filas = [
         [
-            Paragraph(_escapar(actividad.titulo), estilo_celda),
-            Paragraph(_escapar(actividad.estado), estilo_celda),
+            Paragraph(_escapar(actividad.titulo), _ESTILO_CELDA),
+            Paragraph(_escapar(actividad.estado), _ESTILO_CELDA),
             Paragraph(
                 actividad.fecha_planificada.isoformat() if actividad.fecha_planificada else "—",
-                estilo_celda,
+                _ESTILO_CELDA,
             ),
             Paragraph(
                 actividad.fecha_ejecucion.isoformat() if actividad.fecha_ejecucion else "—",
-                estilo_celda,
+                _ESTILO_CELDA,
             ),
         ]
         for actividad in convenio.actividades
     ]
     tabla = Table(
-        [encabezados] + filas,
-        colWidths=[a * cm for a in (6.0, 4.0, 4.0, 4.0)],
+        [_encabezados(encabezados)] + filas,
+        repeatRows=1,
+        colWidths=[a * cm for a in _ANCHOS_ACTIVIDADES_CM],
     )
-    tabla.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#64748B")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 7),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ]
-        )
-    )
+    tabla.setStyle(TableStyle(_estilo_tabla("#64748B")))
     return tabla
 
 
@@ -254,18 +306,19 @@ def generar_pdf_convenios_activos(convenios: list[ConvenioReporteActivo]) -> byt
     buffer = io.BytesIO()
     documento = SimpleDocTemplate(
         buffer,
-        pagesize=letter,
-        leftMargin=1.5 * cm,
-        rightMargin=1.5 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
+        pagesize=_PAGINA,
+        leftMargin=_MARGEN,
+        rightMargin=_MARGEN,
+        topMargin=_MARGEN,
+        bottomMargin=_MARGEN,
         # Sin comprimir: reportes pequeños, y permite inspeccionar/validar
         # el texto real del PDF (incluido en pruebas) sin herramientas extra.
         pageCompression=0,
     )
     estilos = getSampleStyleSheet()
-    estilo_celda = ParagraphStyle(
-        "CeldaReporte", parent=estilos["Normal"], fontSize=7, leading=8.5
+    # El título de cada convenio no queda solo al pie de una página.
+    estilo_convenio = ParagraphStyle(
+        "ConvenioActividades", parent=estilos["Heading3"], keepWithNext=1
     )
     elementos = [
         Paragraph("ORI USB Cali — Reporte de convenios activos", estilos["Title"]),
@@ -278,7 +331,7 @@ def generar_pdf_convenios_activos(convenios: list[ConvenioReporteActivo]) -> byt
     if not convenios:
         elementos.append(Paragraph("No hay convenios activos para mostrar.", estilos["Normal"]))
     else:
-        elementos.append(_tabla_convenios(convenios, estilo_celda))
+        elementos.append(_tabla_convenios(convenios))
         elementos.append(Spacer(1, 0.8 * cm))
         elementos.append(Paragraph("Actividades por convenio", estilos["Heading2"]))
         for convenio in convenios:
@@ -286,11 +339,11 @@ def generar_pdf_convenios_activos(convenios: list[ConvenioReporteActivo]) -> byt
             elementos.append(
                 Paragraph(
                     _escapar(identificacion(convenio.id, convenio.codigo)),
-                    estilos["Heading3"],
+                    estilo_convenio,
                 )
             )
             if convenio.actividades:
-                elementos.append(_tabla_actividades(convenio, estilo_celda))
+                elementos.append(_tabla_actividades(convenio))
             else:
                 elementos.append(Paragraph("Sin actividades registradas.", estilos["Normal"]))
     documento.build(elementos)

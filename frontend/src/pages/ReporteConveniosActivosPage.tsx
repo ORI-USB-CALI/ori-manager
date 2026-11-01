@@ -56,25 +56,27 @@ export function ReporteConveniosActivosPage() {
       </section>
 
       <div className="page-toolbar">
-        {descargasDeshabilitadas ? (
-          <>
-            <button type="button" className="btn btn-outline" disabled>
-              Descargar PDF
-            </button>
-            <button type="button" className="btn btn-outline" disabled>
-              Descargar Excel
-            </button>
-          </>
-        ) : (
-          <>
-            <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_PDF}>
-              Descargar PDF
-            </a>
-            <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_EXCEL}>
-              Descargar Excel
-            </a>
-          </>
-        )}
+        <div className="page-toolbar-group">
+          {descargasDeshabilitadas ? (
+            <>
+              <button type="button" className="btn btn-outline" disabled>
+                Descargar PDF
+              </button>
+              <button type="button" className="btn btn-outline" disabled>
+                Descargar Excel
+              </button>
+            </>
+          ) : (
+            <>
+              <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_PDF}>
+                Descargar PDF
+              </a>
+              <a className="btn btn-outline" href={URL_DESCARGA_REPORTE_EXCEL}>
+                Descargar Excel
+              </a>
+            </>
+          )}
+        </div>
         <button
           type="button"
           className="btn btn-outline btn-small"
@@ -114,12 +116,12 @@ export function ReporteConveniosActivosPage() {
 
       {!reporte.isPending && !reporte.isError && convenios.length > 0 && (
         <div
-          className="table-container"
+          className="table-container reporte-activos-container"
           role="region"
           aria-label="Tabla de convenios activos"
           tabIndex={0}
         >
-          <table className="table">
+          <table className="table reporte-activos-tabla">
             <thead>
               <tr>
                 <th scope="col">Convenio</th>

@@ -11,13 +11,15 @@ echo "[1/3] Checking uv..."
 
 UV_BIN="$HOME/.local/bin/uv"
 
-if [ ! -x "$UV_BIN" ]; then
-    echo "uv not found. Installing uv..."
+EXPECTED_UV_VERSION="0.13.5"
+
+if [ ! -x "$UV_BIN" ] || [ "$("$UV_BIN" --version | awk '{print $2}')" != "$EXPECTED_UV_VERSION" ]; then
+    echo "Installing patched uv ${EXPECTED_UV_VERSION}..."
     curl --proto '=https' --tlsv1.2 -LsSf \
-        https://releases.astral.sh/github/uv/releases/download/0.12.12/uv-installer.sh \
+        https://releases.astral.sh/github/uv/releases/download/0.13.5/uv-installer.sh \
         | sh
 else
-    echo "uv already installed."
+    echo "uv ${EXPECTED_UV_VERSION} already installed."
 fi
 
 echo ""
