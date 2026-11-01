@@ -1,7 +1,7 @@
 """HU-38 estado de guías por usuario.
 
 Revision ID: a109c8f2b10b
-Revises: 2fa11b85762d
+Revises: b704d4a8102f
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a109c8f2b10b"
-down_revision: str | Sequence[str] | None = "2fa11b85762d"
+down_revision: str | Sequence[str] | None = "b704d4a8102f"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
