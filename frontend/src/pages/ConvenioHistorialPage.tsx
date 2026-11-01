@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 
+import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
 import { EvaluacionConvenio } from '../components/EvaluacionConvenio'
 import { HistorialConvenioContenido } from '../components/HistorialConvenioContenido'
@@ -7,10 +8,15 @@ import { HistorialConvenioContenido } from '../components/HistorialConvenioConte
 export function ConvenioHistorialPage() {
   const { convenioId } = useParams()
   const id = Number(convenioId)
+  const { sesion } = useSesion()
+  // HU-21: el Revisor puede tener acceso histórico sin acceso al detalle operativo.
+  const alternativo = sesion?.rol.codigo === 'REVISOR_ORI'
+    ? { to: '/convenios', texto: 'Volver a la consulta de convenios' }
+    : { to: `/convenios/${id}`, texto: 'Volver al convenio' }
 
   return (
     <>
-      <AccionVolver alternativo={{ to: `/convenios/${id}`, texto: 'Volver al convenio' }} />
+      <AccionVolver alternativo={alternativo} />
 
       <section className="header-banner">
         <h1>Historial y trazabilidad</h1>

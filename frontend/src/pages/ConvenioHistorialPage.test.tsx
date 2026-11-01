@@ -88,6 +88,7 @@ describe('ConvenioHistorialPage', () => {
             <Routes>
               <Route path="/convenios/:convenioId/historial" element={<ConvenioHistorialPage />} />
               <Route path="/convenios/:convenioId" element={<h1>Convenio de prueba</h1>} />
+              <Route path="/convenios" element={<h1>Consulta de prueba</h1>} />
             </Routes>
           </MemoryRouter>
         </NotificationsContext.Provider>
@@ -109,7 +110,29 @@ describe('ConvenioHistorialPage', () => {
     expect(screen.getByRole('link', { name: 'Tablero de convenios' }).getAttribute('href')).toBe('/convenios/tablero')
     const navegacion = screen.getByRole('navigation', { name: 'Navegación del historial' })
     expect(within(navegacion).getByRole('link', { name: 'Consulta de convenios formalizados' }).getAttribute('href')).toBe('/convenios')
-    // HT-12: sin contexto de origen (acceso directo) regresa al detalle del convenio.
+    // HT-12: sin contexto de origen, el Revisor no va al detalle, que puede no estar en su alcance.
+    await userEvent.click(screen.getByRole('link', { name: 'Volver a la consulta de convenios' }))
+    expect(await screen.findByRole('heading', { name: 'Consulta de prueba' })).toBeTruthy()
+  })
+
+  it('sin contexto de origen, un Gestor regresa al detalle del convenio', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => respuesta(404, { detail: 'No encontrado' })))
+    const cliente = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    cliente.setQueryData(CLAVE_SESION, { ...sesionRevisor, rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' } })
+
+    render(
+      <QueryClientProvider client={cliente}>
+        <NotificationsContext.Provider value={vi.fn()}>
+          <MemoryRouter initialEntries={['/convenios/41/historial']}>
+            <Routes>
+              <Route path="/convenios/:convenioId/historial" element={<ConvenioHistorialPage />} />
+              <Route path="/convenios/:convenioId" element={<h1>Convenio de prueba</h1>} />
+            </Routes>
+          </MemoryRouter>
+        </NotificationsContext.Provider>
+      </QueryClientProvider>,
+    )
+
     await userEvent.click(screen.getByRole('link', { name: 'Volver al convenio' }))
     expect(await screen.findByRole('heading', { name: 'Convenio de prueba' })).toBeTruthy()
   })
