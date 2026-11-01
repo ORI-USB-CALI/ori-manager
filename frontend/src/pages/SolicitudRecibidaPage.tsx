@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { DocumentoPreviewModal } from '../components/DocumentoPreviewModal'
 import type { Convenio } from './epica02'
 import { type SolicitudRecibida, useSolicitudRecibida } from './solicitudes'
 
@@ -34,6 +35,12 @@ export function SolicitudRecibidaPage() {
   const [observacionesDevolucion, setObservacionesDevolucion] = useState('')
   const [rechazando, setRechazando] = useState(false)
   const [devolviendo, setDevolviendo] = useState(false)
+  const [documentoPreview, setDocumentoPreview] = useState<{
+    nombre: string
+    urlContenido: string
+    urlDescarga?: string
+    tipoMime?: string
+  } | null>(null)
   const refrescar = async (actualizada: SolicitudRecibida) => {
     cliente.setQueryData(['solicitudes', 'recibidas', actualizada.id], actualizada)
     await cliente.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] })
@@ -110,8 +117,60 @@ export function SolicitudRecibidaPage() {
         <dt>Supervisor contraparte</dt><dd>{[solicitud.supervisor_contraparte_nombre, solicitud.supervisor_contraparte_cargo, solicitud.supervisor_contraparte_correo, solicitud.supervisor_contraparte_telefono].filter(Boolean).join(' · ') || '—'}</dd>
       </dl></section>
 
-      <section className="card"><h2>Documentos adjuntos</h2>
-        {solicitud.documentos.length === 0 ? <p>No hay documentos adjuntos.</p> : <ul>{solicitud.documentos.map((documento) => <li key={documento.id}><a href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido`} target="_blank" rel="noreferrer">{documento.nombre_original}</a> <span className="badge">{documento.tipo_documento}</span></li>)}</ul>}
+      <section className="card">
+        <h2>Documentos adjuntos</h2>
+        {solicitud.documentos.length === 0 ? (
+          <p>No hay documentos adjuntos.</p>
+        ) : (
+          <ul className="solicitud-documentos-lista">
+            {solicitud.documentos.map((documento) => (
+              <li key={documento.id} className="solicitud-documento-item">
+                <div className="solicitud-documento-info">
+                  <a
+                    href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=inline`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(evento) => {
+                      evento.preventDefault()
+                      setDocumentoPreview({
+                        nombre: documento.nombre_original,
+                        urlContenido: `/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=inline`,
+                        urlDescarga: `/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=attachment`,
+                        tipoMime: documento.tipo_mime,
+                      })
+                    }}
+                  >
+                    {documento.nombre_original}
+                  </a>{' '}
+                  <span className="badge">{documento.tipo_documento}</span>
+                </div>
+                <div className="solicitud-documento-acciones">
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-small"
+                    onClick={() =>
+                      setDocumentoPreview({
+                        nombre: documento.nombre_original,
+                        urlContenido: `/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=inline`,
+                        urlDescarga: `/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=attachment`,
+                        tipoMime: documento.tipo_mime,
+                      })
+                    }
+                  >
+                    Previsualizar
+                  </button>
+                  <a
+                    className="btn btn-outline btn-small"
+                    href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=attachment`}
+                    download={documento.nombre_original}
+                  >
+                    Descargar
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {solicitud.fecha_decision && (
@@ -163,6 +222,16 @@ export function SolicitudRecibidaPage() {
         {solicitud.estado === 'APROBADA' && solicitud.convenio_id && gestiona && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
         {solicitud.estado === 'APROBADA' && !solicitud.convenio_id && gestiona && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
       </div>
+
+      {documentoPreview && (
+        <DocumentoPreviewModal
+          nombreArchivo={documentoPreview.nombre}
+          urlContenido={documentoPreview.urlContenido}
+          urlDescarga={documentoPreview.urlDescarga}
+          tipoMime={documentoPreview.tipoMime}
+          onCerrar={() => setDocumentoPreview(null)}
+        />
+      )}
     </>
   )
 }

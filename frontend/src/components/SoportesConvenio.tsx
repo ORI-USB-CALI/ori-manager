@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { CargarDocumentoModal } from './CargarDocumentoModal'
+import { DocumentoPreviewModal } from './DocumentoPreviewModal'
 import {
   claveSoportesConvenio,
   esConvenioActivoParaSoportes,
@@ -24,6 +25,7 @@ export function SoportesConvenio({
 }: SoportesConvenioProps) {
   const cliente = useQueryClient()
   const [mostrarModalCarga, setMostrarModalCarga] = useState(false)
+  const [soportePreview, setSoportePreview] = useState<SoporteConvenio | null>(null)
 
   // FE-03 / CA-04: Solo Gestor y Administrador ORI pueden gestionar soportes
   // y solo convenios vigentes o por vencer admiten cargar nuevos documentos.
@@ -107,6 +109,10 @@ export function SoportesConvenio({
                         rel="noreferrer"
                         title={`Ver ${soporte.nombre_original}`}
                         data-testid={`btn-ver-soporte-${soporte.id}`}
+                        onClick={(evento) => {
+                          evento.preventDefault()
+                          setSoportePreview(soporte)
+                        }}
                       >
                         Ver
                       </a>
@@ -133,6 +139,16 @@ export function SoportesConvenio({
           convenioId={convenioId}
           onCerrar={() => setMostrarModalCarga(false)}
           onDocumentoCargado={manejarDocumentoCargado}
+        />
+      )}
+
+      {soportePreview && (
+        <DocumentoPreviewModal
+          nombreArchivo={soportePreview.nombre_original}
+          urlContenido={`/convenios/${convenioId}/documentos/${soportePreview.id}/descargar?disposicion=inline`}
+          urlDescarga={`/api/convenios/${convenioId}/documentos/${soportePreview.id}/descargar?disposicion=attachment`}
+          tipoMime="application/pdf"
+          onCerrar={() => setSoportePreview(null)}
         />
       )}
     </section>

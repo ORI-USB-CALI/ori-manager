@@ -1,4 +1,4 @@
-from typing import Annotated, NoReturn
+from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import (
@@ -259,6 +259,7 @@ def obtener_documento_solicitud_recibida(
     db: DatabaseSession,
     almacen: Storage,
     _: PuedeVerRecibidas,
+    disposicion: Literal["inline", "attachment"] = "inline",
 ) -> Response:
     try:
         documento, contenido = ServicioSolicitudes(
@@ -275,7 +276,11 @@ def obtener_documento_solicitud_recibida(
     return Response(
         content=contenido,
         media_type=documento.tipo_mime,
-        headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
     )
 
 
