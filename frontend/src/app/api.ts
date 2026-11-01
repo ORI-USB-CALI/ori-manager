@@ -76,8 +76,11 @@ export interface ArchivoDescargado {
  * Pide un archivo binario a la API. Si el cuerpo del error no trae `detail`
  * (como el 422 de exportación de HU-24), el cuerpo completo queda en `detail`.
  */
-export async function apiFetchArchivo(ruta: string): Promise<ArchivoDescargado> {
-  const respuesta = await fetch(`/api${ruta}`, { credentials: 'include' })
+export async function apiFetchArchivo(ruta: string, signal?: AbortSignal): Promise<ArchivoDescargado> {
+  const respuesta = await fetch(`/api${ruta}`, {
+    credentials: 'include',
+    ...(signal ? { signal } : {}),
+  })
 
   if (!respuesta.ok) {
     const cuerpo = leerJson(await respuesta.text().catch(() => ''))

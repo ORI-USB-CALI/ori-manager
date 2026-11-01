@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
@@ -319,4 +319,67 @@ describe('HT-01: decisión vigente y observaciones de una devolución anterior',
       expect(screen.queryByText('Motivo residual que no corresponde a la decisión vigente')).toBeNull()
     },
   )
+})
+
+describe('HU-23: previsualización de documentos adjuntos en SolicitudRecibidaPage (CA-01, CA-02, CA-03)', () => {
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '')
+    }
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute('open')
+      this.dispatchEvent(new Event('close'))
+    }
+  })
+
+  it('permite previsualizar un documento adjunto abriendo el modal', async () => {
+    const solicitudConDocs: SolicitudRecibida = {
+      ...solicitud,
+      documentos: [
+        {
+          id: 101,
+          tipo_documento: 'OTRO_SOPORTE',
+          nombre_original: 'carta_intencion.pdf',
+          tamano_bytes: 1024,
+          tipo_mime: 'application/pdf',
+          creado_en: '2026-10-13T12:00:00Z',
+        },
+      ],
+    }
+
+    window.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://localhost/carta-mock')
+    window.URL.revokeObjectURL = vi.fn()
+
+    const fetch = vi.fn(async (url: string) => {
+      if (url.includes('disposicion=inline')) {
+        return {
+          ok: true,
+          status: 200,
+          blob: async () => new Blob(['%PDF-1.4 prueba'], { type: 'application/pdf' }),
+          headers: new Headers({ 'Content-Type': 'application/pdf' }),
+        }
+      }
+      return respuesta(200, solicitudConDocs)
+    })
+    vi.stubGlobal('fetch', fetch)
+
+    const user = userEvent.setup()
+    montar('/ori/solicitudes/41', gestor)
+
+    expect(await screen.findByRole('heading', { name: solicitud.consecutivo })).toBeTruthy()
+    expect(screen.getByText('carta_intencion.pdf')).toBeTruthy()
+
+    const btnPrevisualizar = screen.getByRole('button', { name: 'Previsualizar' })
+    await user.click(btnPrevisualizar)
+
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: 'carta_intencion.pdf' })).toBeTruthy()
+
+    const btnCerrar = screen.getByRole('button', { name: 'Cerrar previsualizador' })
+    await user.click(btnCerrar)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { level: 2, name: 'carta_intencion.pdf' })).toBeNull()
+    })
+  })
 })
