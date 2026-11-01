@@ -24,6 +24,8 @@ interface AccesoRapido {
   ruta: string
   cta: string
   icono: IconoAcceso
+  /** HU-38 FE-04: identificador estable para el recorrido de onboarding. */
+  dataTour?: string
 }
 
 const ACCESOS_RAPIDOS: AccesoRapido[] = [
@@ -89,6 +91,7 @@ const ACCESOS_RAPIDOS: AccesoRapido[] = [
     ruta: '/solicitudes/nueva',
     cta: 'Crear solicitud',
     icono: 'nueva-solicitud',
+    dataTour: 'inicio-nueva-solicitud',
   },
   {
     permiso: 'solicitudes.ver_propias',
@@ -98,6 +101,7 @@ const ACCESOS_RAPIDOS: AccesoRapido[] = [
     ruta: '/solicitudes',
     cta: 'Ver mis solicitudes',
     icono: 'mis-solicitudes',
+    dataTour: 'inicio-mis-solicitudes',
   },
 ]
 
@@ -158,7 +162,7 @@ export function HomePage() {
         </Link>
       )}
 
-      <section className="accesos-rapidos" aria-labelledby="accesos-rapidos-titulo">
+      <section className="accesos-rapidos" aria-labelledby="accesos-rapidos-titulo" data-tour="inicio-accesos-rapidos">
         <header className="accesos-rapidos-cabecera">
           <p className="accesos-rapidos-eyebrow">Portal de servicios</p>
           <h2 id="accesos-rapidos-titulo">Accesos rápidos</h2>
@@ -167,7 +171,7 @@ export function HomePage() {
 
         <div className="accesos-rapidos-grid">
           {accesosDisponibles.map((acceso) => (
-            <article className="acceso-rapido" key={acceso.permiso}>
+            <article className="acceso-rapido" key={acceso.permiso} data-tour={acceso.dataTour}>
               <Link className="acceso-rapido-enlace" to={acceso.ruta}>
                 <div className="acceso-rapido-superior">
                   <span className="acceso-rapido-icono"><IconoTarjeta tipo={acceso.icono} /></span>

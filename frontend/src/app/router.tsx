@@ -33,6 +33,7 @@ import { VerificarCorreoPage } from '../pages/VerificarCorreoPage'
 import { UsuariosRolesPage } from '../pages/UsuariosRolesPage'
 import { SolicitudPage } from '../pages/SolicitudPage'
 import { TableroConveniosPage } from '../pages/TableroConveniosPage'
+import { TourProvider } from '../components/TourProvider'
 import { AppLayout } from './AppLayout'
 
 export const router = createBrowserRouter([
@@ -44,7 +45,7 @@ export const router = createBrowserRouter([
   { path: '/firma-convenio', element: <FirmaConvenioPublicaPage /> },
   { path: '/revision-contraparte', element: <RevisionContrapartePublicaPage /> },
   {
-    element: <AppLayout />,
+    element: <TourProvider><AppLayout /></TourProvider>,
     children: [
       { path: '/', element: <HomePage /> },
       { element: <RequierePermiso permiso="convenios.gestionar_renovaciones" />, children: [
