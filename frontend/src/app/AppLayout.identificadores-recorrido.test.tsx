@@ -27,6 +27,7 @@ const DESTINOS_INICIO = [
   'inicio-mis-solicitudes',
   'inicio-revisiones-contraparte',
   'navegacion-principal',
+  'navegacion-menu',
   'centro-notificaciones',
 ] as const
 

@@ -78,7 +78,14 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
     {
       destino: 'navegacion-principal',
       titulo: 'Navegación',
-      descripcion: 'Usa el menú para moverte entre las secciones. En celular puedes abrirlo desde el botón de menú.',
+      descripcion: 'Usa el menú para moverte entre las secciones.',
+      roles: [rol],
+    },
+    {
+      // Con la navegación colapsada (HT-04), este paso reemplaza al anterior: el motor omite el destino oculto.
+      destino: 'navegacion-menu',
+      titulo: 'Navegación',
+      descripcion: 'Abre este menú para moverte entre las secciones.',
       roles: [rol],
     },
     {

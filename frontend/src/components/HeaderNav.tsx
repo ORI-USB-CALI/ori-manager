@@ -97,6 +97,7 @@ function HeaderNavInteractiva({ enlaces }: HeaderNavProps) {
         ref={botonRef}
         type="button"
         className="navbar-menu-boton"
+        data-tour="navegacion-menu"
         aria-label={abierto ? 'Cerrar menú de navegación' : 'Abrir menú de navegación'}
         aria-expanded={abierto}
         aria-controls={idPanel}
