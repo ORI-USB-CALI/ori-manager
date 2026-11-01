@@ -1,7 +1,7 @@
 """HT-14 tipo de documento, dígito de verificación y país por catálogo.
 
 Revision ID: 417e8d1cf636
-Revises: 2fa11b85762d
+Revises: a109c8f2b10b
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "417e8d1cf636"
-down_revision: str | Sequence[str] | None = "2fa11b85762d"
+down_revision: str | Sequence[str] | None = "a109c8f2b10b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
