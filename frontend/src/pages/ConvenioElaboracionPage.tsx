@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { AccionVolver } from '../components/AccionVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
@@ -312,6 +313,8 @@ export function ConvenioElaboracionPage() {
 
   return (
     <>
+      <AccionVolver alternativo={{ to: `/convenios/${datos.id}`, texto: 'Volver al convenio' }} />
+
       <section className="header-banner">
         <h1>Proyecto de convenio {referenciaConvenio(datos.codigo, datos.id)}</h1>
         <p>
@@ -600,8 +603,6 @@ export function ConvenioElaboracionPage() {
           ])}
         />
       )}
-
-      <div className="page-toolbar"><Link className="btn btn-outline" to={`/convenios/${datos.id}`}>Volver al detalle</Link></div>
     </>
   )
 }

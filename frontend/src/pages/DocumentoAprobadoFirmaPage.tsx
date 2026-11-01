@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
+import { AccionVolver } from '../components/AccionVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { referenciaConvenio } from './epica02'
 
@@ -31,10 +32,12 @@ export function DocumentoAprobadoFirmaPage() {
     const noDisponible = documento.error instanceof ApiError
       && (documento.error.status === 404 || documento.error.status === 409)
     return (
-      <section className="card estado-vacio">
-        <h1>{noDisponible ? 'Documento aprobado no disponible' : 'No se pudo consultar el documento aprobado'}</h1>
-        <Link className="btn btn-outline" to={`/convenios/${convenioId}`}>Volver al convenio</Link>
-      </section>
+      <>
+        <AccionVolver alternativo={{ to: `/convenios/${convenioId}`, texto: 'Volver al convenio' }} />
+        <section className="card estado-vacio">
+          <h1>{noDisponible ? 'Documento aprobado no disponible' : 'No se pudo consultar el documento aprobado'}</h1>
+        </section>
+      </>
     )
   }
   if (!documento.data) return null
@@ -42,6 +45,7 @@ export function DocumentoAprobadoFirmaPage() {
 
   return (
     <article className="documento-aprobado-page">
+      <AccionVolver alternativo={{ to: `/convenios/${datos.convenio_id}`, texto: 'Volver al convenio' }} />
       <header className="documento-aprobado-cabecera">
         <div>
           <h1>Documento aprobado para firma</h1>
@@ -50,7 +54,6 @@ export function DocumentoAprobadoFirmaPage() {
         <strong>Versión {datos.version_numero}</strong>
       </header>
       <div className="page-toolbar documento-aprobado-acciones">
-        <Link className="btn btn-outline" to={`/convenios/${datos.convenio_id}`}>Volver al convenio</Link>
         <button className="btn btn-primary" type="button" onClick={() => window.print()}>
           Imprimir / Guardar como PDF
         </button>
