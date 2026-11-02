@@ -166,6 +166,35 @@ def test_telefono_invalido_se_rechaza(valor):
         normalizar_telefono(valor)
 
 
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "3001234567", "(602) 555-1234", "+44 20 7946 0958",
+        "6025551234 ext 1", "6025551234 ext 123456",
+        "6025551234 extensión 001", "+576025551234",
+        "+576025551234;ext=123", "+576025551234;ext=000001",
+    ],
+)
+def test_h01_normalizar_telefono_es_idempotente(valor):
+    canonico = normalizar_telefono(valor)
+    assert normalizar_telefono(canonico) == canonico
+    assert normalizar_telefono(normalizar_telefono(canonico)) == canonico
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "+576025551234;ext=", "+576025551234;ext=1234567",
+        "+576025551234;ext=abc", "+576025551234;ext=1;ext=2",
+        "+576025551234;foo=123", "6025551234;ext=123",
+        "tel:+576025551234;ext=123", "+9996025551234;ext=1",
+    ],
+)
+def test_h01_rechaza_sintaxis_canonica_arbitraria(valor):
+    with pytest.raises(ValueError):
+        normalizar_telefono(valor)
+
+
 # --- Ciudad (CA-03) ---------------------------------------------------------
 
 
@@ -226,3 +255,41 @@ def test_direccion_valida_se_normaliza(valor, canonico):
 def test_direccion_invalida_se_rechaza(valor):
     with pytest.raises(ValueError):
         normalizar_direccion(valor)
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "Calle 5 # 38-25", "Cra. 122 No. 6-65, Pance",
+        "Vereda La Esperanza, Finca El Roble", "Km 3 vía Cali/Jamundí",
+        "1600 Amphitheatre Pkwy", "Apartado postal 123",
+        "Edificio Central, oficina 402", "Finca El Roble, zona rural de Pance",
+        "The Old Rectory, High Street", "Campus universitario, Pance",
+        "東京都渋谷区神南1丁目", "Maison du Lac / Les Pins",
+    ],
+)
+def test_h02_admite_direcciones_urbanas_rurales_e_internacionales(valor):
+    assert normalizar_direccion(valor) == valor
+
+
+@pytest.mark.parametrize(
+    "valor",
+    ["Hola como estas", "Texto sin referencia", "AAAAA", " , Casa", "Casa, ", "#-.,/"],
+)
+def test_h02_rechaza_texto_sin_estructura_de_ubicacion(valor):
+    with pytest.raises(ValueError):
+        normalizar_direccion(valor)
+
+
+def test_formatos_unicode_coinciden_con_el_contrato_del_frontend_y_sql():
+    assert normalizar_ciudad("Bogota\u0301") == "Bogotá"
+    assert normalizar_direccion("Edificio Pen\u0303a, oficina 2") == "Edificio Peña, oficina 2"
+    assert normalizar_ciudad("𐐀" * 120) == "𐐀" * 120
+    assert normalizar_direccion("𐐀" * 199 + "1") == "𐐀" * 199 + "1"
+    assert normalizar_digito_verificacion_nit(None, "8") == "8"
+    for valor in ("A", "٨"):
+        with pytest.raises(ValueError):
+            normalizar_digito_verificacion_nit(None, valor)
+    for tipo in (NIT, CC):
+        with pytest.raises(ValueError):
+            normalizar_identificacion(tipo, "١٢٣٤٥")

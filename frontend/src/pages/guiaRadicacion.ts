@@ -26,6 +26,7 @@ export const DESTINOS_ACCIONES_SOLICITUD = {
 } as const
 
 const D = DESTINOS_SECCIONES_SOLICITUD
+const AYUDA_TELEFONO = ' Para teléfonos fuera de Colombia, incluya el indicativo con +. Puede indicar una extensión de 1 a 6 dígitos con ext; al guardar se conserva como ;ext=.'
 
 /* Contrato integrado de SolicitudPage, SolicitudCampos y _errores_radicacion (HT-14). */
 export const PASOS_SECCIONES_SOLICITUD: PasoRecorrido[] = [
@@ -47,7 +48,8 @@ export const PASOS_SECCIONES_SOLICITUD: PasoRecorrido[] = [
     descripcion:
       'Identifica a quien presenta la solicitud. Sus datos se precargan desde su perfil y se guardan como copia en '
       + 'esta solicitud. Revise el nombre, el tipo de documento, la Identificación y la Empresa o Entidad: son obligatorios '
-      + 'para radicar. Si el tipo de documento es NIT, registre también su dígito de verificación.',
+      + 'para radicar. La identificación debe corresponder al tipo elegido. Si es NIT, escriba la base sin DV '
+      + 'y registre su dígito de verificación en el campo separado.',
   },
   {
     destino: D.contraparte,
@@ -57,7 +59,10 @@ export const PASOS_SECCIONES_SOLICITUD: PasoRecorrido[] = [
       'Datos de la institución o entidad con la que se propone el convenio: nombre, tipo de entidad, tipo y número '
       + 'de identificación, correo institucional, país, ciudad, teléfono y dirección. Si la entidad es una empresa, '
       + 'el sector económico es obligatorio. El país se elige de la lista y la ciudad se escribe como texto. '
-      + 'Si la identificación es NIT, registre también su dígito de verificación. Registre los datos de contacto de la entidad.',
+      + 'La identificación se valida según su tipo. Si es NIT, escriba la base y el dígito de verificación por separado. '
+      + 'La ciudad admite de 2 a 120 caracteres; no se comprueba su existencia geográfica. '
+      + 'La dirección admite de 5 a 200 caracteres con letras y un número o dos referencias separadas por coma o barra, '
+      + 'también para zonas rurales. No se verifica su existencia física.' + AYUDA_TELEFONO,
   },
   {
     destino: D.contactoContraparte,
@@ -65,7 +70,7 @@ export const PASOS_SECCIONES_SOLICITUD: PasoRecorrido[] = [
     titulo: '3. Contacto de contraparte',
     descripcion:
       'Persona de la contraparte con quien la ORI coordinará la gestión de la solicitud. Registre su nombre, cargo, '
-      + 'teléfono y correo electrónico; todos son obligatorios para radicar.',
+      + 'teléfono y correo electrónico; todos son obligatorios para radicar.' + AYUDA_TELEFONO,
   },
   {
     destino: D.convenio,
@@ -82,7 +87,7 @@ export const PASOS_SECCIONES_SOLICITUD: PasoRecorrido[] = [
     titulo: '5. Supervisor o encargado de ejecución USB',
     descripcion:
       'Persona de la Universidad de San Buenaventura responsable de acompañar la ejecución del convenio. '
-      + 'Registre su nombre, cargo, teléfono y correo electrónico; todos son obligatorios para radicar.',
+      + 'Registre su nombre, cargo, teléfono y correo electrónico; todos son obligatorios para radicar.' + AYUDA_TELEFONO,
   },
   {
     destino: D.supervisorContraparte,
@@ -90,7 +95,7 @@ export const PASOS_SECCIONES_SOLICITUD: PasoRecorrido[] = [
     titulo: '6. Supervisor o encargado de ejecución de la contraparte',
     descripcion:
       'Persona de la contraparte responsable de la ejecución del convenio. Registre su nombre, cargo, teléfono y '
-      + 'correo electrónico; todos son obligatorios para radicar.',
+      + 'correo electrónico; todos son obligatorios para radicar.' + AYUDA_TELEFONO,
   },
   {
     destino: D.documentacion,

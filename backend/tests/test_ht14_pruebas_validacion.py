@@ -119,7 +119,7 @@ def test_ciudad_rechaza_los_casos_limite(valor):
     ("valor", "canonico"),
     [
         ("Cl 51", "Cl 51"),  # 5 caracteres
-        ("A" * 200, "A" * 200),
+        ("A" * 199 + "1", "A" * 199 + "1"),
         ("Casa  12 ", "Casa 12"),
         ("Calle 5\t# 38", "Calle 5 # 38"),  # el tabulador se normaliza
     ],
@@ -619,3 +619,300 @@ def test_el_solicitante_externo_con_nit_registra_su_dv(client, externo, payload)
         },
     )
     assert cuerpo["solicitante_documento_completo"] == f"{base}-4"
+
+
+@pytest.mark.parametrize("campo", [
+    "telefono_aliado_propuesto", "contacto_contraparte_telefono",
+    "supervisor_usb_telefono", "supervisor_contraparte_telefono",
+])
+def test_h01_guardar_consultar_patch_y_radicar_extension(client, externo, payload, campo):
+    solicitud = _crear(client, {**payload, campo: "6025551234 ext 000123"})
+    url = f"{URL}/{solicitud['id']}"
+    canonico = "+576025551234;ext=000123"
+    assert solicitud[campo] == canonico
+    assert client.get(url).json()[campo] == canonico
+    for _ in range(2):
+        actualizada = client.patch(url, json={campo: canonico})
+        assert actualizada.status_code == 200, actualizada.text
+        assert actualizada.json()[campo] == canonico
+    _subir_representacion(client, solicitud["id"])
+    radicada = client.post(f"{url}/radicar")
+    assert radicada.status_code == 200, radicada.text
+    assert radicada.json()["estado"] == "RADICADA"
+    assert radicada.json()[campo] == canonico
+
+
+@pytest.mark.parametrize("campo", [
+    "telefono_aliado_propuesto", "contacto_contraparte_telefono",
+    "supervisor_usb_telefono", "supervisor_contraparte_telefono",
+])
+def test_h01_extension_en_devuelta_preserva_version_anterior(
+    client, db, devuelta, campo
+):
+    url = f"{URL}/{devuelta}"
+    version_anterior = db.scalar(select(SolicitudVersion).where(
+        SolicitudVersion.solicitud_id == devuelta, SolicitudVersion.numero == 1
+    ))
+    datos_anteriores = dict(version_anterior.datos)
+    antes = _conteos(db, devuelta)
+    invalida = client.patch(url, json={campo: "+576025551234;ext=1234567", "objeto": "No guardar"})
+    assert campo in _errores(invalida)
+    assert client.get(url).json()["objeto"] == datos_anteriores["objeto"]
+    assert _conteos(db, devuelta) == antes
+    corregida = client.patch(url, json={campo: "6025551234 ext 123"})
+    assert corregida.status_code == 200, corregida.text
+    radicada = client.post(f"{url}/radicar")
+    assert radicada.status_code == 200, radicada.text
+    assert radicada.json()[campo] == "+576025551234;ext=123"
+    db.expire_all()
+    assert db.get(SolicitudVersion, version_anterior.id).datos == datos_anteriores
+    assert db.scalar(select(func.count()).select_from(SolicitudVersion).where(
+        SolicitudVersion.solicitud_id == devuelta
+    )) == 2
+
+
+def test_h02_frase_libre_rechazada_sin_efectos_y_referencia_rural_valida(
+    client, db, externo, payload
+):
+    antes = _conteos(db)
+    assert "direccion_aliado_propuesto" in _errores(client.post(
+        URL, json={**payload, "direccion_aliado_propuesto": "Hola como estas"}
+    ))
+    assert _conteos(db) == antes
+    solicitud = _crear(client, {**payload, "direccion_aliado_propuesto": "Finca El Roble, zona rural de Pance"})
+    url = f"{URL}/{solicitud['id']}"
+    assert "direccion_aliado_propuesto" in _errores(client.patch(
+        url, json={"direccion_aliado_propuesto": "Hola como estas", "objeto": "No guardar"}
+    ))
+    assert client.get(url).json()["objeto"] == payload["objeto"]
+    assert client.get(url).json()["direccion_aliado_propuesto"] == "Finca El Roble, zona rural de Pance"
+
+
+@pytest.mark.parametrize(("tipo", "dv"), [
+    ("tipo_identificacion_aliado_propuesto", "digito_verificacion_aliado_propuesto"),
+    ("solicitante_tipo_documento", "solicitante_digito_verificacion"),
+])
+@pytest.mark.parametrize("valor", ["A", "٨"])
+def test_auditoria_dv_parcial_invalido_es_422_no_error_sql(
+    client, db, externo, tipo, dv, valor
+):
+    antes = _conteos(db)
+    assert dv in _errores(client.post(URL, json={tipo: "NIT", dv: valor}))
+    assert _conteos(db) == antes
+
+
+@pytest.mark.parametrize("tipo", ["IDENTIFICACION_FISCAL_EXTRANJERA", "OTRO", None])
+def test_auditoria_identificacion_solo_signos_es_invalida(client, externo, tipo):
+    assert "identificacion_aliado_propuesto" in _errores(client.post(URL, json={
+        "tipo_identificacion_aliado_propuesto": tipo,
+        "identificacion_aliado_propuesto": "---/.",
+    }))
+
+
+@pytest.mark.parametrize(("campo", "valor", "canonico"), [
+    ("ciudad_aliado_propuesto", "A" * 59 + " " * 50 + "B" * 60, "A" * 59 + " " + "B" * 60),
+    ("ciudad_aliado_propuesto", "e\u0301" * 120, "é" * 120),
+    ("ciudad_aliado_propuesto", "Qq\u0323", "Qq\u0323"),
+    ("direccion_aliado_propuesto", "A" * 99 + " " * 80 + "B" * 98 + " 1", "A" * 99 + " " + "B" * 98 + " 1"),
+    ("direccion_aliado_propuesto", "e\u0301" * 199 + "1", "é" * 199 + "1"),
+    ("direccion_aliado_propuesto", "Finca Qq\u0323, Pance", "Finca Qq\u0323, Pance"),
+])
+def test_h06_post_patch_y_radicar_ubicacion_canonica(
+    client, externo, payload, campo, valor, canonico
+):
+    solicitud = _crear(client, {**payload, campo: valor})
+    url = f"{URL}/{solicitud['id']}"
+    assert solicitud[campo] == canonico
+    actualizada = client.patch(url, json={campo: valor})
+    assert actualizada.status_code == 200, actualizada.text
+    assert actualizada.json()[campo] == canonico
+    _subir_representacion(client, solicitud["id"])
+    radicada = client.post(f"{url}/radicar")
+    assert radicada.status_code == 200, radicada.text
+    assert radicada.json()[campo] == canonico
+
+
+@pytest.mark.parametrize(("tipo_campo", "numero_campo", "dv_campo"), [
+    ("tipo_identificacion_aliado_propuesto", "identificacion_aliado_propuesto", "digito_verificacion_aliado_propuesto"),
+    ("solicitante_tipo_documento", "solicitante_documento", "solicitante_digito_verificacion"),
+])
+@pytest.mark.parametrize(("tipo", "valor", "canonico", "dv", "excesivo"), [
+    (NIT, "900." + " " * 50 + "123.456", "900123456", "8", "1" * 11),
+    (CC, "1." + " " * 50 + "144.123.456", "1144123456", None, "1" * 11),
+    (CE, "a" + " " * 50 + "12", "A12", None, "A" * 16),
+    (PASAPORTE, "ab" + " " * 50 + "123", "AB123", None, "A" * 21),
+    (FISCAL, "RFC" + " " * 50 + "X" * 36, "RFC " + "X" * 36, None, "A" * 41),
+    (OTRO, "RFC" + " " * 50 + "X" * 36, "RFC " + "X" * 36, None, "A" * 41),
+])
+def test_h06_identificacion_mide_el_canonico_incluso_en_patch_sin_tipo(
+    client, db, externo, payload, tipo_campo, numero_campo, dv_campo,
+    tipo, valor, canonico, dv, excesivo,
+):
+    solicitud = _crear(client, {**payload, tipo_campo: tipo, numero_campo: valor, dv_campo: dv})
+    url = f"{URL}/{solicitud['id']}"
+    assert solicitud[numero_campo] == canonico
+    actualizada = client.patch(url, json={numero_campo: valor})
+    assert actualizada.status_code == 200, actualizada.text
+    assert actualizada.json()[numero_campo] == canonico
+    antes = client.get(url).json()
+    assert numero_campo in _errores(client.patch(url, json={numero_campo: excesivo, "objeto": "No guardar"}))
+    assert client.get(url).json() == antes
+    _subir_representacion(client, solicitud["id"])
+    # La fixture comparte Session entre peticiones; producción abre una por
+    # petición. Volver a leer los documentos persistidos evita caché de fixture.
+    db.expire_all()
+    radicada = client.post(f"{url}/radicar")
+    assert radicada.status_code == 200, radicada.text
+
+
+def test_h06_lectura_patch_ajeno_y_radicacion_no_reescriben_ubicacion_historica(
+    client, db, externo, payload,
+):
+    solicitud = _crear(client, payload)
+    url = f"{URL}/{solicitud['id']}"
+    historicos = {"ciudad_aliado_propuesto": "Qq\u0323  Cali", "direccion_aliado_propuesto": "Casa  e\u0301  1"}
+    db.execute(SolicitudConvenio.__table__.update().where(
+        SolicitudConvenio.id == solicitud["id"]
+    ).values(**historicos))
+    db.commit()
+    for campo, valor in historicos.items():
+        assert client.get(url).json()[campo] == valor
+    assert client.patch(url, json={"objeto": "Cambio explícito de otro campo"}).status_code == 200
+    _subir_representacion(client, solicitud["id"])
+    radicada = client.post(f"{url}/radicar")
+    assert radicada.status_code == 200, radicada.text
+    for campo, valor in historicos.items():
+        assert radicada.json()[campo] == valor
+        assert db.get(SolicitudConvenio, solicitud["id"]).__dict__[campo] == valor
+
+
+@pytest.mark.parametrize(("campo", "valor"), [
+    ("ciudad_aliado_propuesto", "e\u0301" * 121),
+    ("direccion_aliado_propuesto", "e\u0301" * 200 + "1"),
+])
+def test_h06_limite_canonico_excedido_no_guarda_ni_crea(client, db, externo, payload, campo, valor):
+    antes = _conteos(db)
+    respuesta = client.post(URL, json={**payload, campo: valor})
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"][0]["loc"][-1] == campo
+    assert _conteos(db) == antes
+    solicitud = _crear(client, payload)
+    url = f"{URL}/{solicitud['id']}"
+    respuesta = client.patch(url, json={campo: valor, "objeto": "No guardar"})
+    assert respuesta.status_code == 422
+    assert client.get(url).json()["objeto"] == payload["objeto"]
+    assert client.get(url).json()["estado"] == "BORRADOR"
+
+
+@pytest.mark.parametrize(("campo", "valor"), [
+    ("ciudad_aliado_propuesto", "Ca\u200bli"),
+    ("direccion_aliado_propuesto", "Casa \u0323, Pance"),
+])
+def test_h06_radicacion_rechaza_unicode_invalido_historico_sin_efectos(
+    client, db, externo, payload, campo, valor,
+):
+    solicitud = _crear(client, payload)
+    _subir_representacion(client, solicitud["id"])
+    db.execute(SolicitudConvenio.__table__.update().where(
+        SolicitudConvenio.id == solicitud["id"]
+    ).values({campo: valor}))
+    db.commit()
+    antes = _conteos(db)
+    url = f"{URL}/{solicitud['id']}"
+    assert campo in _errores(client.post(f"{url}/radicar"))
+    assert client.get(url).json()["estado"] == "BORRADOR"
+    assert client.get(url).json()[campo] == valor
+    assert _conteos(db) == antes
+
+
+H07_CAMPOS = [
+    ("identificacion_aliado_propuesto", "900123456"), ("solicitante_documento", "900123456"),
+    ("digito_verificacion_aliado_propuesto", "8"), ("solicitante_digito_verificacion", "8"),
+    ("telefono_aliado_propuesto", "6025551234"), ("contacto_contraparte_telefono", "6025551234"),
+    ("supervisor_usb_telefono", "6025551234"), ("supervisor_contraparte_telefono", "6025551234"),
+]
+
+
+def _h07_payload(payload):
+    return {**payload, "solicitante_tipo_documento": "NIT", "solicitante_documento": "900123456", "solicitante_digito_verificacion": "8"}
+
+
+def _h07_error(respuesta, campo):
+    assert respuesta.status_code == 422, respuesta.text
+    detalle = respuesta.json()["detail"]
+    if isinstance(detalle, list):
+        assert any(item["loc"][-1] == campo for item in detalle)
+    else:
+        assert campo in detalle["errors"]
+
+
+@pytest.mark.parametrize(("campo", "valor"), H07_CAMPOS)
+@pytest.mark.parametrize("control", ["\u0085", "\u001c", "\ufeff"])
+def test_h07_post_y_patch_no_ocultan_controles_ni_guardan_parcialmente(
+    client, db, externo, payload, campo, valor, control,
+):
+    cuerpo = _h07_payload(payload)
+    invalido = control + valor + control
+    antes = _conteos(db)
+    _h07_error(client.post(URL, json={**cuerpo, campo: invalido}), campo)
+    assert _conteos(db) == antes
+    solicitud = _crear(client, cuerpo)
+    url = f"{URL}/{solicitud['id']}"
+    antes = client.get(url).json()
+    conteos = _conteos(db)
+    _h07_error(client.patch(url, json={campo: invalido, "objeto": "No guardar"}), campo)
+    assert client.get(url).json() == antes
+    assert _conteos(db) == conteos
+
+
+@pytest.mark.parametrize(("campo", "valor"), [item for item in H07_CAMPOS if "digito" not in item[0]])
+@pytest.mark.parametrize("control", ["\u0085", "\u001c", "\ufeff"])
+def test_h07_radicacion_revalida_historicos_sin_normalizarlos(
+    client, db, externo, payload, campo, valor, control,
+):
+    solicitud = _crear(client, _h07_payload(payload))
+    url = f"{URL}/{solicitud['id']}"
+    _subir_representacion(client, solicitud["id"])
+    original = control + valor + control
+    db.execute(SolicitudConvenio.__table__.update().where(
+        SolicitudConvenio.id == solicitud["id"]
+    ).values({campo: original}))
+    db.commit()
+    db.expire_all()
+    assert client.get(url).json()[campo] == original
+    antes = _conteos(db)
+    _h07_error(client.post(f"{url}/radicar"), campo)
+    assert _conteos(db) == antes
+    assert client.get(url).json()["estado"] == "BORRADOR"
+    assert client.get(url).json()[campo] == original
+
+
+def test_h07_api_conserva_separadores_legitimos_y_dv(client, externo, payload):
+    for espacio in (" ", "\u00a0", "\u202f"):
+        cuerpo = _h07_payload(payload)
+        cuerpo.update({
+            "identificacion_aliado_propuesto": espacio + "900." + espacio + "123.456" + espacio,
+            "solicitante_documento": espacio + "900." + espacio + "123.456" + espacio,
+            "digito_verificacion_aliado_propuesto": espacio + "8" + espacio,
+            "solicitante_digito_verificacion": espacio + "8" + espacio,
+            "telefono_aliado_propuesto": espacio + "602" + espacio + "5551234 ext 000123" + espacio,
+        })
+        creada = _crear(client, cuerpo)
+        assert creada["identificacion_aliado_propuesto"] == creada["solicitante_documento"] == "900123456"
+        assert creada["digito_verificacion_aliado_propuesto"] == creada["solicitante_digito_verificacion"] == "8"
+        assert creada["telefono_aliado_propuesto"] == "+576025551234;ext=000123"
+
+
+def test_h07_devuelta_rechaza_y_permite_correccion_explicita(client, db, devuelta):
+    url = f"{URL}/{devuelta}"
+    db.execute(SolicitudConvenio.__table__.update().where(
+        SolicitudConvenio.id == devuelta
+    ).values(identificacion_aliado_propuesto="900\u0085123456"))
+    db.commit()
+    db.expire_all()
+    antes = _conteos(db)
+    _h07_error(client.post(f"{url}/radicar"), "identificacion_aliado_propuesto")
+    assert _conteos(db) == antes
+    assert client.get(url).json()["estado"] == "DEVUELTA"
+    assert client.patch(url, json={"identificacion_aliado_propuesto": "900.123.456"}).status_code == 200
+    assert client.post(f"{url}/radicar").status_code == 200

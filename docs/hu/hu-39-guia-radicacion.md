@@ -13,11 +13,11 @@ No se encontró una ficha oficial completa con el texto de todos los CA y RN de 
 - [HU-38](hu-38-onboarding-inicial.md) aporta driver.js, `TourProvider`, reglas de cierre, persistencia y estados individuales. Sus correcciones integradas en develop se conservan.
 - HT-04 aporta la navegación responsive real. HU-39 no abre ni reproduce otro menú móvil; utiliza el DOM disponible y el motor compartido.
 - [HT-12](ht-12-accion-volver.md) conserva la navegación de retorno existente. La guía contextual permanece en el formulario y no navega al avanzar.
-- HT-14 / PR #171 todavía no está integrada. Sus campos, catálogos y validaciones no son requisitos de ejecución de esta guía. Será necesario sincronizar el contenido cuando se integre.
+- [HT-14 / PR #171](ht-14-validacion-formatos-solicitud.md) incorpora validación por tipo/DV, país del catálogo y formatos de teléfono, ciudad y dirección. La guía refleja ahora esos controles sin validar ni modificar el formulario por sí misma.
 
-Al iniciar, `HEAD=42d1933` ya contenía el merge de `origin/develop=769b355`. `git fetch origin develop` confirmó esa referencia. No había `MERGE_HEAD`, archivos sin fusionar ni conflictos pendientes; por tanto no se resolvieron conflictos ni se creó un commit técnico. Hay 0 commits exclusivos de develop y 15 exclusivos de la rama (incluido su historial de integración). La rama ya estaba 10 commits por delante de su remoto al iniciar esta corrección.
+Contexto histórico de la auditoría propia de HU-39, anterior a HT-14: al iniciar, `HEAD=42d1933` ya contenía el merge de `origin/develop=769b355`. `git fetch origin develop` confirmó esa referencia. No había `MERGE_HEAD`, archivos sin fusionar ni conflictos pendientes; por tanto no se resolvieron conflictos ni se creó un commit técnico. Había 0 commits exclusivos de develop y 15 exclusivos de la rama (incluido su historial de integración). La rama ya estaba 10 commits por delante de su remoto al iniciar aquella corrección. La auditoría de HT-14 parte de `47c74fc`; sus resultados se registran en su ficha, sin reescribir estas evidencias históricas.
 
-Los archivos `OnboardingSolicitantes`, `TourProvider`, `recorrido`, `AppLayout`, `AccionVolver`, `retornoVolver` y el backend de producción coinciden con develop. `estadoGuias.ts` se amplía conservando los tipos, las funciones HTTP y las claves de HU-38. No se seleccionó automáticamente una versión ours/theirs ni se incorporó HT-14.
+En aquella revisión de HU-39, `OnboardingSolicitantes`, `TourProvider`, `recorrido`, `AppLayout`, `AccionVolver`, `retornoVolver` y el backend de producción coincidían con develop. `estadoGuias.ts` se amplió conservando los tipos, las funciones HTTP y las claves de HU-38. No se seleccionó automáticamente una versión ours/theirs ni se incorporó entonces HT-14. Estos mecanismos de recorrido permanecen intactos en la corrección actual de HT-14.
 
 ## Alcance, acceso y permisos
 
@@ -35,8 +35,8 @@ La API de `GUIA_RADICACION` conserva el contrato compartido de HU-38: un usuario
 
 | Sección | Correspondencia con el formulario y servidor actuales |
 |---|---|
-| 1. Información del solicitante | Interno: datos precargados, nombre y cargo; Facultad/Dependencia y Programa/Unidad según vinculación. Externo: nombre, Identificación y Empresa/Entidad; sin selector de tipo de identificación del solicitante ni DV separado. |
-| 2. Información de la contraparte | Nombre, tipo de entidad, tipo/número de identificación, correo, país, ciudad, teléfono y dirección; sector económico para empresa. País/ciudad son entradas de texto. |
+| 1. Información del solicitante | Interno: datos precargados, nombre y cargo; Facultad/Dependencia y Programa/Unidad según vinculación. Externo: nombre, tipo de documento, Identificación y Empresa/Entidad; base y DV separados para NIT. |
+| 2. Información de la contraparte | Nombre, tipo de entidad, tipo/número de identificación y DV para NIT, correo, país del catálogo, ciudad como texto, teléfono y dirección; sector económico para empresa. Se explican límites de ciudad/dirección, indicativo internacional y extensiones, sin prometer existencia geográfica/física. |
 | 3. Contacto de contraparte | Nombre, cargo, teléfono y correo obligatorios al radicar. |
 | 4. Información del convenio | Tipo, vigencia, justificación, objeto, actividades, metas, implicación financiera y requisitos de renovación obligatorios. |
 | 5. Supervisor USB | Nombre, cargo, teléfono y correo. |
@@ -46,9 +46,9 @@ La API de `GUIA_RADICACION` conserva el contrato compartido de HU-38: un usuario
 
 Después explica Adjuntar documentos, Guardar borrador/Guardar cambios, Radicar solicitud/Volver a radicar, errores de validación y Mis solicitudes. Para `DEVUELTA` agrega la lectura de observaciones ORI, corrección de datos/soportes y nueva radicación. Hay 13 pasos ordinarios y 14 en devueltas, tras filtrar el contenido por rol.
 
-Guardar borrador conserva información sin enviarla a revisión; Radicar verifica requisitos y envía la solicitud. El recorrido no pulsa esos botones, no adjunta archivos, no cambia valores ni abre Mis solicitudes. El seguimiento se explica al final y queda a decisión del usuario. La repetición manual tampoco altera el formulario ni provoca activación automática de ninguna guía.
+Guardar borrador conserva información incompleta sin enviarla a revisión; los campos diligenciados deben tener formatos válidos. Radicar verifica formatos, campos y soportes requeridos; un rechazo mantiene la solicitud editable. Los mensajes por campo permiten corregir y reenviar conservando los valores. El recorrido no pulsa esos botones, no adjunta archivos, no cambia valores ni abre Mis solicitudes. El seguimiento se explica al final y queda a decisión del usuario. La repetición manual tampoco altera el formulario ni provoca activación automática de ninguna guía.
 
-Se retiraron instrucciones que anticipaban HT-14: tipo de documento del solicitante externo, DV separado, catálogo de países y formatos internacionales de teléfono/identificación/ciudad/dirección. Se contrastaron `SolicitudCampos` y `_errores_radicacion`; no existe `backend/core/validaciones.py` en este árbol. Se conservan las explicaciones verificables de campos obligatorios, correo válido y documentos. Las pruebas HTTP demuestran los campos de texto actuales, rechazo de correo inválido y rechazo de campos futuros desconocidos.
+En HU-39 aislada se habían retirado instrucciones que anticipaban HT-14. Ahora HT-14 sí forma parte del candidato: existen `backend/core/validaciones.py`, selector de país y campos de tipo/DV. El contenido vuelve a corresponder al DOM, esquema y servicio integrados. Los teléfonos de contactos y supervisores siguen las mismas reglas. Los límites y la política de dirección, su carácter sintáctico, los históricos y el downgrade conservador se documentan en la [ficha de HT-14](ht-14-validacion-formatos-solicitud.md).
 
 ## Contrato de caché y sincronización
 
@@ -155,7 +155,7 @@ Para evitar los problemas de E/S de Vitest sobre el montaje ya observados en HU-
 
 Cambios locales de esta corrección: `SolicitudPage.tsx`, nuevo `AyudaRadicacion.tsx`, `estadoGuias.ts`, eliminación de `guias.ts`, `guiaRadicacion.ts`, `pasosAccionesRadicacion.ts`, sus cuatro archivos de pruebas existentes, el nuevo `SolicitudPage.guia-asincronia.test.tsx`, `backend/tests/test_hu39_guia_radicacion.py`, esta ficha e índice. El CSS y el resto del alcance propio de HU-39 ya estaban en la rama.
 
-No hay modificaciones a backend de producción, permisos globales, modelos, enums, migraciones, HT-14 ni dependencias. La API permanece compatible con HU-38; el ID de caché no cambia su contrato HTTP. No se hacen commit, push ni merge. La rama queda con cambios locales para revisión del líder técnico, conservando HEAD 42d1933.
+La auditoría original de HU-39 no modificó backend de producción, permisos globales, modelos, enums, migraciones, HT-14 ni dependencias; conservó HEAD 42d1933. La auditoría posterior de HT-14 modifica sus propios validadores/servicio y el downgrade del catálogo según su ficha. La API de guías permanece compatible con HU-38, y el ID de caché no cambia su contrato HTTP. La corrección actual se entrega local sobre `47c74fc`, sin nuevos commits, push ni merge.
 
 Para revertir solo esta corrección, retirar conjuntamente sus cambios de código/pruebas/documentación mediante revisión, teniendo presente que eso reintroduciría las carreras corregidas. Para retirar HU-39 completa, retirar su integración en el formulario y configuración de pasos conservando HU-38, la infraestructura de guías y los estados existentes. No se necesita ni se debe ejecutar un downgrade de HU-38 para revertir HU-39: eliminaría también los estados del onboarding.
 
@@ -166,5 +166,5 @@ Para revertir solo esta corrección, retirar conjuntamente sus cambios de códig
 - Validar Chrome/Firefox/Safari, teléfono físico, 320/375/768/820/1366 px, zoom, scroll, tooltips dentro del viewport y ausencia de desbordamiento horizontal.
 - Probar menú HT-04 cerrado/abierto/colapsado, cambios de tamaño durante el recorrido, foco visible y recuperación de foco al cerrar, lector de pantalla/progreso y `prefers-reduced-motion` con layout real.
 - Una intención no sincronizada requiere permanecer en la pantalla y reintentar; no hay garantía offline ni cola durable. El error es visible y el formulario permanece utilizable.
-- Sincronizar el contenido cuando HT-14 se integre, contrastando de nuevo campos/validaciones; no reutilizar las instrucciones futuras como si ya estuvieran disponibles.
+- La sincronización técnica del contenido con HT-14 está realizada en el candidato del PR #171. QA debe confirmar su claridad con datos y sesiones reales; no se declara aceptación de las reglas ni del contenido.
 - Confirmar CI remoto y revisión técnica antes de merge. Las pruebas locales aprobadas no constituyen aceptación QA ni autorización de despliegue.

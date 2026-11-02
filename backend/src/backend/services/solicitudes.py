@@ -317,11 +317,13 @@ class ServicioSolicitudes:
                     ajustes[campo_dv] = None
                 digito = None
             base = (
-                aplicar(campo_numero, normalizar_identificacion, TipoIdentificacion(tipo), numero)
-                if tipo and numero
+                aplicar(campo_numero, normalizar_identificacion, TipoIdentificacion(tipo) if tipo else TipoIdentificacion.OTRO, numero)
+                if numero
                 else None
             )
-            if base and digito:
+            # Un borrador puede tener DV sin base: su sintaxis sí se valida;
+            # la coincidencia matemática espera a que exista una base válida.
+            if tipo == TipoIdentificacion.NIT and digito:
                 aplicar(campo_dv, normalizar_digito_verificacion_nit, base, digito)
 
         if "pais_aliado_propuesto_id" in campos:

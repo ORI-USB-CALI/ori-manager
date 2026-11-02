@@ -5,13 +5,18 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    ValidationInfo,
     computed_field,
     field_validator,
 )
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
-from backend.core.validaciones import identificacion_completa
+from backend.core.validaciones import (
+    identificacion_completa,
+    normalizar_texto_ubicacion,
+    recortar_espacios_formato,
+)
 from backend.models.enums import (
     EstadoConvenio,
     EstadoSolicitud,
@@ -71,8 +76,15 @@ class SolicitudCamposEditables(BaseModel):
 
     @field_validator("*", mode="before")
     @classmethod
-    def limpiar_texto(cls, valor: object) -> object:
+    def limpiar_texto(cls, valor: object, info: ValidationInfo) -> object:
         if isinstance(valor, str):
+            if info.field_name in {
+                "identificacion_aliado_propuesto", "solicitante_documento",
+                "digito_verificacion_aliado_propuesto", "solicitante_digito_verificacion",
+                "telefono_aliado_propuesto", "contacto_contraparte_telefono",
+                "supervisor_usb_telefono", "supervisor_contraparte_telefono",
+            }:
+                return recortar_espacios_formato(valor) or None
             return valor.strip() or None
         return valor
 
@@ -84,11 +96,30 @@ class SolicitudCampos(SolicitudCamposEditables):
     pais_aliado_propuesto: str | None = Field(default=None, max_length=80)
 
 
-class SolicitudCrear(SolicitudCamposEditables):
+class SolicitudEntrada(SolicitudCamposEditables):
+    """Normalización exclusiva de escritura: no transforma lecturas históricas."""
+
+    # El servicio mide la identificación canónica con la regla de su tipo.
+    # En PATCH el tipo puede proceder de la fila guardada, no del cuerpo HTTP.
+    # Los modelos de lectura conservan max_length=40 y la columna no cambia.
+    solicitante_documento: str | None = None
+    identificacion_aliado_propuesto: str | None = None
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def limpiar_texto(cls, valor: object, info: ValidationInfo) -> object:
+        if isinstance(valor, str) and info.field_name in {
+            "ciudad_aliado_propuesto", "direccion_aliado_propuesto",
+        }:
+            return normalizar_texto_ubicacion(valor) or None
+        return super().limpiar_texto(valor, info)
+
+
+class SolicitudCrear(SolicitudEntrada):
     model_config = ConfigDict(extra="forbid")
 
 
-class SolicitudActualizar(SolicitudCamposEditables):
+class SolicitudActualizar(SolicitudEntrada):
     model_config = ConfigDict(extra="forbid")
 
 

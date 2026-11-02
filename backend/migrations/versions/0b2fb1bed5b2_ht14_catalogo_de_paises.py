@@ -289,18 +289,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Solo se retiran los países que no estén referenciados por un aliado o una
-    # solicitud, para no romper datos registrados después de la migración.
-    op.execute(
-        sa.text(
-            """
-            DELETE FROM pais
-            WHERE codigo_iso = ANY(:codigos)
-              AND NOT EXISTS (SELECT 1 FROM aliado WHERE aliado.pais_id = pais.id)
-              AND NOT EXISTS (
-                  SELECT 1 FROM solicitud_convenio s
-                  WHERE s.pais_aliado_propuesto_id = pais.id
-              )
-            """
-        ).bindparams(codigos=[codigo for codigo, _ in PAISES])
-    )
+    # H-03: el upgrade no registra la procedencia de cada país. Coincidir con
+    # ISO no demuestra que lo insertara HT-14: podría existir previamente.
+    # Se conserva TODO el catálogo, incluso países sin referencias. El upgrade
+    # es idempotente y puede reaplicarse. No cambia su SQL ni esta revisión.
+    # Véase docs/hu/ht-14-validacion-formatos-solicitud.md para la contingencia.
+    pass

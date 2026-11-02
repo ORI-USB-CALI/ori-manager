@@ -120,4 +120,15 @@ describe('pasos de las secciones de la solicitud (HU-39 FE02)', () => {
       expect(paso.descripcion).not.toMatch(/Guardar borrador|Radicar solicitud|Mis solicitudes/)
     }
   })
+
+  it('H-04: orienta sobre formatos y límites sin prometer verificación geográfica', () => {
+    montarSecciones()
+    const texto = descripcion('SOLICITANTE_EXTERNO', SECCIONES[1])
+    for (const regla of ['2 a 120', '5 a 200', 'coma o barra', 'no se comprueba su existencia geográfica', 'No se verifica su existencia física', ';ext=']) {
+      expect(texto).toContain(regla)
+    }
+    for (const titulo of [SECCIONES[2], SECCIONES[4], SECCIONES[5]]) {
+      expect(descripcion('SOLICITANTE_EXTERNO', titulo)).toContain('indicativo con +')
+    }
+  })
 })

@@ -290,7 +290,7 @@ def test_contenido_de_la_guia_corresponde_a_la_validacion_actual(
         "pais_aliado_propuesto_id": id_colombia,
         "ciudad_aliado_propuesto": "Santiago de Cali",
         "telefono_aliado_propuesto": "+576025550101",
-        "direccion_aliado_propuesto": "Campus universitario",
+        "direccion_aliado_propuesto": "Campus universitario, Pance",
         "correo_aliado_propuesto": "contacto@example.com",
     }
     respuesta = client.post("/api/solicitudes", json=campos)

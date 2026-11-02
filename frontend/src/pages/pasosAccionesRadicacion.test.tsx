@@ -42,7 +42,8 @@ describe('HU-39 FE-03: acciones y seguimiento de radicación', () => {
     expect(texto).toMatch(/mensaje junto al campo/)
     expect(texto).toMatch(/correo/)
     expect(texto).toMatch(/documentos requeridos/)
-    expect(texto).not.toMatch(/dígito de verificación/)
+    expect(texto).toMatch(/dígito de verificación/)
+    expect(texto).toContain('corregir y reenviar')
   })
 
   it('incluye devoluciones solo si la solicitud está devuelta', () => {
@@ -73,5 +74,13 @@ describe('HU-39 FE-03: acciones y seguimiento de radicación', () => {
     primera[0].titulo = 'Modificado temporalmente'
     const segunda = crearPasosAccionesRadicacion()
     expect(segunda[0].titulo).toBe('Adjuntar documentos')
+  })
+
+  it('H-04: permite borradores parciales con formatos válidos y conserva la edición tras errores', () => {
+    const pasos = crearPasosAccionesRadicacion(true)
+    expect(pasos[1].descripcion).toContain('campos obligatorios incompletos')
+    expect(pasos[1].descripcion).toContain('formato válido')
+    expect(pasos[2].descripcion).toContain('sigue editable')
+    expect(pasos[4].descripcion).toContain('Volver a radicar')
   })
 })

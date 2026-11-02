@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -177,4 +177,89 @@ describe('validación de formato en el formulario de solicitud (HT14-FE02)', () 
     expect(screen.getByText('Estado: DEVUELTA')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Volver a radicar' })).toBeTruthy()
   })
+
+  it.each(['telefono_aliado_propuesto', 'contacto_contraparte_telefono', 'supervisor_usb_telefono', 'supervisor_contraparte_telefono'])(
+    'H-01: permite editar y guardar %s canónico sin perder su extensión', async (campo) => {
+      const user = userEvent.setup()
+      const canonico = '+576025551234;ext=000123'
+      const guardada = { ...DEVUELTA, [campo]: canonico }
+      const fetch = preparar('/solicitudes/5', (metodo, url) => (
+        url.endsWith('/solicitudes/5') && ['GET', 'PATCH'].includes(metodo) ? Response.json(guardada) : undefined
+      ))
+      await screen.findByRole('button', { name: 'Guardar cambios' })
+      const telefono = document.querySelector(`[name="${campo}"]`) as HTMLInputElement
+      await user.click(telefono)
+      await user.tab()
+      expect(telefono.getAttribute('aria-invalid')).toBe('false')
+      expect(telefono.value).toBe(canonico)
+      await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+      await screen.findByText('Borrador guardado.')
+      expect(JSON.parse(String(llamadas(fetch, 'PATCH')[0][1]?.body))[campo]).toBe(canonico)
+    },
+  )
+
+  it('valida la sintaxis del DV aunque el borrador aún no tenga la base', async () => {
+    const user = userEvent.setup()
+    preparar('/solicitudes/nueva')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Tipo de documento *' }), 'NIT')
+    const dv = screen.getByLabelText('Dígito de verificación *')
+    await user.type(dv, 'A')
+    await user.tab()
+    expect(dv.getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('El dígito de verificación debe ser un solo dígito')).toBeTruthy()
+  })
+
+  it.each([['Ciudad *', '\ufeffCali'], ['Dirección *', '\ufeffCasa 1']])(
+    'H-06: no oculta caracteres de formato en %s antes de validar', async (etiqueta, valor) => {
+      preparar('/solicitudes/nueva')
+      const campo = await screen.findByRole('textbox', { name: etiqueta })
+      fireEvent.change(campo, { target: { value: valor } })
+      fireEvent.blur(campo)
+      expect(campo.getAttribute('aria-invalid')).toBe('true')
+      expect((campo as HTMLInputElement).value).toBe(valor)
+    },
+  )
+
+  it.each([
+    ['ciudad_aliado_propuesto', 'Ciudad *', 'e\u0301'.repeat(120), 'é'.repeat(120)],
+    ['direccion_aliado_propuesto', 'Dirección *', 'e\u0301'.repeat(199) + '1', 'é'.repeat(199) + '1'],
+  ])('H-06: envía %s en su forma canónica sin alterar lo escrito', async (nombre, etiqueta, valor, canonico) => {
+    const fetch = preparar('/solicitudes/nueva', (metodo, url) => (
+      metodo === 'POST' && url.endsWith('/solicitudes')
+        ? Response.json({ ...DEVUELTA, estado: 'BORRADOR', [nombre]: canonico }, { status: 201 }) : undefined
+    ))
+    const campo = await screen.findByRole('textbox', { name: etiqueta })
+    fireEvent.change(campo, { target: { value: valor } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }))
+    await screen.findByText('Borrador guardado.')
+    expect(JSON.parse(String(llamadas(fetch, 'POST')[0][1]?.body))[nombre]).toBe(canonico)
+  })
+
+  for (const control of ['\u0085', '\u001c', '\ufeff']) {
+    it.each([
+      ['identificacion_aliado_propuesto', '900123456'], ['solicitante_documento', '900123456'],
+      ['digito_verificacion_aliado_propuesto', '8'], ['solicitante_digito_verificacion', '8'],
+      ['telefono_aliado_propuesto', '6025551234'], ['contacto_contraparte_telefono', '6025551234'],
+      ['supervisor_usb_telefono', '6025551234'], ['supervisor_contraparte_telefono', '6025551234'],
+    ])(`H-07: %s no oculta U+${control.codePointAt(0)?.toString(16)} al validar ni enviar`, async (nombre, valor) => {
+      const fetch = preparar('/solicitudes/nueva', (metodo, url) => (
+        metodo === 'POST' && url.endsWith('/solicitudes')
+          ? Response.json({ detail: { message: 'Formato inválido', errors: { [nombre]: 'Corrija este campo' } } }, { status: 422 }) : undefined
+      ))
+      await userEvent.setup().selectOptions(await screen.findByRole('combobox', { name: 'Tipo de identificación *' }), 'NIT')
+      await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Tipo de documento *' }), 'NIT')
+      for (const base of ['identificacion_aliado_propuesto', 'solicitante_documento']) {
+        fireEvent.change(document.querySelector(`[name="${base}"]`) as HTMLInputElement, { target: { value: '900123456' } })
+      }
+      const campo = document.querySelector(`[name="${nombre}"]`) as HTMLInputElement
+      const original = control + valor + control
+      fireEvent.change(campo, { target: { value: original } })
+      fireEvent.blur(campo)
+      expect(campo.getAttribute('aria-invalid')).toBe('true')
+      expect(campo.value).toBe(original)
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }))
+      await screen.findByText('Corrija este campo')
+      expect(JSON.parse(String(llamadas(fetch, 'POST')[0][1]?.body))[nombre]).toBe(original)
+    })
+  }
 })

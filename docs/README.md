@@ -8,6 +8,7 @@
 | Sprints | [Sprint 1](sprints/sprint-01.md) · [Sprint 2](sprints/sprint-02.md) · [Sprint 3 en curso](sprints/sprint-03.md) |
 | Arquitectura, entornos y acceso | [Arquitectura](architecture/overview.md) |
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
+| Formatos y normalización de solicitudes | [HT-14 — Validación de formatos](hu/ht-14-validacion-formatos-solicitud.md), identificaciones/DV, teléfonos idempotentes, direcciones y rollback conservador |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
 | Navegación de retorno en convenios | [HT-12 — Acción Volver](hu/ht-12-accion-volver.md), contexto encadenado, accesibilidad y alternativos por rol |
 | Introducción para solicitantes | [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md), roles, recorrido reutilizable, estados individuales y errores recuperables |
@@ -23,7 +24,8 @@
 
 ## Historias técnicas en desarrollo (Sprint 4)
 
-- [HU-39 — Guía de radicación](hu/hu-39-guia-radicacion.md) · [PR #170](https://github.com/ORI-USB-CALI/ori-manager/pull/170); auditoría correctiva sobre HU-38 integrada, sin anticipar HT-14, pendiente de revisión técnica y aceptación QA.
+- [HT-14 — Validación de formatos de la solicitud](hu/ht-14-validacion-formatos-solicitud.md) · [PR #171](https://github.com/ORI-USB-CALI/ori-manager/pull/171) e incidencia [QA #146](https://github.com/ORI-USB-CALI/ori-manager/issues/146); correcciones H-01 a H-05 y descubrimiento Vitest, pendientes de auditoría técnica y aceptación QA.
+- [HU-39 — Guía de radicación](hu/hu-39-guia-radicacion.md) · [PR #170](https://github.com/ORI-USB-CALI/ori-manager/pull/170); auditoría sobre HU-38 y contenido integrado con HT-14 en el candidato #171, pendiente de aceptación QA.
 - [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md) · [PR #169](https://github.com/ORI-USB-CALI/ori-manager/pull/169); integra la navegación de HT-04 y prepara el motor para HU-39, pendiente de aceptación QA.
 - [HT-12 — Acción Volver](hu/ht-12-accion-volver.md) · [PR #168](https://github.com/ORI-USB-CALI/ori-manager/pull/168) e incidencia [QA #143](https://github.com/ORI-USB-CALI/ori-manager/issues/143); corrección técnica preparada para revisión, pendiente de aceptación QA.
 - [HT-05 — Consulta de versiones históricas](hu/HT-05-consulta-versiones-historicas.md) · [PR #159](https://github.com/ORI-USB-CALI/ori-manager/pull/159); depende de HT-13 y no implica aceptación QA ni release.

@@ -9,6 +9,9 @@ import { DESTINOS_ACCIONES_SOLICITUD, DESTINOS_SECCIONES_SOLICITUD } from './gui
 import { AyudaRadicacion } from './AyudaRadicacion'
 import { type DocumentoSolicitud, type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
 import {
+  normalizarBaseIdentificacion,
+  normalizarUbicacion,
+  recortarEspaciosFormato,
   validarCiudad,
   validarDigitoVerificacionNit,
   validarDireccion,
@@ -17,6 +20,12 @@ import {
 } from './validacionesSolicitud'
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
+const CAMPOS_SEPARADORES_CONTROLADOS = new Set([
+  'identificacion_aliado_propuesto', 'solicitante_documento',
+  'digito_verificacion_aliado_propuesto', 'solicitante_digito_verificacion',
+  'telefono_aliado_propuesto', 'contacto_contraparte_telefono',
+  'supervisor_usb_telefono', 'supervisor_contraparte_telefono',
+])
 const CAMPOS_REQUERIDOS = [
   'nombre_aliado_propuesto', 'tipo_identificacion_aliado_propuesto', 'identificacion_aliado_propuesto',
   'tipo_aliado_propuesto', 'correo_aliado_propuesto', 'contacto_contraparte_nombre',
@@ -81,12 +90,18 @@ function erroresServidor(error: unknown): Record<string, string> {
   return errors && typeof errors === 'object' ? errors as Record<string, string> : {}
 }
 
+function limpiarTextoCampo(nombre: string, valor: string): string {
+  if (nombre === 'ciudad_aliado_propuesto' || nombre === 'direccion_aliado_propuesto') return normalizarUbicacion(valor)
+  if (CAMPOS_SEPARADORES_CONTROLADOS.has(nombre)) return recortarEspaciosFormato(valor)
+  return valor.trim()
+}
+
 function valoresFormulario(formulario: HTMLFormElement): Record<string, string | number | null> {
   const form = new FormData(formulario)
   const datos: Record<string, string | number | null> = {}
   for (const [clave, valor] of form.entries()) {
     if (typeof valor !== 'string') continue
-    const limpio = valor.trim()
+    const limpio = limpiarTextoCampo(clave, valor)
     datos[clave] = clave === 'tipo_convenio_id' ? (limpio ? Number(limpio) : null) : (limpio || null)
   }
   return datos
@@ -309,16 +324,14 @@ export function SolicitudPage() {
   // controlado ni leer un ref durante el render).
   function alValidarDv(campoBase: string, campoDv: string) {
     return (evento: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const valorDv = evento.target.value.trim()
+      const valorDv = recortarEspaciosFormato(evento.target.value)
       const formulario = evento.target.form
       if (!valorDv || !formulario) {
         marcarError(campoDv, null)
         return
       }
-      const base = String(new FormData(formulario).get(campoBase) ?? '')
-        .trim()
-        .replace(/[.\s]/g, '')
-      marcarError(campoDv, base ? validarDigitoVerificacionNit(base, valorDv) : null)
+      const base = normalizarBaseIdentificacion(String(new FormData(formulario).get(campoBase) ?? ''))
+      marcarError(campoDv, validarDigitoVerificacionNit(base || null, valorDv))
     }
   }
 
@@ -339,7 +352,7 @@ export function SolicitudPage() {
     const errorId = `${id}-error`
     const alSalirDelCampo = onBlurManual ?? (validar
       ? (evento: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-          const valor = evento.target.value.trim()
+          const valor = limpiarTextoCampo(nombre, evento.target.value)
           marcarError(nombre, valor ? validar(valor) : null)
         }
       : undefined)
@@ -387,7 +400,7 @@ export function SolicitudPage() {
               {campo(
                 'solicitante_documento', 'Identificación', false, perfilVisible?.identificacion ?? null, true,
                 undefined,
-                tipoDocumentoSolicitante ? (valor) => validarIdentificacion(tipoDocumentoSolicitante, valor) : undefined,
+                (valor) => validarIdentificacion(tipoDocumentoSolicitante || 'OTRO', valor),
               )}
               {tipoDocumentoSolicitante === 'NIT' && campo(
                 'solicitante_digito_verificacion', 'Dígito de verificación', false, null, true, 'Ej: 7',
@@ -404,7 +417,7 @@ export function SolicitudPage() {
           <label className="form-group" htmlFor="solicitud-tipo-identificacion"><span className="form-label">Tipo de identificación *</span><select id="solicitud-tipo-identificacion" aria-describedby={errores.tipo_identificacion_aliado_propuesto ? 'solicitud-tipo-identificacion-error' : undefined} aria-invalid={Boolean(errores.tipo_identificacion_aliado_propuesto)} className={`form-control select ${errores.tipo_identificacion_aliado_propuesto ? 'is-invalid' : ''}`} name="tipo_identificacion_aliado_propuesto" defaultValue={solicitud?.tipo_identificacion_aliado_propuesto ?? ''} disabled={!editable} onChange={(evento) => setTipoIdentificacionAliado(evento.target.value as TipoIdentificacion | '')}><option value="">Seleccione el tipo de identificación</option>{TIPOS_IDENTIFICACION.map((tipo) => <option key={tipo}>{tipo}</option>)}</select>{errores.tipo_identificacion_aliado_propuesto && <span id="solicitud-tipo-identificacion-error" className="form-error">{errores.tipo_identificacion_aliado_propuesto}</span>}</label>
           {campo(
             'identificacion_aliado_propuesto', 'Identificación', false, null, true, undefined,
-            tipoIdentificacionAliado ? (valor) => validarIdentificacion(tipoIdentificacionAliado, valor) : undefined,
+            (valor) => validarIdentificacion(tipoIdentificacionAliado || 'OTRO', valor),
           )}
           {tipoIdentificacionAliado === 'NIT' && campo(
             'digito_verificacion_aliado_propuesto', 'Dígito de verificación', false, null, true, 'Ej: 7',
