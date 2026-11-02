@@ -49,16 +49,17 @@ def gestor_ori(crear_usuario):
     return crear_usuario(CodigoRol.GESTOR_ORI, TipoUsuario.INTERNO)
 
 
-def _payload(tipo_convenio_id: int) -> dict[str, object]:
+def _payload(tipo_convenio_id: int, pais_id: int) -> dict[str, object]:
     return {
         "solicitante_unidad": "Facultad de prueba",
         "solicitante_cargo": "Docente",
         "nombre_aliado_propuesto": "Entidad contraparte",
         "tipo_identificacion_aliado_propuesto": "NIT",
         "identificacion_aliado_propuesto": "900123456",
+        "digito_verificacion_aliado_propuesto": "8",
         "tipo_aliado_propuesto": "EMPRESA",
         "correo_aliado_propuesto": "contacto@contraparte.com",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Avenida 1 # 2-3",
@@ -127,11 +128,11 @@ def _corregir(client, solicitud_id: int, **campos) -> None:
 
 
 @pytest.fixture
-def radicada(client, db, entrar_como, autor, tipo_convenio):
+def radicada(id_colombia, client, db, entrar_como, autor, tipo_convenio):
     """Solicitud radicada una vez (versión 1) con un documento de representación."""
     entrar_como(autor)
     solicitud_id = client.post(
-        "/api/solicitudes", json=_payload(tipo_convenio.id)
+        "/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia)
     ).json()["id"]
     documento = _subir(
         client, solicitud_id, "OTRO_DOCUMENTO_REPRESENTACION", "representacion.pdf"
@@ -178,11 +179,12 @@ def test_ca02_campos_modificados_con_valor_anterior_y_nuevo(client, reenviada):
 
 
 def test_ca03_documentos_agregados_eliminados_y_sustituidos(
+    id_colombia,
     client, db, entrar_como, autor, gestor_ori, tipo_convenio
 ):
     entrar_como(autor)
     solicitud_id = client.post(
-        "/api/solicitudes", json=_payload(tipo_convenio.id)
+        "/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia)
     ).json()["id"]
     representacion = _subir(
         client, solicitud_id, "OTRO_DOCUMENTO_REPRESENTACION", "representacion.pdf"

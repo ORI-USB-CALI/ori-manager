@@ -27,6 +27,7 @@ const PASOS_ACCIONES: readonly PasoAccionRadicacion[] = [
     titulo: 'Guardar borrador',
     descripcion:
       'Use Guardar borrador para conservar la información y continuar después sin radicarla. '
+      + 'Puede dejar campos obligatorios incompletos, pero los datos diligenciados deben tener un formato válido. '
       + 'Si la solicitud fue devuelta, este botón puede mostrarse como Guardar cambios. '
       + 'Avanzar por esta guía no guarda los datos automáticamente.',
   },
@@ -37,15 +38,18 @@ const PASOS_ACCIONES: readonly PasoAccionRadicacion[] = [
     descripcion:
       'Cuando haya diligenciado los campos obligatorios y adjuntado los soportes requeridos, '
       + 'pulse Radicar solicitud. Si fue devuelta, verá Volver a radicar. '
-      + 'El sistema verifica los requisitos antes de radicar. La guía solo explica esta acción: no la ejecuta.',
+      + 'El sistema verifica los formatos y requisitos antes de radicar. Si hay errores, la solicitud sigue editable. '
+      + 'La guía solo explica esta acción: no la ejecuta.',
   },
   {
     titulo: 'Cómo corregir errores de validación',
     descripcion:
       'Si aparece un error, revise el mensaje junto al campo o en la sección Documentación, '
       + 'corrija los datos y vuelva a intentar la acción. Compruebe los campos obligatorios, '
+      + 'la identificación según su tipo, el dígito de verificación del NIT, el teléfono, la ciudad, la dirección, '
       + 'el formato del correo y los documentos requeridos. '
-      + 'Los errores del servidor también pueden indicar qué campo debe corregirse.',
+      + 'Los errores del servidor también pueden indicar qué campo debe corregirse. '
+      + 'Los valores diligenciados se conservan para corregir y reenviar.',
   },
 ]
 

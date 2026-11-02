@@ -265,19 +265,21 @@ describe('HU-39 H-04/H-06: guía y formulario real', () => {
     }
     const solicitante = document.querySelector(`[data-tour="${DESTINOS_SECCIONES_SOLICITUD.solicitante}"]`) as HTMLElement
     const contraparte = document.querySelector(`[data-tour="${DESTINOS_SECCIONES_SOLICITUD.contraparte}"]`) as HTMLElement
-    expect(contraparte.querySelector('[name="pais_aliado_propuesto"]')?.tagName).toBe('INPUT')
+    expect(contraparte.querySelector('[name="pais_aliado_propuesto_id"]')?.tagName).toBe('SELECT')
     expect(contraparte.querySelector('[name="ciudad_aliado_propuesto"]')?.tagName).toBe('INPUT')
     expect(contraparte.querySelector('[name="tipo_identificacion_aliado_propuesto"]')?.tagName).toBe('SELECT')
-    expect(document.querySelector('[name*="digito"], [name*="verificacion"], [name="solicitante_tipo_documento"]')).toBeNull()
+    expect(document.querySelector('[name*="digito"], [name*="verificacion"]')).toBeNull()
     if (externo) {
+      expect(solicitante.querySelector('[name="solicitante_tipo_documento"]')?.tagName).toBe('SELECT')
       expect(solicitante.querySelector('[name="solicitante_documento"]')?.tagName).toBe('INPUT')
       expect(solicitante.querySelector('[name="solicitante_unidad"]')).toBeNull()
       expect(pasos[0].descripcion).toContain(within(solicitante).getByText('Empresa / Entidad *').textContent?.replace(' / ', ' o ').replace(' *', '') ?? '')
     } else {
+      expect(solicitante.querySelector('[name="solicitante_tipo_documento"]')).toBeNull()
       expect(solicitante.querySelector('[name="solicitante_cargo"]')).toBeTruthy()
       expect(solicitante.querySelector('[name="solicitante_entidad"]')).toBeNull()
     }
-    expect(pasos[1].descripcion).toContain('País y ciudad se escriben como texto')
+    expect(pasos[1].descripcion).toContain('país se elige de la lista')
     expect(pasos[6].descripcion).toContain('10 MB')
     expect(within(document.querySelector('[data-tour="solicitud-documentacion"]') as HTMLElement).getAllByText(/Formatos permitidos: PDF, JPG y PNG/).length).toBeGreaterThan(0)
   })

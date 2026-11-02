@@ -72,8 +72,9 @@ describe('pasos de las secciones de la solicitud (HU-39 FE02)', () => {
     montarSecciones()
     const texto = descripcion('SOLICITANTE_EXTERNO', SECCIONES[0])
     expect(texto).toContain('Identificación')
-    expect(texto).not.toContain('tipo de documento')
-    expect(texto).not.toContain('dígito de verificación')
+    expect(texto).toContain('tipo de documento')
+    expect(texto).toContain('NIT')
+    expect(texto).toContain('dígito de verificación')
     expect(texto).toContain('Empresa o Entidad')
     expect(texto).not.toContain('Facultad')
   })
@@ -98,12 +99,13 @@ describe('pasos de las secciones de la solicitud (HU-39 FE02)', () => {
     expect(texto).toContain('no reemplaza')
   })
 
-  it('no anticipa las reglas de formato de HT-14', () => {
+  it('explica el catálogo de países y el NIT del formulario integrado con HT-14', () => {
     montarSecciones()
     const contraparte = descripcion('SOLICITANTE_INTERNO', SECCIONES[1])
-    expect(contraparte).toContain('se escriben como texto')
-    expect(contraparte).not.toContain('+34 912 345 678')
-    expect(contraparte).not.toContain('país se elige de la lista')
+    expect(contraparte).toContain('país se elige de la lista')
+    expect(contraparte).toContain('la ciudad se escribe como texto')
+    expect(contraparte).toContain('NIT')
+    expect(contraparte).toContain('dígito de verificación')
   })
 
   it('conserva las ocho explicaciones aunque falten destinos, usando el motor de HU-38', () => {
@@ -116,6 +118,17 @@ describe('pasos de las secciones de la solicitud (HU-39 FE02)', () => {
   it('no explica las acciones, que corresponden a HU-39 FE03', () => {
     for (const paso of PASOS_SECCIONES_SOLICITUD) {
       expect(paso.descripcion).not.toMatch(/Guardar borrador|Radicar solicitud|Mis solicitudes/)
+    }
+  })
+
+  it('H-04: orienta sobre formatos y límites sin prometer verificación geográfica', () => {
+    montarSecciones()
+    const texto = descripcion('SOLICITANTE_EXTERNO', SECCIONES[1])
+    for (const regla of ['2 a 120', '5 a 200', 'coma o barra', 'no se comprueba su existencia geográfica', 'No se verifica su existencia física', ';ext=']) {
+      expect(texto).toContain(regla)
+    }
+    for (const titulo of [SECCIONES[2], SECCIONES[4], SECCIONES[5]]) {
+      expect(descripcion('SOLICITANTE_EXTERNO', titulo)).toContain('indicativo con +')
     }
   })
 })

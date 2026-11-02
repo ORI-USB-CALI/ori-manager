@@ -280,14 +280,17 @@ def test_registrar_la_guia_no_modifica_la_solicitud_en_curso(
     assert db.scalar(select(func.count()).select_from(Auditoria)) == auditoria
 
 
-def test_contenido_de_la_guia_corresponde_a_la_validacion_actual(client, solicitante):
-    # No anticipar catálogos/regex/campos de HT-14: comprobar el contrato HTTP real.
+def test_contenido_de_la_guia_corresponde_a_la_validacion_actual(
+    client, solicitante, id_colombia
+):
+    # Contrato HTTP del formulario integrado: país de catálogo y formatos de HT-14.
     campos = {
-        "solicitante_documento": "ID libre 123",
-        "pais_aliado_propuesto": "País escrito por el usuario",
-        "ciudad_aliado_propuesto": "Ciudad escrita por el usuario",
-        "telefono_aliado_propuesto": "Extensión 123",
-        "direccion_aliado_propuesto": "Campus universitario",
+        "solicitante_tipo_documento": "PASAPORTE",
+        "solicitante_documento": "ABC123",
+        "pais_aliado_propuesto_id": id_colombia,
+        "ciudad_aliado_propuesto": "Santiago de Cali",
+        "telefono_aliado_propuesto": "+576025550101",
+        "direccion_aliado_propuesto": "Campus universitario, Pance",
         "correo_aliado_propuesto": "contacto@example.com",
     }
     respuesta = client.post("/api/solicitudes", json=campos)
@@ -297,7 +300,12 @@ def test_contenido_de_la_guia_corresponde_a_la_validacion_actual(client, solicit
     assert client.post(
         "/api/solicitudes", json={"correo_aliado_propuesto": "correo-invalido"}
     ).status_code == 422
-    for campo_futuro in ("solicitante_tipo_documento", "digito_verificacion"):
+    for campo_invalido, valor in (
+        ("solicitante_tipo_documento", "1"),
+        ("digito_verificacion", "1"),
+        ("pais_aliado_propuesto_id", "País escrito por el usuario"),
+        ("telefono_aliado_propuesto", "Extensión 123"),
+    ):
         assert client.post(
-            "/api/solicitudes", json={campo_futuro: "1"}
+            "/api/solicitudes", json={campo_invalido: valor}
         ).status_code == 422

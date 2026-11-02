@@ -38,6 +38,10 @@ def crear_pais(db: Session) -> Callable[[str], Pais]:
     codigos = ("".join(letras) for letras in product("ABCDEFGHIJKLMNOPQRSTUVWXYZ", repeat=2))
 
     def _crear(nombre: str) -> Pais:
+        # HT-14 pobló el catálogo: los países reales se reutilizan.
+        existente = db.scalar(select(Pais).where(Pais.nombre == nombre))
+        if existente is not None:
+            return existente
         for codigo in codigos:
             if db.scalar(select(Pais.id).where(Pais.codigo_iso == codigo)) is None:
                 break

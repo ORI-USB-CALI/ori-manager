@@ -17,26 +17,39 @@ from backend.models.solicitud_version import (
 )
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
-from backend.schemas.solicitud import SolicitudCampos
+from backend.schemas.solicitud import SolicitudCamposEditables
 from backend.services.documentos import AlmacenDocumentosLocal
-from backend.services.solicitudes import ServicioSolicitudes
+from backend.services.solicitudes import (
+    CAMPOS_CON_FORMATO,
+    CAMPOS_VERSION,
+    ServicioSolicitudes,
+)
 
 TIPO_SOPORTE = "OTRO_DOCUMENTO_REPRESENTACION"
 
 
-def _payload(tipo_convenio_id: int) -> dict[str, object]:
+def _payload(tipo_convenio_id: int, pais_id: int) -> dict[str, object]:
     texto = {
         campo: f"Valor de {campo}"
-        for campo in SolicitudCampos.model_fields
-        if campo not in {"tipo_convenio_id", "solicitante_nombre", "solicitante_correo",
+        for campo in SolicitudCamposEditables.model_fields
+        if campo not in CAMPOS_CON_FORMATO
+        and campo not in {"tipo_convenio_id", "solicitante_nombre", "solicitante_correo",
                          "solicitante_documento", "solicitante_entidad"}
     }
     return {
         **texto,
         "tipo_identificacion_aliado_propuesto": "NIT",
         "identificacion_aliado_propuesto": "900123456",
+        "digito_verificacion_aliado_propuesto": "8",
         "tipo_aliado_propuesto": "EMPRESA",
         "correo_aliado_propuesto": "contacto@contraparte.com",
+        "pais_aliado_propuesto_id": pais_id,
+        "ciudad_aliado_propuesto": "Cali",
+        "direccion_aliado_propuesto": "Avenida 1 # 2-3",
+        "telefono_aliado_propuesto": "6025550101",
+        "contacto_contraparte_telefono": "3001234567",
+        "supervisor_usb_telefono": "6025550202",
+        "supervisor_contraparte_telefono": "3005550303",
         "contacto_contraparte_correo": "persona@example.com",
         "supervisor_usb_correo": "supervisor.usb@example.com",
         "supervisor_contraparte_correo": "supervisor.contraparte@example.com",
@@ -93,8 +106,8 @@ def _subir(client, solicitud_id: int, contenido: bytes = b"%PDF-1.4 soporte") ->
     return respuesta.json()["id"]
 
 
-def _crear_y_radicar(client, tipo_convenio) -> tuple[int, int]:
-    creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id))
+def _crear_y_radicar(client, tipo_convenio, pais_id: int) -> tuple[int, int]:
+    creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id, pais_id))
     assert creada.status_code == 201, creada.text
     solicitud_id = creada.json()["id"]
     documento_id = _subir(client, solicitud_id)
@@ -144,9 +157,10 @@ def test_migracion_crea_las_tablas_de_versiones(db) -> None:
 
 
 def test_radicar_guarda_la_version_1_con_formulario_y_documentos(
+    id_colombia,
     db, client, solicitante, tipo_convenio
 ) -> None:
-    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio, id_colombia)
 
     [version] = _versiones(db, solicitud_id)
     detalle = client.get(f"/api/solicitudes/{solicitud_id}").json()
@@ -156,16 +170,17 @@ def test_radicar_guarda_la_version_1_con_formulario_y_documentos(
     assert version.radicada_en.isoformat().replace("+00:00", "Z")[:19] == (
         detalle["fecha_radicacion"][:19]
     )
-    assert set(version.datos) == set(SolicitudCampos.model_fields)
+    assert set(version.datos) == set(CAMPOS_VERSION)
     assert version.datos["objeto"] == "Objeto del convenio"
     assert version.datos["tipo_convenio_id"] == tipo_convenio.id
     assert [d.id for d in version.documentos] == [documento_id]
 
 
 def test_re_radicar_tras_devolucion_crea_una_nueva_version_de_la_misma_solicitud(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
 ) -> None:
-    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
 
     assert client.patch(
@@ -180,9 +195,10 @@ def test_re_radicar_tras_devolucion_crea_una_nueva_version_de_la_misma_solicitud
 
 
 def test_radicacion_incompleta_no_crea_version(
+    id_colombia,
     db, client, solicitante, tipo_convenio
 ) -> None:
-    creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id))
+    creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia))
     solicitud_id = creada.json()["id"]
 
     assert client.post(f"/api/solicitudes/{solicitud_id}/radicar").status_code == 422
@@ -190,9 +206,10 @@ def test_radicacion_incompleta_no_crea_version(
 
 
 def test_numero_de_version_es_unico_por_solicitud(
+    id_colombia,
     db, client, solicitante, tipo_convenio
 ) -> None:
-    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio, id_colombia)
     [version] = _versiones(db, solicitud_id)
 
     db.add(
@@ -213,9 +230,10 @@ def test_numero_de_version_es_unico_por_solicitud(
 
 
 def test_corregir_la_solicitud_no_altera_la_version_anterior(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
 ) -> None:
-    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
 
     client.patch(
@@ -232,9 +250,10 @@ def test_corregir_la_solicitud_no_altera_la_version_anterior(
 
 
 def test_documento_retirado_tras_devolucion_se_conserva_en_su_version(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio, almacen
 ) -> None:
-    solicitud_id, anterior_id = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, anterior_id = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
     nuevo_id = _subir(client, solicitud_id, b"%PDF-1.4 soporte corregido")
 
@@ -252,9 +271,10 @@ def test_documento_retirado_tras_devolucion_se_conserva_en_su_version(
 
 
 def test_documento_retirado_deja_de_figurar_en_la_solicitud(
+    id_colombia,
     client, entrar_como, solicitante, gestor_ori, tipo_convenio
 ) -> None:
-    solicitud_id, anterior_id = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, anterior_id = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
     nuevo_id = _subir(client, solicitud_id)
 
@@ -268,9 +288,10 @@ def test_documento_retirado_deja_de_figurar_en_la_solicitud(
 
 
 def test_sin_documento_vigente_no_se_puede_re_radicar(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
 ) -> None:
-    solicitud_id, anterior_id = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, anterior_id = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
 
     client.delete(f"/api/solicitudes/{solicitud_id}/documentos/{anterior_id}")
@@ -280,9 +301,10 @@ def test_sin_documento_vigente_no_se_puede_re_radicar(
 
 
 def test_documento_de_borrador_nunca_radicado_se_elimina_fisicamente(
+    id_colombia,
     db, client, solicitante, tipo_convenio, almacen
 ) -> None:
-    creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id))
+    creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia))
     solicitud_id = creada.json()["id"]
     documento_id = _subir(client, solicitud_id)
     ruta = db.get(Documento, documento_id).ruta_almacenamiento
@@ -297,9 +319,10 @@ def test_documento_de_borrador_nunca_radicado_se_elimina_fisicamente(
 
 
 def test_radicaciones_y_devolucion_conservan_actor_contexto_y_fecha_sin_duplicados(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
 ) -> None:
-    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
     assert client.post(f"/api/solicitudes/{solicitud_id}/radicar").status_code == 200
 
@@ -331,9 +354,10 @@ def test_radicaciones_y_devolucion_conservan_actor_contexto_y_fecha_sin_duplicad
 
 
 def test_retirar_documento_historico_audita_su_retiro_sin_borrarlo(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio
 ) -> None:
-    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, documento_id = _crear_y_radicar(client, tipo_convenio, id_colombia)
     _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
 
     retirada = client.delete(f"/api/solicitudes/{solicitud_id}/documentos/{documento_id}")
@@ -365,14 +389,15 @@ def _conteos_transaccion(db):
 
 @pytest.mark.parametrize("re_radicacion", [False, True], ids=["inicial", "re-radicacion"])
 def test_fallo_tras_flush_revierte_version_documentos_estado_y_bitacora(
+    id_colombia,
     db, client, entrar_como, solicitante, gestor_ori, tipo_convenio,
     almacen, monkeypatch, re_radicacion,
 ) -> None:
     if re_radicacion:
-        solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+        solicitud_id, _ = _crear_y_radicar(client, tipo_convenio, id_colombia)
         _devolver(client, entrar_como, gestor_ori, solicitante, solicitud_id)
     else:
-        creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id))
+        creada = client.post("/api/solicitudes", json=_payload(tipo_convenio.id, id_colombia))
         assert creada.status_code == 201
         solicitud_id = creada.json()["id"]
         _subir(client, solicitud_id)
@@ -402,9 +427,10 @@ def test_fallo_tras_flush_revierte_version_documentos_estado_y_bitacora(
 
 
 def test_fallo_devolucion_revierte_la_version_la_solicitud_y_la_bitacora(
+    id_colombia,
     db, client, solicitante, gestor_ori, tipo_convenio, monkeypatch
 ) -> None:
-    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio)
+    solicitud_id, _ = _crear_y_radicar(client, tipo_convenio, id_colombia)
     conteos_antes = _conteos_transaccion(db)
 
     def fallar_despues_de_flush():

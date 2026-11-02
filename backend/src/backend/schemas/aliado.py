@@ -1,7 +1,15 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    computed_field,
+    field_validator,
+)
 
+from backend.core.validaciones import identificacion_completa
 from backend.models.enums import EstadoConvenio, TipoAliado, TipoIdentificacion
 
 
@@ -78,6 +86,7 @@ class AliadoLeer(BaseModel):
     sector_economico: str | None
     identificacion: str
     tipo_identificacion: TipoIdentificacion
+    digito_verificacion: str | None
     pais_id: int | None
     ciudad: str | None
     direccion: str | None
@@ -87,6 +96,13 @@ class AliadoLeer(BaseModel):
     activo: bool
     creado_en: datetime
     actualizado_en: datetime
+
+    @computed_field
+    @property
+    def identificacion_completa(self) -> str:
+        return identificacion_completa(
+            self.tipo_identificacion, self.identificacion, self.digito_verificacion
+        )
 
 
 class AliadoPerfil(AliadoLeer):

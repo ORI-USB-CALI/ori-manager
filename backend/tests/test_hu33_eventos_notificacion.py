@@ -338,7 +338,7 @@ def unidad_hu33(db):
     return item
 
 
-def _payload_solicitud(tipo_convenio_id: int) -> dict[str, object]:
+def _payload_solicitud(tipo_convenio_id: int, pais_id: int) -> dict[str, object]:
     return {
         "solicitante_unidad": "Dependencia de prueba",
         "solicitante_programa": "Programa de prueba",
@@ -346,9 +346,10 @@ def _payload_solicitud(tipo_convenio_id: int) -> dict[str, object]:
         "nombre_aliado_propuesto": "Entidad contraparte",
         "tipo_identificacion_aliado_propuesto": "NIT",
         "identificacion_aliado_propuesto": "900123456",
+        "digito_verificacion_aliado_propuesto": "8",
         "tipo_aliado_propuesto": "EMPRESA",
         "correo_aliado_propuesto": "contacto@contraparte.com",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Avenida 1 # 2-3",
@@ -393,6 +394,7 @@ def _subir_documento_representacion(client, solicitud_id: int) -> None:
 
 
 def test_radicar_de_nuevo_resuelve_la_notificacion_de_solicitud_devuelta(
+    id_colombia,
     db, client, crear_usuario, entrar_como, unidad_hu33, gestor
 ):
     tipo_convenio = db.scalar(
@@ -406,7 +408,7 @@ def test_radicar_de_nuevo_resuelve_la_notificacion_de_solicitud_devuelta(
     solicitante.cargo = "Coordinador"
     db.commit()
     entrar_como(solicitante)
-    creado = client.post("/api/solicitudes", json=_payload_solicitud(tipo_convenio.id))
+    creado = client.post("/api/solicitudes", json=_payload_solicitud(tipo_convenio.id, id_colombia))
     assert creado.status_code == 201, creado.text
     solicitud_id = creado.json()["id"]
     _subir_documento_representacion(client, solicitud_id)

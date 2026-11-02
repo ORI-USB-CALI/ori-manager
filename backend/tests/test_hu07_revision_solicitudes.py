@@ -13,14 +13,16 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 
 
-def _datos_completos(tipo_convenio_id: int) -> dict[str, object]:
+def _datos_completos(tipo_convenio_id: int, pais_id: int) -> dict[str, object]:
     return {
         "nombre_aliado_propuesto": "Universidad Contraparte",
         "tipo_identificacion_aliado_propuesto": "NIT",
         "identificacion_aliado_propuesto": "900123456",
+        "digito_verificacion_aliado_propuesto": "8",
+        "solicitante_tipo_documento": "OTRO",
         "tipo_aliado_propuesto": "UNIVERSIDAD",
         "correo_aliado_propuesto": "convenios@contraparte.example",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Calle 1 # 2-3",
@@ -220,6 +222,7 @@ def test_devuelta_no_inicia_elaboracion_y_no_admite_segunda_decision(
 
 
 def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
+    id_colombia,
     client, db, crear_usuario, entrar_como
 ):
     solicitante = crear_usuario(CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO)
@@ -228,7 +231,7 @@ def test_solicitante_corrige_documentos_y_vuelve_a_radicar_devuelta(
     db.commit()
     entrar_como(solicitante)
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
-    creada = client.post("/api/solicitudes", json=_datos_completos(tipo.id))
+    creada = client.post("/api/solicitudes", json=_datos_completos(tipo.id, id_colombia))
     assert creada.status_code == 201
     solicitud_id = creada.json()["id"]
     documento = client.post(

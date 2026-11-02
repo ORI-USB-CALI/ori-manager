@@ -21,14 +21,16 @@ def _texto_documento(nodo: dict[str, object]) -> str:
     return " ".join(partes)
 
 
-def _datos_solicitud(tipo_convenio_id: int) -> dict[str, object]:
+def _datos_solicitud(tipo_convenio_id: int, pais_id: int) -> dict[str, object]:
     return {
         "nombre_aliado_propuesto": "Universidad del Pacífico",
         "tipo_identificacion_aliado_propuesto": "NIT",
         "identificacion_aliado_propuesto": "900123456",
+        "digito_verificacion_aliado_propuesto": "8",
+        "solicitante_tipo_documento": "OTRO",
         "tipo_aliado_propuesto": "UNIVERSIDAD",
         "correo_aliado_propuesto": "convenios@pacifico.example",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Calle 1 # 2-3",
@@ -57,6 +59,7 @@ def _datos_solicitud(tipo_convenio_id: int) -> dict[str, object]:
 
 
 def test_flujo_real_solicitud_hasta_elaboracion(
+    id_colombia,
     client, db, crear_usuario, entrar_como
 ) -> None:
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
@@ -69,7 +72,7 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     entrar_como(solicitante)
 
     creada = client.post(
-        "/api/solicitudes", json=_datos_solicitud(tipo.id)
+        "/api/solicitudes", json=_datos_solicitud(tipo.id, id_colombia)
     )
     assert creada.status_code == 201
     solicitud_id = creada.json()["id"]
@@ -91,7 +94,7 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     }
     borrador_oculto = client.post("/api/solicitudes", json={}).json()["id"]
     otra = client.post(
-        "/api/solicitudes", json=_datos_solicitud(tipo.id)
+        "/api/solicitudes", json=_datos_solicitud(tipo.id, id_colombia)
     ).json()["id"]
     otro_documento = client.post(
         f"/api/solicitudes/{otra}/documentos",
