@@ -6,6 +6,7 @@ finalización y omisión (RN-04, RN-05) y aislado por usuario.
 """
 
 import itertools
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, inspect, select
@@ -70,6 +71,17 @@ def test_sin_sesion_responde_401(client, metodo):
     else:
         respuesta = client.get(URL_RADICACION)
     assert respuesta.status_code == 401
+
+
+def test_sesion_expirada_no_persiste_radicacion(client, db, solicitante, sesiones):
+    token = "sesion-expirada-hu39"
+    sesiones.crear(solicitante.id, token, datetime.now(UTC) - timedelta(seconds=1))
+    client.cookies.set("session_id", token)
+    assert client.get(URL_RADICACION).status_code == 401
+    assert client.put(
+        URL_RADICACION, json={"estado": "OMITIDO", "version": 1}
+    ).status_code == 401
+    assert _registros(db, solicitante) == {}
 
 
 def test_guia_nueva_esta_pendiente(client, solicitante):
@@ -201,6 +213,18 @@ def test_el_cuerpo_no_admite_elegir_otro_usuario(
     assert _registros(db, otro) == {}
 
 
+def test_parametro_o_ruta_no_cambian_el_propietario(client, db, solicitante, crear_usuario):
+    otro = crear_usuario(CodigoRol.SOLICITANTE_EXTERNO, TipoUsuario.EXTERNO)
+    _guardar(client, f"{URL_RADICACION}?usuario_id={otro.id}", "OMITIDO")
+    assert client.get(f"{URL_RADICACION}?usuario_id={otro.id}").json()["estado"] == "OMITIDO"
+    assert client.put(
+        f"{URL_GUIAS}/{otro.id}/GUIA_RADICACION",
+        json={"estado": "COMPLETADO", "version": 1},
+    ).status_code == 404
+    assert _registros(db, otro) == {}
+    assert _registros(db, solicitante) == {"GUIA_RADICACION": ("OMITIDO", 1)}
+
+
 def test_el_estado_se_conserva_en_una_nueva_sesion(client, solicitante, entrar_como):
     _guardar(client, URL_RADICACION, "COMPLETADO")
 
@@ -218,6 +242,11 @@ def test_usa_la_tabla_de_guias_de_hu38(db, solicitante, client):
     tablas = set(inspect(db.get_bind()).get_table_names())
 
     assert "estado_guia_usuario" in tablas
+    restricciones = inspect(db.get_bind()).get_unique_constraints("estado_guia_usuario")
+    assert any(
+        set(restriccion["column_names"]) == {"usuario_id", "guia"}
+        for restriccion in restricciones
+    )
     # Ninguna tabla adicional para la guía de radicación.
     assert not {tabla for tabla in tablas if "radicacion" in tabla or "tour" in tabla}
     assert (
@@ -249,3 +278,34 @@ def test_registrar_la_guia_no_modifica_la_solicitud_en_curso(
     assert client.get(f"/api/solicitudes/{creada.json()['id']}").json() == antes
     assert db.scalar(select(func.count()).select_from(SolicitudConvenio)) == solicitudes
     assert db.scalar(select(func.count()).select_from(Auditoria)) == auditoria
+
+
+def test_contenido_de_la_guia_corresponde_a_la_validacion_actual(
+    client, solicitante, id_colombia
+):
+    # Contrato HTTP del formulario integrado: país de catálogo y formatos de HT-14.
+    campos = {
+        "solicitante_tipo_documento": "PASAPORTE",
+        "solicitante_documento": "ABC123",
+        "pais_aliado_propuesto_id": id_colombia,
+        "ciudad_aliado_propuesto": "Santiago de Cali",
+        "telefono_aliado_propuesto": "+576025550101",
+        "direccion_aliado_propuesto": "Campus universitario",
+        "correo_aliado_propuesto": "contacto@example.com",
+    }
+    respuesta = client.post("/api/solicitudes", json=campos)
+    assert respuesta.status_code == 201, respuesta.text
+    for campo, valor in campos.items():
+        assert respuesta.json()[campo] == valor
+    assert client.post(
+        "/api/solicitudes", json={"correo_aliado_propuesto": "correo-invalido"}
+    ).status_code == 422
+    for campo_invalido, valor in (
+        ("solicitante_tipo_documento", "1"),
+        ("digito_verificacion", "1"),
+        ("pais_aliado_propuesto_id", "País escrito por el usuario"),
+        ("telefono_aliado_propuesto", "Extensión 123"),
+    ):
+        assert client.post(
+            "/api/solicitudes", json={campo_invalido: valor}
+        ).status_code == 422

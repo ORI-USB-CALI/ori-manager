@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { volverA } from '../components/retornoVolver'
 import { type AliadoPerfil, ETIQUETA_TIPO, referenciaConvenio, type TipoAliado, TIPOS_IDENTIFICACION } from './epica02'
 
 function fecha(valor: string | null) {
@@ -12,6 +13,7 @@ function fecha(valor: string | null) {
 }
 
 export function AliadoDetallePage() {
+  const retorno = volverA(useLocation(), 'Volver al aliado')
   const { aliadoId } = useParams()
   const id = Number(aliadoId)
   const { puede } = useSesion()
@@ -100,7 +102,7 @@ export function AliadoDetallePage() {
       <section className="card">
         <h2>Convenios asociados</h2>
         {datos.convenios.length === 0 ? <p className="texto-secundario">Actualmente no existen convenios asociados</p> : (
-          <div className="table-container"><table className="table"><thead><tr><th>Código</th><th>Objeto</th><th>Estado</th><th>Inicio</th><th>Vencimiento</th></tr></thead><tbody>{datos.convenios.map((convenio) => <tr key={convenio.id}><td><Link to={`/convenios/${convenio.id}`}>{referenciaConvenio(convenio.codigo, convenio.id)}</Link></td><td>{convenio.objeto ?? '—'}</td><td><span className="badge">{convenio.estado}</span></td><td>{fecha(convenio.fecha_inicio)}</td><td>{fecha(convenio.fecha_vencimiento)}</td></tr>)}</tbody></table></div>
+          <div className="table-container"><table className="table"><thead><tr><th>Código</th><th>Objeto</th><th>Estado</th><th>Inicio</th><th>Vencimiento</th></tr></thead><tbody>{datos.convenios.map((convenio) => <tr key={convenio.id}><td><Link to={`/convenios/${convenio.id}`} state={retorno}>{referenciaConvenio(convenio.codigo, convenio.id)}</Link></td><td>{convenio.objeto ?? '—'}</td><td><span className="badge">{convenio.estado}</span></td><td>{fecha(convenio.fecha_inicio)}</td><td>{fecha(convenio.fecha_vencimiento)}</td></tr>)}</tbody></table></div>
         )}
       </section>
     </>

@@ -68,10 +68,12 @@ describe('pasos de las secciones de la solicitud (HU-39 FE02)', () => {
     expect(texto).not.toContain('Empresa o Entidad')
   })
 
-  it('al solicitante externo le explica el documento y el DV, sin campos del interno (CA-03)', () => {
+  it('al solicitante externo le explica los campos actuales, sin campos del interno (CA-03)', () => {
     montarSecciones()
     const texto = descripcion('SOLICITANTE_EXTERNO', SECCIONES[0])
+    expect(texto).toContain('Identificación')
     expect(texto).toContain('tipo de documento')
+    expect(texto).toContain('NIT')
     expect(texto).toContain('dígito de verificación')
     expect(texto).toContain('Empresa o Entidad')
     expect(texto).not.toContain('Facultad')
@@ -97,17 +99,20 @@ describe('pasos de las secciones de la solicitud (HU-39 FE02)', () => {
     expect(texto).toContain('no reemplaza')
   })
 
-  it('usa las mismas reglas de formato de HT-14', () => {
+  it('explica el catálogo de países y el NIT del formulario integrado con HT-14', () => {
     montarSecciones()
     const contraparte = descripcion('SOLICITANTE_INTERNO', SECCIONES[1])
-    expect(contraparte).toContain('sin el dígito de verificación')
-    expect(contraparte).toContain('+34 912 345 678')
-    expect(contraparte).toContain('urbanos, rurales e internacionales')
+    expect(contraparte).toContain('país se elige de la lista')
+    expect(contraparte).toContain('la ciudad se escribe como texto')
+    expect(contraparte).toContain('NIT')
+    expect(contraparte).toContain('dígito de verificación')
   })
 
-  it('omite las secciones que no estén en la página', () => {
+  it('conserva las ocho explicaciones aunque falten destinos, usando el motor de HU-38', () => {
     montarSecciones([DESTINOS_SECCIONES_SOLICITUD.solicitante, DESTINOS_SECCIONES_SOLICITUD.documentacion])
-    expect(titulos('SOLICITANTE_EXTERNO')).toEqual([SECCIONES[0], '7. Documentación'])
+    expect(titulos('SOLICITANTE_EXTERNO')).toEqual(SECCIONES)
+    const paso = pasosVisibles(PASOS_SECCIONES_SOLICITUD, sesion('SOLICITANTE_EXTERNO'))[1]
+    expect(typeof paso.element === 'function' ? paso.element() : paso.element).toBeUndefined()
   })
 
   it('no explica las acciones, que corresponden a HU-39 FE03', () => {

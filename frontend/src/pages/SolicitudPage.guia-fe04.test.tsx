@@ -9,6 +9,7 @@ import { NotificationProvider } from '../app/notifications/Notifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { TourProvider } from '../components/TourProvider'
 import { SolicitudPage } from './SolicitudPage'
+import { HomePage } from './HomePage'
 import type { CatalogosSolicitud } from './solicitudes'
 
 /**
@@ -90,7 +91,7 @@ function montar(rol: Rol = 'SOLICITANTE_INTERNO') {
         <TourProvider>
           <RouterProvider router={createMemoryRouter([{
             element: <AppLayout />,
-            children: [{ path: '/solicitudes/nueva', element: <SolicitudPage /> }],
+            children: [{ path: '/solicitudes/nueva', element: <SolicitudPage /> }, { path: '/', element: <HomePage /> }],
           }], { initialEntries: ['/solicitudes/nueva'] })} />
         </TourProvider>
       </NotificationProvider>
@@ -120,6 +121,7 @@ async function abrirGuia() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('prefers-reduced-motion'), media: query })))
   vi.spyOn(Element.prototype, 'getClientRects').mockImplementation(function (this: Element) {
     return { length: this.hasAttribute('data-tour') ? 1 : 0 } as DOMRectList
   })
@@ -162,7 +164,7 @@ describe('HU-39 FE04: recorrido completo por tipo de solicitante', () => {
   it('adapta la sección del solicitante al rol (CA-03)', async () => {
     montar('SOLICITANTE_EXTERNO')
     await abrirGuia()
-    expect(descripcionActual()).toMatch(/tipo de documento/)
+    expect(descripcionActual()).toMatch(/Identificación/)
     expect(descripcionActual()).not.toMatch(/Facultad o Dependencia/)
     fireEvent.click(screen.getByRole('button', { name: 'Omitir' }))
     await waitFor(() => expect(popover()).toBeNull())
@@ -171,7 +173,7 @@ describe('HU-39 FE04: recorrido completo por tipo de solicitante', () => {
     montar('SOLICITANTE_INTERNO')
     await abrirGuia()
     expect(descripcionActual()).toMatch(/Facultad o Dependencia/)
-    expect(descripcionActual()).not.toMatch(/tipo de documento/)
+    expect(descripcionActual()).not.toMatch(/Empresa o Entidad/)
   })
 })
 
@@ -233,8 +235,8 @@ describe('HU-39 FE04: compatibilidad con el onboarding de HU-38 (RN-06)', () => 
     fireEvent.click(botonOnboarding())
     await waitFor(() => expect(tituloActual()).toBe('¡Bienvenido a ORI Manager!'))
 
-    expect((botonGuia() as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(botonGuia())
+    // HU-38 lleva a Inicio antes de iniciar; el formulario no está montado allí.
+    expect(screen.queryByRole('button', { name: 'Ayuda: cómo diligenciar la solicitud' })).toBeNull()
     expect(tituloActual()).toBe('¡Bienvenido a ORI Manager!')
     expect(document.querySelectorAll('.driver-popover')).toHaveLength(1)
 
@@ -243,6 +245,7 @@ describe('HU-39 FE04: compatibilidad con el onboarding de HU-38 (RN-06)', () => 
     // Cerrar el onboarding ya completado no cambia su estado ni el de la otra guía (HU-38 CA-07, RN-02).
     expect(guardados('ONBOARDING_INICIAL')).toEqual([])
     expect(guardados('GUIA_RADICACION')).toEqual([])
+    fireEvent.click(screen.getByRole('link', { name: 'Volver a la pantalla anterior' }))
     await waitFor(() => expect((botonGuia() as HTMLButtonElement).disabled).toBe(false))
   })
 

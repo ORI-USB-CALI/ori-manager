@@ -1,7 +1,8 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { ApiError } from '../app/api'
 import { contextoVersion, useVersionesConvenio } from '../pages/epica02'
+import { volverA } from './retornoVolver'
 
 function fechaHora(valor: string) {
   return new Date(valor).toLocaleString()
@@ -9,6 +10,7 @@ function fechaHora(valor: string) {
 
 /** HT-05. Versiones formales del convenio, consultables en cualquier etapa. */
 export function VersionesConvenio({ convenioId }: { convenioId: number }) {
+  const retorno = volverA(useLocation(), 'Volver al historial del convenio')
   const versiones = useVersionesConvenio(convenioId)
 
   if (versiones.isPending) return <p className="estado-pagina">Cargando versiones…</p>
@@ -40,6 +42,7 @@ export function VersionesConvenio({ convenioId }: { convenioId: number }) {
               <Link
                 className="version-enlace"
                 to={`/convenios/${convenioId}/versiones/${version.numero}`}
+                state={retorno}
                 aria-label={`Ver contenido de la versión ${version.numero}`}
               >
                 Ver contenido

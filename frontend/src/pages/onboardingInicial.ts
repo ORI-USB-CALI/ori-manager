@@ -25,7 +25,7 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
   const esInterno = sesion.rol.codigo === 'SOLICITANTE_INTERNO'
   const rol = sesion.rol.codigo
 
-  return [
+  const pasos: PasoRecorrido[] = [
     {
       titulo: '¡Bienvenido a ORI Manager!',
       descripcion: 'ORI Manager es la plataforma de la Oficina de Relaciones Internacionales para gestionar los convenios '
@@ -77,15 +77,9 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
     },
     {
       destino: 'navegacion-principal',
+      destinosAlternativos: ['navegacion-menu'],
       titulo: 'Navegación',
-      descripcion: 'Usa el menú para moverte entre las secciones.',
-      roles: [rol],
-    },
-    {
-      // Con la navegación colapsada (HT-04), este paso reemplaza al anterior: el motor omite el destino oculto.
-      destino: 'navegacion-menu',
-      titulo: 'Navegación',
-      descripcion: 'Abre este menú para moverte entre las secciones.',
+      descripcion: 'Usa el menú para moverte entre las secciones. Si está contraído, puedes abrirlo con este botón.',
       roles: [rol],
     },
     {
@@ -106,4 +100,5 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
       roles: [rol],
     },
   ]
+  return pasos.map((paso) => ({ ...paso, mantenerSinDestino: true }))
 }

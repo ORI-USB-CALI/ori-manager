@@ -9,6 +9,9 @@
 | Arquitectura, entornos y acceso | [Arquitectura](architecture/overview.md) |
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
+| Navegación de retorno en convenios | [HT-12 — Acción Volver](hu/ht-12-accion-volver.md), contexto encadenado, accesibilidad y alternativos por rol |
+| Introducción para solicitantes | [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md), roles, recorrido reutilizable, estados individuales y errores recuperables |
+| Guía contextual de solicitudes | [HU-39 — Crear y radicar](hu/hu-39-guia-radicacion.md), contenido del formulario actual, caché individual, sincronización y regresión de HU-38 |
 | Borradores, versiones formales y concurrencia | [HT-13 — Borrador y versionamiento](hu/ht-13-borrador-versionamiento.md), contrato y dependencia con HT-09 |
 | Consulta del contenido histórico de convenios | [HT-05 — Versiones históricas](hu/HT-05-consulta-versiones-historicas.md), ocho CA, permisos, compatibilidad y reversión |
 | Autoría y ejecución de la auditoría | [HT-09 — Auditoría ampliada](hu/ht-09-auditoria-ampliada.md), responsables, contratos y rollback conservador |
@@ -20,6 +23,9 @@
 
 ## Historias técnicas en desarrollo (Sprint 4)
 
+- [HU-39 — Guía de radicación](hu/hu-39-guia-radicacion.md) · [PR #170](https://github.com/ORI-USB-CALI/ori-manager/pull/170); auditoría correctiva sobre HU-38 integrada, sin anticipar HT-14, pendiente de revisión técnica y aceptación QA.
+- [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md) · [PR #169](https://github.com/ORI-USB-CALI/ori-manager/pull/169); integra la navegación de HT-04 y prepara el motor para HU-39, pendiente de aceptación QA.
+- [HT-12 — Acción Volver](hu/ht-12-accion-volver.md) · [PR #168](https://github.com/ORI-USB-CALI/ori-manager/pull/168) e incidencia [QA #143](https://github.com/ORI-USB-CALI/ori-manager/issues/143); corrección técnica preparada para revisión, pendiente de aceptación QA.
 - [HT-05 — Consulta de versiones históricas](hu/HT-05-consulta-versiones-historicas.md) · [PR #159](https://github.com/ORI-USB-CALI/ori-manager/pull/159); depende de HT-13 y no implica aceptación QA ni release.
 - [HT-08 — Validación de vigencia de convenios](hu/ht-08-validacion-vigencia.md) · [PR #147](https://github.com/ORI-USB-CALI/ori-manager/pull/147); no implica aceptación QA ni release.
 - [HT-06 — Código institucional del convenio](hu/ht-06-codigo-convenio.md) · incidencias [QA #145](https://github.com/ORI-USB-CALI/ori-manager/issues/145) y [QA #136](https://github.com/ORI-USB-CALI/ori-manager/issues/136); no implica aceptación QA ni release.

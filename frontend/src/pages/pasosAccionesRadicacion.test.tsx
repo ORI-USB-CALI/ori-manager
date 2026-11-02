@@ -40,8 +40,9 @@ describe('HU-39 FE-03: acciones y seguimiento de radicación', () => {
     const pasos = crearPasosAccionesRadicacion()
     const texto = pasos[3].descripcion
     expect(texto).toMatch(/mensaje junto al campo/)
-    expect(texto).toMatch(/teléfono/)
-    expect(texto).toMatch(/dígito de verificación/)
+    expect(texto).toMatch(/correo/)
+    expect(texto).toMatch(/documentos requeridos/)
+    expect(texto).not.toMatch(/dígito de verificación/)
   })
 
   it('incluye devoluciones solo si la solicitud está devuelta', () => {
