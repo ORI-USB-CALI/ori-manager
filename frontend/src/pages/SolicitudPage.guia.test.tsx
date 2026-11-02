@@ -8,7 +8,7 @@ import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { TourProvider } from '../components/TourProvider'
 import type { CatalogosSolicitud } from './solicitudes'
 import { DESTINOS_SECCIONES_SOLICITUD } from './guiaRadicacion'
-import type { EstadoGuia } from './guias'
+import { claveGuia, type EstadoGuia } from './estadoGuias'
 import { SolicitudPage } from './SolicitudPage'
 
 const CATALOGOS: CatalogosSolicitud = {
@@ -66,7 +66,7 @@ async function abrirGuia(cliente: QueryClient) {
   fireEvent.click(screen.getByRole('button', { name: 'Ayuda: cómo diligenciar la solicitud' }))
   await waitFor(() => expect(tituloActual()).toBe('1. Información del solicitante'))
   // El estado de la guía se consulta al abrirla.
-  await waitFor(() => expect(cliente.getQueryData(['guias', 'GUIA_RADICACION'])).toBeDefined())
+  await waitFor(() => expect(cliente.getQueryData(claveGuia(1, 'GUIA_RADICACION'))).toBeDefined())
 }
 
 beforeEach(() => {

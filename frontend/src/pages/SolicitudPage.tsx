@@ -2,13 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../app/api'
+import { useSesion } from '../auth/sesion'
 import { useNotifications } from '../app/notifications/useNotifications'
-import { useRecorrido } from '../components/recorrido'
 import { ETIQUETA_TIPO, TIPOS_IDENTIFICACION, type TipoAliado } from './epica02'
-import { DESTINOS_ACCIONES_SOLICITUD, DESTINOS_SECCIONES_SOLICITUD, PASOS_SECCIONES_SOLICITUD } from './guiaRadicacion'
-import { claveGuia, type EstadoGuiaUsuario, useEstadoGuia, useRegistrarEstadoGuia } from './guias'
+import { DESTINOS_ACCIONES_SOLICITUD, DESTINOS_SECCIONES_SOLICITUD } from './guiaRadicacion'
+import { AyudaRadicacion } from './AyudaRadicacion'
 import { type DocumentoSolicitud, type Solicitud, type TipoDocumento, useCatalogosSolicitud, useSolicitud } from './solicitudes'
-import { crearPasosAccionesRadicacion } from './pasosAccionesRadicacion'
 
 const TIPOS_ALIADO: TipoAliado[] = ['UNIVERSIDAD', 'COLEGIO', 'EMPRESA', 'ENTIDAD_GUBERNAMENTAL']
 const CAMPOS_REQUERIDOS = [
@@ -93,6 +92,7 @@ function tamanoLegible(bytes: number): string {
 }
 
 export function SolicitudPage() {
+  const { sesion } = useSesion()
   const params = useParams()
   const id = params.solicitudId ? Number(params.solicitudId) : null
   const navigate = useNavigate()
@@ -108,32 +108,6 @@ export function SolicitudPage() {
   const [tipoDocumento, setTipoDocumento] = useState<TipoDocumento>('CAMARA_COMERCIO')
   const solicitud = consulta.data
   const editable = !solicitud || ['BORRADOR', 'DEVUELTA'].includes(solicitud.estado)
-  const recorrido = useRecorrido()
-  // El estado solo se consulta mientras la guía está abierta: no agrega peticiones al formulario.
-  useEstadoGuia('GUIA_RADICACION', recorrido.activo === 'GUIA_RADICACION')
-  const registrarGuia = useRegistrarEstadoGuia('GUIA_RADICACION')
-
-  // HU-39: la guía se abre solo desde Ayuda (RN-07) y no toca el formulario (CA-07).
-  function abrirGuia() {
-    const registrar = (estado: 'COMPLETADO' | 'OMITIDO') => registrarGuia.mutate(estado, {
-      onError: (error) => notify({ type: 'error', message: `No se pudo guardar el estado de la guía: ${error.message}` }),
-    })
-    recorrido.iniciar({
-      guia: 'GUIA_RADICACION',
-      pasos: [
-  ...PASOS_SECCIONES_SOLICITUD,
-  ...crearPasosAccionesRadicacion(solicitud?.estado === 'DEVUELTA'),
-],
-      onComplete: () => registrar('COMPLETADO'),
-      // Omitir solo se registra si la guía estaba pendiente: cerrar una guía ya
-      // completada u omitida no cambia su estado (RN-04, RN-05).
-      // Se lee del caché al omitir, porque el estado llega después de abrir la guía.
-      onSkip: () => {
-        const actual = queryClient.getQueryData<EstadoGuiaUsuario>(claveGuia('GUIA_RADICACION'))
-        if (actual?.estado === 'PENDIENTE') registrar('OMITIDO')
-      },
-    })
-  }
 
   useEffect(() => {
     solicitudIdRef.current = id
@@ -309,7 +283,7 @@ export function SolicitudPage() {
 
   return (
     <>
-      <section className="header-banner"><div className="header-banner-fila"><div><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></div>{editable && <button type="button" className="btn btn-outline" data-tour={DESTINOS_ACCIONES_SOLICITUD.ayuda} disabled={recorrido.activo !== null} onClick={abrirGuia}>Ayuda: cómo diligenciar la solicitud</button>}</div></section>
+      <section className="header-banner"><div className="header-banner-fila"><div><h1>{solicitud ? solicitud.consecutivo : 'Nueva solicitud'}</h1><p>{solicitud ? `Estado: ${solicitud.estado}` : 'Registre la información inicial. Puede guardar su avance en cualquier momento.'}</p></div>{editable && <AyudaRadicacion key={`${sesion?.id}:${id ?? 'nueva'}`} devuelta={solicitud?.estado === 'DEVUELTA'} />}</div></section>
       {solicitud?.estado === 'RECHAZADA' && (
         <section className="card" role="status">
           <h2>Motivo del rechazo ORI</h2>
