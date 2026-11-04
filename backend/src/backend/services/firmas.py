@@ -3,15 +3,13 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
-    AccionAuditoria,
     EstadoConvenio,
     EstadoFirmaConvenio,
     EstadoObservacionRevision,
@@ -35,14 +33,19 @@ from backend.models.revision_convenio import RevisionConvenio
 from backend.models.usuario import Usuario
 from backend.models.version_convenio import VersionConvenio
 from backend.services.aliados import ErrorAliado, resolver_aliado_para_convenio
+from backend.services.bitacora import describir_accion, describir_cambios_automaticos
+from backend.services.codigo_convenio import asignar_codigo
 from backend.services.convenios import (
     ConfiguracionConvenioInvalida,
     ConflictoVersionConvenio,
     ConvenioNoEncontrado,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
+    contexto_auditoria,
+    exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
+from backend.services.vigencia import instante_actual_dominio
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
@@ -259,7 +262,7 @@ class ServicioFirmas:
                 .where(
                     Documento.es_vigente.is_(True),
                     or_(
-                        Documento.solicitud_id == convenio.solicitud_id,
+                        (Documento.solicitud_id == convenio.solicitud_id if convenio.solicitud_id is not None else false()),
                         Documento.convenio_id == convenio.id,
                     ),
                 )
@@ -411,7 +414,10 @@ class ServicioFirmas:
         self.db.add_all([historial, proceso])
         try:
             self.db.flush()
-            tipo_solicitante = contexto.convenio.solicitud.tipo_solicitante
+            tipo_solicitante = (
+                contexto.convenio.solicitud.tipo_solicitante
+                if contexto.convenio.solicitud is not None else None
+            )
             parte_solicitante = (
                 ParteFirmaConvenio.UNIDAD_SOLICITANTE
                 if tipo_solicitante == TipoSolicitante.INTERNO.value
@@ -608,7 +614,6 @@ class ServicioFirmas:
                 "Debe existir exactamente un proceso de firmas activo"
             )
         proceso = procesos[0]
-        estado_anterior = proceso.estado
 
         version = self.db.scalar(
             select(VersionConvenio)
@@ -636,6 +641,13 @@ class ServicioFirmas:
         if elaboracion is None:
             raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
 
+        describir_accion(
+            self.db,
+            usuario,
+            "Canceló el proceso de firmas por un cambio sustancial",
+            evento="PROCESO_FIRMAS_CANCELADO",
+            **contexto_auditoria(convenio),
+        )
         ahora = datetime.now(UTC)
         historial = HistorialEtapa(
             convenio_id=convenio.id,
@@ -680,17 +692,6 @@ class ServicioFirmas:
             proceso.cancelado_en = ahora
             convenio.etapa_actual = elaboracion
             convenio.estado = EstadoConvenio.EN_TRAMITE.value
-            self.db.add(
-                Auditoria(
-                    usuario_id=usuario.id,
-                    entidad="proceso_firmas_convenio",
-                    registro_id=proceso.id,
-                    accion=AccionAuditoria.UPDATE.value,
-                    campo="estado",
-                    valor_anterior=estado_anterior,
-                    valor_nuevo=EstadoProcesoFirmasConvenio.CANCELADO.value,
-                )
-            )
             self.db.commit()
         except SQLAlchemyError:
             self.db.rollback()
@@ -710,6 +711,10 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 "El convenio no está en aprobación de firmas"
             )
+        # HT-08: no se activa un convenio cuya vigencia ya terminó. Los CA hablan
+        # de creación/elaboración; extenderlo a la formalización es una decisión
+        # del desarrollador pendiente de revisión por el Líder Técnico (ver PR).
+        exigir_vigencia_valida(convenio.fecha_inicio, convenio.fecha_vencimiento)
 
         procesos = list(
             self.db.scalars(
@@ -909,7 +914,36 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 "No existe la etapa FIRMA_ARCHIVO_SEGUIMIENTO"
             )
-        ahora = datetime.now(UTC)
+        padre = None
+        if convenio.convenio_origen_id is not None:
+            padre = self._convenio(convenio.convenio_origen_id, bloquear=True)
+            if padre.estado not in {
+                EstadoConvenio.VIGENTE.value,
+                EstadoConvenio.POR_VENCER.value,
+                EstadoConvenio.VENCIDO.value,
+                EstadoConvenio.FINALIZADO.value,
+                EstadoConvenio.RENOVADO.value,
+            }:
+                raise RevisionNoDisponible(
+                    "El estado del convenio padre no permite formalizar la renovación"
+                )
+        # Antes de mover la etapa, para que la bitácora registre aquella en la
+        # que se tomó la decisión y no la de destino (HT-09, RN-04).
+        describir_accion(
+            self.db,
+            usuario,
+            "Formalizó el convenio tras completar las siete firmas obligatorias",
+            evento="CONVENIO_FORMALIZADO",
+            **contexto_auditoria(convenio),
+        )
+        # HT-06, RN-05: un único instante de referencia para toda la
+        # formalización. El año institucional sale de esa misma lectura, ya en
+        # la zona del dominio. Con dos lecturas distintas del reloj —una en UTC
+        # para los hitos y otra para el año— el 31 de diciembre a las 23:59 en
+        # Bogotá podían caer a cada lado del cambio de año y el código quedaba
+        # con un año distinto al de su propia formalización.
+        ahora = instante_actual_dominio()
+        anio_institucional = ahora.year
         historial = HistorialEtapa(
             convenio_id=convenio.id,
             etapa_origen_id=convenio.etapa_actual_id,
@@ -925,11 +959,26 @@ class ServicioFirmas:
         proceso.estado = EstadoProcesoFirmasConvenio.COMPLETADO.value
         proceso.completado_en = ahora
         convenio.estado = EstadoConvenio.VIGENTE.value
+        convenio.activado_en = ahora
         convenio.fecha_firma = max(
             firma.fecha_firma for firma in firmas if firma.fecha_firma is not None
         ).date()
         convenio.etapa_actual = etapa_seguimiento
         try:
+            # HT-06, CA-02 y RN-15: el código se asigna dentro del alcance
+            # protegido, no antes. Reservar el consecutivo consulta la base y
+            # puede fallar —candado agotado, interbloqueo, caída de conexión—,
+            # y fuera del `try` esa excepción salía sin revertir, dejando la
+            # transacción abortada a merced de quien cerrara la sesión.
+            # La reserva va lo más tarde posible y siempre después del candado
+            # del convenio, para fijar un orden único de bloqueo.
+            asignar_codigo(self.db, convenio, anio_institucional)
+            # El código es un efecto automático de una formalización humana: la
+            # acción conserva su originador y el campo queda marcado como
+            # automático (HT-09, CA-03).
+            describir_cambios_automaticos(self.db, convenio, "codigo")
+            if padre is not None and padre.estado != EstadoConvenio.RENOVADO.value:
+                padre.estado = EstadoConvenio.RENOVADO.value
             resolver_aliado_para_convenio(self.db, convenio)
             self.db.commit()
         except ErrorAliado as exc:
@@ -937,7 +986,7 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 f"No fue posible consolidar el aliado: {exc}"
             ) from exc
-        except SQLAlchemyError:
+        except Exception:
             self.db.rollback()
             raise
         return self.obtener_proceso_seguimiento(convenio_id)

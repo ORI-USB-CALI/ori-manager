@@ -55,8 +55,9 @@ export function FinalizarElaboracionModal({ convenioId, valores, onFinalizado, o
 
       <section className="modal-section">
         <p>
-          Esta acción conserva la versión preparada y abre la primera revisión jurídica.
-          El proyecto dejará de ser editable desde esta pantalla.
+          Al enviar el proyecto se crea su versión formal con el último contenido; si no
+          cambió desde la versión anterior, se reutiliza esa versión. Después se abre la
+          revisión jurídica y el proyecto deja de ser editable desde esta pantalla.
         </p>
         <p className="texto-secundario">¿Confirma que desea finalizar la elaboración?</p>
       </section>

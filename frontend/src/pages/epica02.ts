@@ -15,6 +15,21 @@ export type EstadoConvenio =
   | 'FINALIZADO'
   | 'CANCELADO'
 
+/**
+ * Identificación visible de un convenio (HT-06, CA-01).
+ *
+ * Antes de formalizarlo no tiene código institucional, así que se muestra una
+ * referencia provisional derivada de su identificador interno (RN-10),
+ * distinguible del código aprobado `USB-ORI-AAAA-NNNNN`. El backend es el único
+ * que asigna el código, al formalizar (RN-01, RN-02).
+ *
+ * Centraliza lo que antes eran cuatro textos distintos entre vistas
+ * (`#41`, `Sin código`, `En asignación`, `Convenio #41`).
+ */
+export function referenciaConvenio(codigo: string | null | undefined, id: number): string {
+  return codigo?.trim() || `Convenio provisional #${id}`
+}
+
 export interface ConvenioResumen {
   id: number
   codigo: string | null
@@ -52,7 +67,8 @@ export interface AliadoPerfil extends Aliado {
 export interface Convenio {
   id: number
   codigo: string | null
-  solicitud_id: number
+  solicitud_id: number | null
+  origen: 'SOLICITUD' | 'MANUAL_ORI'
   aliado_id: number | null
   aliado: Pick<Aliado, 'id' | 'nombre' | 'identificacion' | 'activo'> | null
   tipo_convenio_id: number | null
@@ -91,6 +107,22 @@ export function useAliados(soloActivos = false) {
       apiFetch<{ items: Aliado[]; total: number }>(
         `/aliados?limite=100${soloActivos ? '&activo=true' : ''}`,
       ),
+    retry: false,
+  })
+}
+
+/** HT-14: catálogo ISO 3166-1, para cualquier formulario que pida un país. */
+export interface Pais {
+  id: number
+  codigo_iso: string
+  nombre: string
+}
+
+export function usePaises() {
+  return useQuery({
+    queryKey: ['paises'],
+    queryFn: () => apiFetch<Pais[]>('/paises'),
+    staleTime: Infinity,
     retry: false,
   })
 }
@@ -193,12 +225,14 @@ export interface UnidadOrganizacionalResumen {
 }
 
 export interface ElaboracionConvenio extends Convenio {
-  solicitud: SolicitudAntecedente
+  solicitud: SolicitudAntecedente | null
   etapa_actual: EtapaResumen | null
   tipo_convenio: TipoConvenioResumen | null
   unidad_organizacional: UnidadOrganizacionalResumen | null
   plantilla_origen: PlantillaConvenioResumen | null
   contenido: Record<string, unknown> | null
+  revision_borrador: number
+  borrador_guardado_en: string | null
 }
 
 export interface PlantillaConvenioResumen {
@@ -215,6 +249,23 @@ export interface VersionConvenioResumen {
   contexto: string
   creado_en: string
   plantilla: PlantillaConvenioResumen | null
+}
+
+/** Snapshot histórico e inmutable de una versión formal (HT-05). */
+export interface VersionConvenioDetalle extends VersionConvenioResumen {
+  contenido: Record<string, unknown>
+  snapshot_metadata: Record<string, unknown>
+}
+
+const CONTEXTOS_VERSION: Record<string, string> = {
+  INICIALIZACION: 'Creación del proyecto',
+  GUARDADO: 'Avance guardado',
+  FINALIZACION: 'Elaboración finalizada',
+  CORRECCION_REVISION: 'Ajustes de revisión',
+}
+
+export function contextoVersion(contexto: string) {
+  return CONTEXTOS_VERSION[contexto] ?? contexto
 }
 
 export interface UsuarioResumen {
@@ -297,6 +348,15 @@ export function useVersionesConvenio(convenioId: number) {
     queryKey: ['convenios', convenioId, 'versiones'],
     queryFn: () => apiFetch<VersionConvenioResumen[]>(`/convenios/${convenioId}/versiones`),
     enabled: Number.isInteger(convenioId),
+    retry: false,
+  })
+}
+
+export function useVersionConvenio(convenioId: number, numero: number) {
+  return useQuery({
+    queryKey: ['convenios', convenioId, 'versiones', numero],
+    queryFn: () => apiFetch<VersionConvenioDetalle>(`/convenios/${convenioId}/versiones/${numero}`),
+    enabled: Number.isInteger(convenioId) && convenioId > 0 && Number.isInteger(numero) && numero > 0,
     retry: false,
   })
 }

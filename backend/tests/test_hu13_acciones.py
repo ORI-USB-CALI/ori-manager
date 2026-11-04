@@ -529,7 +529,7 @@ def test_devolucion_exige_nueva_version_y_reinicia_desde_rj1_ronda_siguiente(
     contenido = _contenido_editado(elaboracion["contenido"], "Corrección del Gestor")
     assert client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
+        json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     ).status_code == 200
     assert client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"

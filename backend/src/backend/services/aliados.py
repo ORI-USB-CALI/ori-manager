@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from backend.core.validaciones import termino_busqueda_identificacion
 from backend.models.aliado import Aliado
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
@@ -58,8 +59,13 @@ class ServicioAliados:
         condiciones = []
         if filtros.buscar:
             patron = f"%{filtros.buscar.strip()}%"
+            # HT-14: la identificación se guarda por su base, sin puntos ni DV.
+            patron_identificacion = f"%{termino_busqueda_identificacion(filtros.buscar)}%"
             condiciones.append(
-                or_(Aliado.nombre.ilike(patron), Aliado.identificacion.ilike(patron))
+                or_(
+                    Aliado.nombre.ilike(patron),
+                    Aliado.identificacion.ilike(patron_identificacion),
+                )
             )
         if filtros.tipo is not None:
             condiciones.append(Aliado.tipo == filtros.tipo.value)
@@ -230,6 +236,15 @@ def resolver_aliado_para_convenio(db: Session, convenio: Convenio) -> Aliado | N
     """Asocia la contraparte persistida solo al formalizar el convenio."""
     if convenio.estado != EstadoConvenio.VIGENTE:
         return None
+    if convenio.solicitud is None:
+        aliado_manual = db.get(Aliado, convenio.aliado_id) if convenio.aliado_id else None
+        if aliado_manual is None:
+            raise ReferenciaAliadoInvalida(
+                "Un convenio manual debe asociar un aliado para formalizarse"
+            )
+        if not aliado_manual.activo:
+            raise ReferenciaAliadoInvalida("El aliado del convenio está inactivo")
+        return aliado_manual
     solicitud = convenio.solicitud
     aliado = db.get(Aliado, solicitud.aliado_id) if solicitud.aliado_id else None
     if solicitud.aliado_id and aliado is None:
@@ -251,7 +266,10 @@ def resolver_aliado_para_convenio(db: Session, convenio: Convenio) -> Aliado | N
         _validar_sector(tipo, sector)
         aliado = Aliado(
             nombre=nombre, tipo=tipo, tipo_identificacion=tipo_identificacion,
-            identificacion=identificacion, sector_economico=sector,
+            identificacion=identificacion,
+            digito_verificacion=solicitud.digito_verificacion_aliado_propuesto,
+            pais_id=solicitud.pais_aliado_propuesto_id,
+            sector_economico=sector,
             correo=(solicitud.correo_aliado_propuesto or "").strip() or None,
         )
         db.add(aliado)

@@ -251,15 +251,18 @@ def test_detalle_no_permite_saltarse_el_scope_del_tablero_por_url(
         f"/api/convenios/{juridica.id}/elaboracion/validacion",
         f"/api/convenios/{juridica.id}/versiones",
         f"/api/convenios/{juridica.id}/versiones/{juridica.version_actual}",
-        f"/api/convenios/{juridica.id}/revisiones",
         f"/api/convenios/{juridica.id}/documentos/{documento.id}/contenido",
     )
     assert all(client.get(ruta).status_code == 404 for ruta in subrutas)
+    # HU-21: quien resolvió la revisión conserva solo la lectura del historial.
+    historial = f"/api/convenios/{juridica.id}/revisiones"
+    assert client.get(historial).status_code == 200
 
     entrar_como(segundo_revisor)
     assert client.get(f"/api/convenios/{juridica.id}").status_code == 200
     assert client.get(f"/api/convenios/{juridica.id}/revision").status_code == 200
     assert all(client.get(ruta).status_code == 200 for ruta in subrutas)
+    assert client.get(historial).status_code == 200
 
 
 def test_revisor_fuera_de_etapa_juridica_no_accede_a_subrecursos_por_url(

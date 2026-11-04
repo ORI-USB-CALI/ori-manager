@@ -105,12 +105,22 @@ export function MisSolicitudesPage() {
       id: 'acciones',
       header: 'Acciones',
       render: (item) => (
-        <Link
-          className="btn btn-outline btn-small"
-          to={`/solicitudes/${item.id}`}
-        >
-          Ver
-        </Link>
+        <>
+          <Link
+            className="btn btn-outline btn-small"
+            to={`/solicitudes/${item.id}`}
+          >
+            Ver
+          </Link>
+          {item.estado !== 'BORRADOR' && (
+            <Link
+              className="btn btn-outline btn-small"
+              to={`/solicitudes/${item.id}/historial`}
+            >
+              Historial
+            </Link>
+          )}
+        </>
       ),
     },
   ]

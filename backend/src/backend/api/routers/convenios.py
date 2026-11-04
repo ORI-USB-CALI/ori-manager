@@ -1,26 +1,53 @@
-from datetime import date
-from typing import Annotated, NoReturn
+from datetime import date, datetime
+from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.deps import requiere
 from backend.core.config import settings
 from backend.core.permisos import Permiso
+from backend.core.unidades_organizacionales import TipoUnidad
 from backend.db.session import get_db
+from backend.models.actividad_convenio import ActividadConvenio
 from backend.models.convenio import Convenio
+from backend.models.enums import (
+    AlcanceConvenio,
+    EstadoConvenio,
+    EstadoSeguimientoRenovacion,
+    TipoAliado,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
+from backend.schemas.actividad_utilizacion import (
+    ActividadUtilizacionCrear,
+    ActividadUtilizacionLeer,
+)
 from backend.schemas.convenio import (
+    AlertaVencimientoLeer,
     AprobarRevision,
     AtenderObservacion,
+    CatalogosConsultaLeer,
     CatalogosElaboracionLeer,
     ConfigurarFirmaConvenio,
+    ContraparteConsultaLeer,
+    ConvenioConsultaItem,
+    ConvenioConsultaListado,
     ConvenioCrear,
+    ConvenioCrearManual,
     ConvenioElaboracionActualizar,
     ConvenioElaboracionFinalizar,
     ConvenioElaboracionGuardar,
@@ -36,6 +63,7 @@ from backend.schemas.convenio import (
     FirmaConvenioLeer,
     HistorialConvenioLeer,
     HistorialEtapaLeer,
+    HitoLineaTiempoLeer,
     InvitacionFirmaConvenioLeer,
     ObservacionRevisionLeer,
     ProcesoFirmasConvenioLeer,
@@ -53,18 +81,42 @@ from backend.schemas.convenio import (
     VersionRevisionActual,
     VersionRevisionReferencia,
 )
+from backend.schemas.estadisticas_convenios import ReporteEstadisticoConveniosLeer
+from backend.schemas.evaluacion import (
+    EstadoEvaluacionLeer,
+    EvaluacionConvenioCrear,
+    EvaluacionConvenioLeer,
+)
+from backend.schemas.renovacion import (
+    DecisionNoRenovacionLeer,
+    RenovacionIniciadaLeer,
+    SeguimientoRenovacionLeer,
+)
+from backend.schemas.reportes import ConvenioReporteActivoLeer
+from backend.schemas.soporte_convenio import SoporteConvenioLeer
+from backend.services.actividades_utilizacion import ServicioActividadesUtilizacion
+from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.convenios import (
+    ESTADOS_SIN_FORMALIZAR,
+    ConflictoBorradorConvenio,
     ConflictoVersionConvenio,
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
+    DocumentoConvenioInvalido,
+    DocumentoDemasiadoGrande,
     ElaboracionIncompleta,
     ErrorConvenio,
+    FiltroConsultaInvalido,
+    FiltrosConsultaConvenio,
     ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
     ServicioConvenios,
     SolicitudNoAprobada,
+    TipoFiltroFecha,
+    VigenciaInvalida,
+    convenio_esta_formalizado,
 )
 from backend.services.correo import (
     EnviadorCorreo,
@@ -77,17 +129,52 @@ from backend.services.documentos import (
     ErrorAlmacenDocumentos,
     get_almacen_documentos,
 )
+from backend.services.estadisticas_convenios import (
+    ServicioEstadisticasConvenios,
+    generar_excel_estadisticas_convenios,
+    generar_pdf_estadisticas_convenios,
+)
+from backend.services.evaluaciones import (
+    ConvenioNoEvaluable,
+    ServicioEvaluaciones,
+    es_evaluable,
+)
+from backend.services.exportacion_convenio import (
+    ErrorValidacionExportacion,
+    ServicioExportacionConvenio,
+)
 from backend.services.firma_electronica import (
     EntregaInvitacionesFirmaError,
     ServicioFirmaElectronica,
 )
 from backend.services.firmas import ServicioFirmas
+from backend.services.linea_tiempo import construir_linea_tiempo
+from backend.services.renovaciones import (
+    ServicioRenovaciones,
+    listar_seguimiento_renovaciones,
+)
+from backend.services.reportes import (
+    ServicioReportes,
+    generar_excel_convenios_activos,
+    generar_pdf_convenios_activos,
+)
+from backend.services.soportes_convenio import (
+    ConvenioNoAdmiteSoportes,
+    ServicioSoportesConvenio,
+)
+from backend.services.vigencia import ZONA_HORARIA_DOMINIO
 
 router = APIRouter(prefix="/convenios", tags=["Convenios"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 Storage = Annotated[AlmacenDocumentos, Depends(get_almacen_documentos)]
 Correo = Annotated[EnviadorCorreo, Depends(get_enviador_correo)]
 PuedeVer = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER)]
+PuedeVerAlertasVencimiento = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_VER_ALERTAS_VENCIMIENTO)
+]
+PuedeGestionarRenovaciones = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_RENOVACIONES)
+]
 PuedeCrear = Annotated[Usuario, requiere(Permiso.CONVENIOS_CREAR)]
 PuedeEditar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EDITAR)]
 PuedeRevisar = Annotated[Usuario, requiere(Permiso.CONVENIOS_REVISAR)]
@@ -97,9 +184,13 @@ PuedeGestionarContraparte = Annotated[
 PuedeRevisarContrapartePropia = Annotated[
     Usuario, requiere(Permiso.CONVENIOS_REVISAR_CONTRAPARTE_PROPIA)
 ]
-PuedeGestionarFirmas = Annotated[
-    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)
+PuedeGestionarFirmas = Annotated[Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_FIRMAS)]
+PuedeEvaluar = Annotated[Usuario, requiere(Permiso.CONVENIOS_EVALUAR)]
+# Guard de CA-04 de HU-22C: solo Gestor ORI y Administrador ORI; otro rol, 403.
+PuedeGestionarSoportes = Annotated[
+    Usuario, requiere(Permiso.CONVENIOS_GESTIONAR_SOPORTES)
 ]
+PuedeVerReportes = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER_REPORTES)]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
@@ -114,18 +205,28 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "current_version": exc.actual,
             },
         ) from exc
+    if isinstance(exc, ConflictoBorradorConvenio):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(exc),
+                "expected_revision": exc.esperada,
+                "current_revision": exc.actual,
+            },
+        ) from exc
     if isinstance(
         exc,
         (
             ConvenioDuplicado,
             SolicitudNoAprobada,
             ConvenioNoEditable,
+            ConvenioNoEvaluable,
             RevisionNoDisponible,
             ObservacionNoDisponible,
         ),
     ):
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    if isinstance(exc, ElaboracionIncompleta):
+    if isinstance(exc, (ElaboracionIncompleta, VigenciaInvalida)):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
@@ -133,7 +234,20 @@ def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
                 "faltantes": [campo.model_dump() for campo in exc.faltantes],
             },
         ) from exc
-    if isinstance(exc, ReferenciaConvenioInvalida):
+    if isinstance(exc, DocumentoConvenioInvalido):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if isinstance(exc, DocumentoDemasiadoGrande):
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)
+        ) from exc
+    if isinstance(
+        exc,
+        (
+            ReferenciaConvenioInvalida,
+            ConvenioNoAdmiteSoportes,
+            FiltroConsultaInvalido,
+        ),
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     raise exc
 
@@ -146,6 +260,109 @@ def crear_convenio(
         return ServicioConvenios(db).crear(datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+
+
+@router.post("/manual", response_model=ConvenioLeer, status_code=status.HTTP_201_CREATED)
+def crear_convenio_manual(
+    datos: ConvenioCrearManual, db: DatabaseSession, usuario: PuedeCrear
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).crear_manual(datos, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+def _contraparte_de(convenio: Convenio) -> ContraparteConsultaLeer:
+    """HU-26 BE-1: del Aliado formal si ya existe; si no (convenio en
+    trámite, sin aliado_id todavía), de los *_aliado_propuesto de la
+    solicitud de origen."""
+    if convenio.aliado is not None:
+        return ContraparteConsultaLeer(
+            nombre=convenio.aliado.nombre,
+            tipo=convenio.aliado.tipo,
+            identificacion=convenio.aliado.identificacion,
+            es_aliado_formal=True,
+        )
+    solicitud = convenio.solicitud
+    return ContraparteConsultaLeer(
+        nombre=solicitud.nombre_aliado_propuesto if solicitud else None,
+        tipo=solicitud.tipo_aliado_propuesto if solicitud else None,
+        identificacion=solicitud.identificacion_aliado_propuesto if solicitud else None,
+        es_aliado_formal=False,
+    )
+
+
+def _programa_de(convenio: Convenio):
+    """HU-26 BE-1: solo se llena cuando la unidad organizacional del
+    convenio es de tipo PROGRAMA; en otro caso va null."""
+    unidad = convenio.unidad_organizacional
+    if unidad is not None and unidad.tipo == TipoUnidad.PROGRAMA.value:
+        return unidad
+    return None
+
+
+def _a_item_consulta(convenio: Convenio, puede_ver_detalle: bool) -> ConvenioConsultaItem:
+    return ConvenioConsultaItem(
+        id=convenio.id,
+        codigo=convenio.codigo,
+        objeto=convenio.objeto,
+        estado=convenio.estado,
+        etapa=convenio.etapa_actual,
+        tipo_convenio=convenio.tipo_convenio,
+        contraparte=_contraparte_de(convenio),
+        programa=_programa_de(convenio),
+        fecha_inicio=convenio.fecha_inicio,
+        fecha_vencimiento=convenio.fecha_vencimiento,
+        # HU-27 BE-2: null cuando el convenio no está formalizado, para que
+        # la tabla no muestre fechas de firma diligenciadas a mano.
+        fecha_formalizacion=(
+            convenio.fecha_firma if convenio_esta_formalizado(convenio) else None
+        ),
+        puede_ver_detalle=puede_ver_detalle,
+    )
+
+
+@router.get("", response_model=ConvenioConsultaListado)
+def consultar_convenios(
+    db: DatabaseSession,
+    usuario: PuedeVer,
+    buscar: Annotated[str | None, Query(max_length=200)] = None,
+    limite: Annotated[int, Query(ge=1, le=100)] = 20,
+    desplazamiento: Annotated[int, Query(ge=0)] = 0,
+    tipo_fecha: Annotated[TipoFiltroFecha | None, Query()] = None,
+    fecha_desde: Annotated[date | None, Query()] = None,
+    fecha_hasta: Annotated[date | None, Query()] = None,
+    estado: Annotated[list[EstadoConvenio] | None, Query()] = None,
+    tipo_contraparte: Annotated[list[TipoAliado] | None, Query()] = None,
+    programa_id: Annotated[int | None, Query(ge=1)] = None,
+    alcance: Annotated[AlcanceConvenio | None, Query()] = None,
+    solo_formalizados: Annotated[bool, Query()] = False,
+) -> ConvenioConsultaListado:
+    filtros = FiltrosConsultaConvenio(
+        buscar=buscar,
+        limite=limite,
+        desplazamiento=desplazamiento,
+        tipo_fecha=tipo_fecha,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        # HU-28: FiltrosConsultaConvenio exige tuplas porque es frozen (hashable).
+        estados=tuple(estado) if estado else None,
+        tipos_contraparte=tuple(tipo_contraparte) if tipo_contraparte else None,
+        programa_id=programa_id,
+        alcance=alcance,
+        solo_formalizados=solo_formalizados,
+    )
+    try:
+        items, total = ServicioConvenios(db).consultar(usuario, filtros)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return ConvenioConsultaListado(
+        items=[
+            _a_item_consulta(convenio, bool(puede_ver_detalle))
+            for convenio, puede_ver_detalle in items
+        ],
+        total=total,
+    )
 
 
 @router.get("/catalogos/elaboracion", response_model=CatalogosElaboracionLeer)
@@ -168,6 +385,30 @@ def obtener_catalogos_elaboracion(
     )
 
 
+@router.get("/catalogos/consulta", response_model=CatalogosConsultaLeer)
+def obtener_catalogos_consulta(
+    db: DatabaseSession,
+    _: PuedeVer,
+    solo_formalizados: Annotated[bool, Query()] = False,
+) -> CatalogosConsultaLeer:
+    programas = db.scalars(
+        select(UnidadOrganizacional)
+        .where(
+            UnidadOrganizacional.tipo == TipoUnidad.PROGRAMA.value,
+            UnidadOrganizacional.activa.is_(True),
+        )
+        .order_by(UnidadOrganizacional.nombre)
+    ).all()
+    return CatalogosConsultaLeer(
+        estados=[
+            estado for estado in EstadoConvenio
+            if not solo_formalizados or estado.value not in ESTADOS_SIN_FORMALIZAR
+        ],
+        tipos_contraparte=list(TipoAliado),
+        programas=programas,
+    )
+
+
 @router.get(
     "/revisiones-juridicas/pendientes",
     response_model=list[RevisionJuridicaPendienteLeer],
@@ -181,7 +422,10 @@ def listar_revisiones_juridicas_pendientes(
             revision_id=revision.id,
             convenio_id=revision.convenio.id,
             codigo_convenio=revision.convenio.codigo,
-            solicitud_consecutivo=revision.convenio.solicitud.consecutivo,
+            solicitud_consecutivo=(
+                revision.convenio.solicitud.consecutivo
+                if revision.convenio.solicitud is not None else None
+            ),
             objeto=revision.convenio.objeto,
             tipo_convenio=revision.convenio.tipo_convenio,
             responsable=revision.convenio.creado_por,
@@ -205,9 +449,7 @@ def listar_revisiones_juridicas_pendientes(
 def listar_revisiones_contraparte_pendientes(
     db: DatabaseSession, usuario: PuedeRevisarContrapartePropia
 ) -> list[RevisionContrapartePendienteLeer]:
-    revisiones = ServicioConvenios(db).listar_revisiones_contraparte_pendientes(
-        usuario
-    )
+    revisiones = ServicioConvenios(db).listar_revisiones_contraparte_pendientes(usuario)
     return [
         RevisionContrapartePendienteLeer(
             revision_id=revision.id,
@@ -242,9 +484,7 @@ def obtener_revision_contraparte_propia(
         codigo_convenio=revision.convenio.codigo,
         objeto=revision.convenio.objeto,
         revision=RevisionConvenioLeer.model_validate(revision),
-        version_recibida=VersionConvenioLeer.model_validate(
-            revision.version_convenio
-        ),
+        version_recibida=VersionConvenioLeer.model_validate(revision.version_convenio),
         enviada_por=revision.creada_por,
         fecha_envio=revision.creado_en,
     )
@@ -309,7 +549,10 @@ def obtener_tablero(db: DatabaseSession, usuario: PuedeVer) -> TableroConveniosL
                 estado=convenio.estado,
                 etapa_actual=convenio.etapa_actual,
                 aliado=convenio.aliado,
-                aliado_propuesto=convenio.solicitud.nombre_aliado_propuesto,
+                aliado_propuesto=(
+                    convenio.solicitud.nombre_aliado_propuesto
+                    if convenio.solicitud is not None else None
+                ),
                 responsable=responsable,
                 puede_ver_detalle=puede_ver_detalle,
             )
@@ -318,16 +561,264 @@ def obtener_tablero(db: DatabaseSession, usuario: PuedeVer) -> TableroConveniosL
     )
 
 
+@router.get("/alertas-vencimiento", response_model=list[AlertaVencimientoLeer])
+def listar_alertas_vencimiento(
+    db: DatabaseSession, _: PuedeVerAlertasVencimiento
+) -> list[AlertaVencimientoLeer]:
+    alertas = ServicioAlertasVencimiento(db).listar_proximos_vencimientos()
+    return [AlertaVencimientoLeer.model_validate(alerta) for alerta in alertas]
+
+
+@router.get("/renovaciones", response_model=list[SeguimientoRenovacionLeer])
+def listar_renovaciones(
+    db: DatabaseSession,
+    _: PuedeGestionarRenovaciones,
+    estado: EstadoSeguimientoRenovacion | None = None,
+) -> list[SeguimientoRenovacionLeer]:
+    seguimientos = listar_seguimiento_renovaciones(db, estado=estado)
+    return [
+        SeguimientoRenovacionLeer.model_validate(seguimiento)
+        for seguimiento in seguimientos
+    ]
+
+
+@router.get(
+    "/reportes/activos", response_model=list[ConvenioReporteActivoLeer]
+)
+def obtener_reporte_convenios_activos(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+) -> list[ConvenioReporteActivoLeer]:
+    convenios = ServicioReportes(db).listar_convenios_activos()
+    return [ConvenioReporteActivoLeer.model_validate(c) for c in convenios]
+
+
+@router.get("/reportes/activos/pdf")
+def descargar_reporte_convenios_activos_pdf(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+) -> Response:
+    convenios = ServicioReportes(db).listar_convenios_activos()
+    contenido = generar_pdf_convenios_activos(convenios)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "attachment; filename=convenios-activos.pdf"
+        },
+    )
+
+
+@router.get("/reportes/activos/excel")
+def descargar_reporte_convenios_activos_excel(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+) -> Response:
+    convenios = ServicioReportes(db).listar_convenios_activos()
+    contenido = generar_excel_convenios_activos(convenios)
+    return Response(
+        content=contenido,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": "attachment; filename=convenios-activos.xlsx"
+        },
+    )
+
+
+def _filtros_estadisticas_convenios(
+    estado: Annotated[EstadoConvenio | None, Query()] = None,
+    aliado_activo: Annotated[bool | None, Query()] = None,
+    tipo_aliado: Annotated[TipoAliado | None, Query()] = None,
+    pais: Annotated[str | None, Query(max_length=80)] = None,
+) -> dict:
+    return {
+        "estado": estado,
+        "aliado_activo": aliado_activo,
+        "tipo_aliado": tipo_aliado,
+        "pais": pais,
+    }
+
+
+FiltrosEstadisticasConvenios = Annotated[dict, Depends(_filtros_estadisticas_convenios)]
+
+
+@router.get(
+    "/reportes/estadisticas", response_model=ReporteEstadisticoConveniosLeer
+)
+def obtener_reporte_estadisticas_convenios(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> ReporteEstadisticoConveniosLeer:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    return ReporteEstadisticoConveniosLeer.model_validate(reporte)
+
+
+@router.get("/reportes/estadisticas/pdf")
+def descargar_reporte_estadisticas_convenios_pdf(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> Response:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    contenido = generar_pdf_estadisticas_convenios(reporte)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "attachment; filename=estadisticas-convenios.pdf"
+        },
+    )
+
+
+@router.get("/reportes/estadisticas/excel")
+def descargar_reporte_estadisticas_convenios_excel(
+    db: DatabaseSession,
+    _: PuedeVerReportes,
+    filtros: FiltrosEstadisticasConvenios,
+) -> Response:
+    reporte = ServicioEstadisticasConvenios(db).generar(**filtros)
+    contenido = generar_excel_estadisticas_convenios(reporte)
+    return Response(
+        content=contenido,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": "attachment; filename=estadisticas-convenios.xlsx"
+        },
+    )
+
+
 @router.get("/{convenio_id}", response_model=ConvenioLeer)
 def obtener_convenio(
     convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).obtener_en_alcance_operativo(
+        return ServicioConvenios(db).obtener_en_alcance_operativo(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.get(
+    "/{convenio_id}/actividades-utilizacion",
+    response_model=list[ActividadUtilizacionLeer],
+)
+def listar_actividades_utilizacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> list[ActividadConvenio]:
+    try:
+        return ServicioActividadesUtilizacion(db).listar(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/actividades-utilizacion",
+    response_model=ActividadUtilizacionLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_actividad_utilizacion(
+    convenio_id: int,
+    payload: ActividadUtilizacionCrear,
+    db: DatabaseSession,
+    usuario: PuedeEditar,
+) -> ActividadConvenio:
+    try:
+        return ServicioActividadesUtilizacion(db).registrar(
+            convenio_id, payload, usuario
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post(
+    "/{convenio_id}/renovaciones",
+    response_model=RenovacionIniciadaLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def iniciar_renovacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeGestionarRenovaciones
+) -> RenovacionIniciadaLeer:
+    try:
+        hijo = ServicioRenovaciones(db).iniciar_renovacion(convenio_id, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return RenovacionIniciadaLeer(
+        convenio_origen_id=hijo.convenio_origen_id,
+        convenio_renovacion_id=hijo.id,
+        codigo=hijo.codigo,
+        numero_renovacion=hijo.numero_renovacion,
+        estado=hijo.estado,
+        etapa=hijo.etapa_actual.codigo,
+    )
+
+
+@router.post(
+    "/{convenio_id}/no-renovar",
+    response_model=DecisionNoRenovacionLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_no_renovacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeGestionarRenovaciones
+) -> DecisionNoRenovacionLeer:
+    try:
+        decision = ServicioRenovaciones(db).registrar_no_renovacion(
             convenio_id, usuario
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+    return DecisionNoRenovacionLeer.model_validate(decision)
+
+
+@router.post(
+    "/{convenio_id}/evaluacion",
+    response_model=EvaluacionConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_evaluacion(
+    convenio_id: int,
+    datos: EvaluacionConvenioCrear,
+    db: DatabaseSession,
+    usuario: PuedeEvaluar,
+) -> EvaluacionConvenioLeer:
+    try:
+        evaluacion = ServicioEvaluaciones(db).registrar(convenio_id, datos, usuario)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return EvaluacionConvenioLeer.model_validate(evaluacion)
+
+
+@router.get("/{convenio_id}/evaluacion", response_model=EstadoEvaluacionLeer)
+def obtener_evaluacion(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> EstadoEvaluacionLeer:
+    """Estado de la evaluación de un convenio.
+
+    Devuelve `evaluable` además de la evaluación para que la interfaz no
+    reimplemente la regla de elegibilidad y siga funcionando sin cambios cuando
+    se amplíen los estados evaluables.
+    """
+    try:
+        convenio = ServicioConvenios(db).obtener_en_alcance_operativo(
+            convenio_id, usuario
+        )
+        evaluacion = ServicioEvaluaciones(db).obtener(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return EstadoEvaluacionLeer(
+        evaluable=es_evaluable(convenio),
+        estado_convenio=convenio.estado,
+        evaluacion=(
+            EvaluacionConvenioLeer.model_validate(evaluacion)
+            if evaluacion is not None
+            else None
+        ),
+    )
 
 
 @router.get("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)
@@ -357,9 +848,7 @@ def validar_elaboracion(
     return ValidacionElaboracionLeer(completo=not faltantes, faltantes=faltantes)
 
 
-@router.patch(
-    "/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer
-)
+@router.patch("/{convenio_id}/elaboracion", response_model=ConvenioElaboracionLeer)
 def guardar_elaboracion(
     convenio_id: int,
     datos: ConvenioElaboracionGuardar,
@@ -367,16 +856,12 @@ def guardar_elaboracion(
     usuario: PuedeEditar,
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).guardar_elaboracion(
-            convenio_id, datos, usuario
-        )
+        return ServicioConvenios(db).guardar_elaboracion(convenio_id, datos, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
 
-@router.get(
-    "/{convenio_id}/versiones", response_model=list[VersionConvenioResumen]
-)
+@router.get("/{convenio_id}/versiones", response_model=list[VersionConvenioResumen])
 def listar_versiones(
     convenio_id: int, db: DatabaseSession, usuario: PuedeVer
 ) -> list[VersionConvenioResumen]:
@@ -388,9 +873,7 @@ def listar_versiones(
         _lanzar_http(exc)
 
 
-@router.get(
-    "/{convenio_id}/versiones/{numero}", response_model=VersionConvenioLeer
-)
+@router.get("/{convenio_id}/versiones/{numero}", response_model=VersionConvenioLeer)
 def obtener_version(
     convenio_id: int, numero: int, db: DatabaseSession, usuario: PuedeVer
 ) -> VersionConvenioLeer:
@@ -410,9 +893,7 @@ def finalizar_elaboracion(
     datos: ConvenioElaboracionFinalizar | None = None,
 ) -> Convenio:
     try:
-        return ServicioConvenios(db).finalizar_elaboracion(
-            convenio_id, usuario, datos
-        )
+        return ServicioConvenios(db).finalizar_elaboracion(convenio_id, usuario, datos)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -441,10 +922,14 @@ def obtener_historial_convenio(
     misma transacción, `now()` en Postgres devuelve siempre el mismo valor
     para todas las filas insertadas, así que `creado_en`/`fecha_cambio`
     pueden empatar entre sí y no garantizan el orden real de inserción.
+
+    HU-21: la consulta usa la autorización de solo lectura del historial, no
+    el alcance operativo, para que el Revisor ORI conserve el acceso a los
+    convenios en cuya revisión jurídica participó.
     """
     try:
         servicio = ServicioConvenios(db)
-        servicio.verificar_alcance_operativo(convenio_id, usuario)
+        servicio.verificar_acceso_historial(convenio_id, usuario)
         convenio = servicio.obtener_historial(convenio_id)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
@@ -454,6 +939,21 @@ def obtener_historial_convenio(
         revisiones=[RevisionConvenioLeer.model_validate(r) for r in revisiones],
         cambios_etapa=[HistorialEtapaLeer.model_validate(h) for h in cambios_etapa],
     )
+
+
+@router.get(
+    "/{convenio_id}/linea-tiempo", response_model=list[HitoLineaTiempoLeer]
+)
+def obtener_linea_tiempo(
+    convenio_id: int, db: DatabaseSession, usuario: PuedeVer
+) -> list[HitoLineaTiempoLeer]:
+    try:
+        servicio = ServicioConvenios(db)
+        servicio.verificar_acceso_historial(convenio_id, usuario)
+        convenio = servicio.obtener(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return construir_linea_tiempo(convenio, datetime.now(ZONA_HORARIA_DOMINIO).date())
 
 
 @router.get("/{convenio_id}/revision", response_model=ConvenioParaRevisionLeer)
@@ -478,8 +978,7 @@ def obtener_revision_pendiente(
     return ConvenioParaRevisionLeer(
         convenio=ConvenioElaboracionLeer.model_validate(convenio),
         documentos=[
-            DocumentoConvenioLeer.model_validate(documento)
-            for documento in documentos
+            DocumentoConvenioLeer.model_validate(documento) for documento in documentos
         ],
         revision_pendiente=RevisionConvenioLeer.model_validate(revision_pendiente),
         version_recibida=VersionRevisionReferencia.model_validate(version_recibida),
@@ -549,6 +1048,7 @@ def obtener_contenido_documento(
     db: DatabaseSession,
     almacen: Storage,
     usuario: PuedeVer,
+    disposicion: Literal["inline", "attachment"] = "inline",
 ) -> Response:
     try:
         servicio = ServicioConvenios(db, almacen)
@@ -567,7 +1067,98 @@ def obtener_contenido_documento(
     return Response(
         content=contenido,
         media_type=documento.tipo_mime,
-        headers={"Content-Disposition": f"inline; filename*=UTF-8''{nombre}"},
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post(
+    "/{convenio_id}/documentos",
+    response_model=DocumentoConvenioLeer,
+    status_code=status.HTTP_201_CREATED,
+)
+async def cargar_documento_convenio(
+    convenio_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    usuario: PuedeGestionarSoportes,
+    archivo: Annotated[UploadFile, File()],
+) -> DocumentoConvenioLeer:
+    # CA-04 de HU-22C: el guard deja pasar solo a Gestor y Administrador ORI
+    # (403) y el estado del convenio se valida antes de leer el archivo (422).
+    try:
+        ServicioSoportesConvenio(db).verificar_carga(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    LIMITE_20MB = 20 * 1024 * 1024
+    contenido = await archivo.read(LIMITE_20MB + 1)
+    try:
+        documento = ServicioConvenios(db, almacen=almacen).agregar_documento(
+            convenio_id=convenio_id,
+            nombre_archivo=archivo.filename or "",
+            tipo_mime=archivo.content_type,
+            contenido=contenido,
+            usuario=usuario,
+        )
+        return DocumentoConvenioLeer.model_validate(documento)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible almacenar el documento",
+        ) from exc
+
+
+@router.get("/{convenio_id}/documentos", response_model=list[SoporteConvenioLeer])
+def listar_soportes(
+    convenio_id: int, db: DatabaseSession, _: PuedeGestionarSoportes
+) -> list[SoporteConvenioLeer]:
+    """CA-03 de HU-22C: soportes vigentes del convenio, del más reciente al
+    más antiguo."""
+    try:
+        documentos = ServicioSoportesConvenio(db).listar(convenio_id)
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return [SoporteConvenioLeer.desde_documento(documento) for documento in documentos]
+
+
+@router.get("/{convenio_id}/documentos/{documento_id}/descargar")
+def descargar_soporte(
+    convenio_id: int,
+    documento_id: int,
+    db: DatabaseSession,
+    almacen: Storage,
+    _: PuedeGestionarSoportes,
+    disposicion: Literal["inline", "attachment"] = "attachment",
+) -> Response:
+    """CA-03 de HU-22C: entrega el soporte por el backend; `inline` lo abre en
+    el navegador y `attachment` lo descarga."""
+    try:
+        documento, contenido = ServicioSoportesConvenio(db).obtener_contenido(
+            convenio_id, documento_id, almacen
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorAlmacenDocumentos as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible recuperar el documento almacenado",
+        ) from exc
+    nombre = quote(documento.nombre_archivo, safe="")
+    return Response(
+        content=contenido,
+        media_type=documento.tipo_mime,
+        headers={
+            "Content-Disposition": f"{disposicion}; filename*=UTF-8''{nombre}",
+            # Sin sniffing el navegador respeta el tipo declarado, y sin caché
+            # el soporte no queda guardado en proxies ni en equipos compartidos.
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -658,15 +1249,46 @@ def enviar_revision_contraparte(
     datos: EnviarRevisionContraparte,
     db: DatabaseSession,
     usuario: PuedeGestionarContraparte,
+    correo: Correo,
 ) -> RevisionConvenioLeer:
     try:
-        revision = ServicioConvenios(db).enviar_a_contraparte(
+        servicio = ServicioConvenios(
+            db, enviador=correo, frontend_url=settings.public_frontend_url
+        )
+        # No crear una revisión manual que no pueda recibir su enlace público.
+        convenio_previo = servicio.obtener(convenio_id)
+        if convenio_previo.origen == "MANUAL_ORI" and not settings.public_frontend_url:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
+        revision = servicio.enviar_a_contraparte(
             convenio_id, datos.expected_version, usuario
         )
-        convenio = ServicioConvenios(db).obtener_historial(convenio_id)
+        if convenio_previo.origen == "MANUAL_ORI":
+            servicio.reenviar_invitacion_contraparte(convenio_id, revision.id, usuario)
+        convenio = servicio.obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(
             next(item for item in convenio.revisiones if item.id == revision.id)
         )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post("/{convenio_id}/revision-contraparte/{revision_id}/reenviar-invitacion")
+def reenviar_invitacion_manual(
+    convenio_id: int,
+    revision_id: int,
+    db: DatabaseSession,
+    usuario: PuedeGestionarContraparte,
+    correo: Correo,
+):
+    if not settings.public_frontend_url:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
+    try:
+        servicio = ServicioConvenios(db, enviador=correo, frontend_url=settings.public_frontend_url)
+        convenio = servicio.obtener(convenio_id)
+        if convenio.origen != "MANUAL_ORI":
+            raise ReferenciaConvenioInvalida("Solo para convenios de origen manual")
+        invitacion = servicio.reenviar_invitacion_contraparte(convenio_id, revision_id, usuario)
+        return {"id": invitacion.id, "enviado_en": invitacion.enviado_en}
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
@@ -700,9 +1322,7 @@ def obtener_revision_final(
                 ObservacionRevisionLeer.model_validate(observacion)
                 for observacion in contexto.observaciones_pendientes
             ],
-            revision_final_aprobada=(
-                contexto.revision_final.resultado == "APROBADA"
-            ),
+            revision_final_aprobada=(contexto.revision_final.resultado == "APROBADA"),
             proceso_firmas_abierto=contexto.proceso_activo is not None,
             proceso_firmas=(
                 ProcesoFirmasConvenioLeer.model_validate(contexto.proceso_activo)
@@ -791,9 +1411,7 @@ def solicitar_cambio_sustancial_firmas(
         _lanzar_http(exc)
 
 
-@router.patch(
-    "/{convenio_id}/firmas/{firma_id}", response_model=FirmaConvenioLeer
-)
+@router.patch("/{convenio_id}/firmas/{firma_id}", response_model=FirmaConvenioLeer)
 def configurar_firma(
     convenio_id: int,
     firma_id: int,
@@ -949,3 +1567,48 @@ def reenviar_invitacion_firma(
             status.HTTP_502_BAD_GATEWAY,
             "La invitación fue creada, pero no fue posible entregar el correo",
         ) from exc
+
+
+@router.get(
+    "/{convenio_id}/exportar",
+    summary="Exportar convenio en formato PDF o Excel",
+)
+def exportar_convenio(
+    convenio_id: int,
+    db: DatabaseSession,
+    usuario: PuedeVer,
+    formato: str = "pdf",
+) -> Response:
+    formato_normalizado = (formato or "").strip().lower()
+    if formato_normalizado not in ("pdf", "excel"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Formato no válido: '{formato}'. Formatos soportados: 'pdf', 'excel'.",
+        )
+
+    try:
+        # Además de convenios.ver, el convenio debe estar en el alcance
+        # operativo del usuario (la misma regla del detalle): fuera de él, 404.
+        # Va antes de validar para no revelar qué datos le faltan.
+        ServicioConvenios(db).verificar_alcance_operativo(convenio_id, usuario)
+        contenido, media_type, filename = ServicioExportacionConvenio().exportar(
+            convenio_id=convenio_id,
+            formato=formato_normalizado,
+            db=db,
+        )
+        return Response(
+            content=contenido,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except ErrorValidacionExportacion as exc:
+        # CA-03 de HU-24: el contrato pide el error en el nivel superior del
+        # cuerpo, no dentro de "detail".
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content=exc.como_respuesta(),
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { ApiError } from '../app/api'
+import { referenciaConvenio } from './epica02'
 import { CLAVE_REVISIONES_CONTRAPARTE, obtenerRevisionesContraparte } from './revisionContraparte'
 
 function fecha(valor: string) {
@@ -44,7 +45,7 @@ export function RevisionesContrapartePage() {
               <tbody>
                 {consulta.data.map((revision) => (
                   <tr key={revision.revision_id}>
-                    <td>{revision.codigo_convenio ?? `#${revision.convenio_id}`}</td>
+                    <td>{referenciaConvenio(revision.codigo_convenio, revision.convenio_id)}</td>
                     <td>{revision.objeto ?? '—'}</td>
                     <td>V{revision.version_numero}</td>
                     <td>{revision.enviada_por.nombre_completo}</td>

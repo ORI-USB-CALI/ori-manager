@@ -97,7 +97,7 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
     )
     assert client.patch(
         f"/api/convenios/{convenio_listo.id}/elaboracion",
-        json={"contenido": contenido, "expected_version": elaboracion["version_actual"]},
+        json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     ).status_code == 200
     segunda = client.post(
         f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"

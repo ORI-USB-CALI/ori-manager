@@ -1,13 +1,25 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, Navigate, Outlet, useMatches, useNavigate } from 'react-router-dom'
 
 import { useSesion } from '../auth/sesion'
+import { BandejaNotificaciones } from '../components/BandejaNotificaciones'
+import { CentroNotificaciones } from '../components/CentroNotificaciones'
+import { HeaderNav } from '../components/HeaderNav'
+import { OnboardingSolicitantes } from '../components/OnboardingSolicitantes'
+import { useCentroNotificaciones } from '../pages/centroNotificaciones'
+import { useNotificacionesTiempoReal } from '../pages/notificaciones'
 import { apiFetch } from './api'
+import { crearNavegacion } from './navigation'
 
 export function AppLayout() {
   const { sesion, cargando, error, puede } = useSesion()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const paginaAmplia = useMatches().some((ruta) =>
+    (ruta.handle as { layout?: string } | undefined)?.layout === 'wide',
+  )
+  const centro = useCentroNotificaciones()
+  useNotificacionesTiempoReal(Boolean(sesion))
   const logout = useMutation({
     mutationFn: () => apiFetch('/auth/logout', { method: 'POST' }),
     onSuccess: () => {
@@ -29,26 +41,30 @@ export function AppLayout() {
   }
   if (!sesion) return <Navigate to="/login" replace />
 
+  const enlaces = crearNavegacion(puede)
+
   return (
     <div className="app-shell">
       <header className="navbar">
-        <Link to="/" className="navbar-brand">
-          ORI<span className="navbar-brand-extra"> · Sistema de Gestión</span>
+        <Link to="/" className="navbar-brand" aria-label="ORI Manager — Inicio">
+          ORI Manager
         </Link>
 
-        <nav className="navbar-links" aria-label="Navegación principal">
-          <NavLink to="/" end>
-            Inicio
-          </NavLink>
-          {puede('aliados.ver') && <NavLink to="/aliados">Aliados</NavLink>}
-          {puede('solicitudes.ver_recibidas') && <NavLink to="/ori/solicitudes">Solicitudes recibidas</NavLink>}
-          {puede('convenios.ver') && <NavLink to="/convenios/tablero">Tablero de convenios</NavLink>}
-          {puede('convenios.revisar') && <NavLink to="/revisiones-juridicas">Revisiones jurídicas</NavLink>}
-          {puede('solicitudes.ver_propias') && <NavLink to="/solicitudes">Mis solicitudes</NavLink>}
-          {puede('usuarios.ver') && <NavLink to="/admin/usuarios">Usuarios</NavLink>}
-        </nav>
+        <HeaderNav enlaces={enlaces} />
 
         <div className="user-profile">
+          <OnboardingSolicitantes key={`${sesion.id}:${sesion.rol.codigo}`} sesion={sesion} />
+          <BandejaNotificaciones
+            nombre="Centro de notificaciones"
+            contador={centro.contador}
+            onAbrir={centro.refrescar}
+          >
+            <CentroNotificaciones
+              fuentes={centro.fuentes}
+              actualizando={centro.actualizando}
+              onActualizar={centro.refrescar}
+            />
+          </BandejaNotificaciones>
           <div className="user-data">
             <span className="user-email">{sesion.correo}</span>
             <span className="badge badge-rol">{sesion.rol.nombre}</span>
@@ -70,7 +86,7 @@ export function AppLayout() {
         </p>
       )}
 
-      <main className="page">
+      <main className={`page${paginaAmplia ? ' page-wide' : ''}`}>
         <Outlet />
       </main>
 

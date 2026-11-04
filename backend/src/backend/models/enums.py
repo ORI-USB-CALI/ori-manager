@@ -44,6 +44,11 @@ class TipoDocumentoSolicitud(StrEnum):
     OTRO_SOPORTE = "OTRO_SOPORTE"
 
 
+class OrigenConvenio(StrEnum):
+    SOLICITUD = "SOLICITUD"
+    MANUAL_ORI = "MANUAL_ORI"
+
+
 class EstadoConvenio(StrEnum):
     EN_TRAMITE = "EN_TRAMITE"
     VIGENTE = "VIGENTE"
@@ -52,6 +57,12 @@ class EstadoConvenio(StrEnum):
     RENOVADO = "RENOVADO"
     FINALIZADO = "FINALIZADO"
     CANCELADO = "CANCELADO"
+
+
+class EstadoSeguimientoRenovacion(StrEnum):
+    PENDIENTE_DE_DECISION = "PENDIENTE_DE_DECISION"
+    RENOVACION_INICIADA = "RENOVACION_INICIADA"
+    NO_SE_RENOVARA = "NO_SE_RENOVARA"
 
 
 class AlcanceConvenio(StrEnum):
@@ -130,3 +141,62 @@ class AccionAuditoria(StrEnum):
     INSERT = "INSERT"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
+
+
+class EjecucionAuditoria(StrEnum):
+    """HT-09. Si la acción auditada la originó una persona autenticada o un
+    proceso automático del sistema (por ejemplo, HT-10). Nula en los
+    registros previos a HT-09, que no pueden reconstruirse de forma
+    confiable."""
+
+    HUMANA = "HUMANA"
+    AUTOMATICA = "AUTOMATICA"
+
+
+class TipoNotificacion(StrEnum):
+    """HU-33. Cada valor corresponde a uno de los disparadores de CA-03 a
+    CA-06; no es un catálogo abierto para cualquier evento del sistema."""
+
+    REVISION_JURIDICA_PENDIENTE = "REVISION_JURIDICA_PENDIENTE"
+    DEVOLUCION_REVISION = "DEVOLUCION_REVISION"
+    SOLICITUD_DEVUELTA = "SOLICITUD_DEVUELTA"
+    REVISION_CONTRAPARTE_PENDIENTE = "REVISION_CONTRAPARTE_PENDIENTE"
+
+
+class EntidadNotificacion(StrEnum):
+    """Qué tipo de registro identifica `Notificacion.entidad_id` (CA-07)."""
+
+    CONVENIO = "CONVENIO"
+    SOLICITUD = "SOLICITUD"
+
+
+class ParteEjecutoraActividad(StrEnum):
+    """HU-34/HU-35. Quién ejecuta una actividad registrada sobre un
+    convenio vigente, tal como la define el MER aprobado."""
+
+    USB = "USB"
+    CONTRAPARTE = "CONTRAPARTE"
+    AMBAS = "AMBAS"
+
+
+class EstadoActividadConvenio(StrEnum):
+    PENDIENTE = "PENDIENTE"
+    EN_CURSO = "EN_CURSO"
+    REALIZADA = "REALIZADA"
+    CANCELADA = "CANCELADA"
+
+
+class CodigoGuia(StrEnum):
+    """HU-38/HU-39. Guías cuyo estado se conserva por usuario (RN-06)."""
+
+    ONBOARDING_INICIAL = "ONBOARDING_INICIAL"
+    GUIA_RADICACION = "GUIA_RADICACION"
+
+
+class EstadoGuia(StrEnum):
+    """HU-38 RN-02. PENDIENTE no se persiste: la ausencia de registro lo
+    representa (RN-03), así que la tabla solo guarda estados finales."""
+
+    PENDIENTE = "PENDIENTE"
+    COMPLETADO = "COMPLETADO"
+    OMITIDO = "OMITIDO"

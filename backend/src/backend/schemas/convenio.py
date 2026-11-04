@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -10,6 +10,7 @@ from pydantic import (
     field_validator,
 )
 
+from backend.core.validaciones import identificacion_completa
 from backend.models.enums import (
     AlcanceConvenio,
     EstadoConvenio,
@@ -19,10 +20,12 @@ from backend.models.enums import (
     EstadoRevisionConvenio,
     EstadoSolicitud,
     ModalidadFirma,
+    OrigenConvenio,
     OrigenObservacionRevision,
     ParteFirmaConvenio,
     ResultadoRevisionConvenio,
     RolFirmanteConvenio,
+    TipoAliado,
     TipoRevisionConvenio,
     TipoSolicitante,
 )
@@ -44,18 +47,53 @@ class ConvenioCamposEditables(BaseModel):
     numero_renovacion: int | None = Field(default=None, ge=0)
 
 
-class ConvenioCrear(ConvenioCamposEditables):
+class ConvenioCrear(BaseModel):
+    """Datos públicos de creación desde solicitud; los metadatos los fija el servidor.
+
+    HT-06, CA-05: `codigo` ya no se acepta. El código institucional lo genera
+    el backend al formalizar (RN-01, RN-02) y `extra="forbid"` hace que un
+    cliente que lo envíe reciba 422 en lugar de que se ignore en silencio.
+    """
+
     model_config = ConfigDict(extra="forbid")
+
     solicitud_id: int
+    tipo_convenio_id: int | None = None
     objeto: str = Field(min_length=1)
+    alcance: AlcanceConvenio | None = None
+    unidad_organizacional_id: int | None = None
+    implicacion_financiera: str | None = None
+    fecha_inicio: date | None = None
+    fecha_vencimiento: date | None = None
+    duracion_meses: int | None = Field(default=None, ge=0)
 
 
-class ConvenioElaboracionActualizar(BaseModel):
-    """Campos que HU-12 permite modificar durante Elaboración."""
+class ConvenioCrearManual(BaseModel):
+    """Datos públicos de creación en Elaboración, sin metadatos de renovación o firma.
+
+    HT-06, CA-05: `codigo` ya no se acepta, igual que en `ConvenioCrear`.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     tipo_convenio_id: int | None = None
+    aliado_id: int | None = Field(default=None, ge=1)
+    objeto: str | None = None
+    alcance: AlcanceConvenio | None = None
+    unidad_organizacional_id: int | None = None
+    implicacion_financiera: str | None = None
+    fecha_inicio: date | None = None
+    fecha_vencimiento: date | None = None
+    duracion_meses: int | None = Field(default=None, ge=0)
+
+
+class ConvenioElaboracionActualizar(BaseModel):
+    """Campos editables durante elaboración, incluido aliado opcional de HU-10."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tipo_convenio_id: int | None = None
+    aliado_id: int | None = Field(default=None, ge=1)
     objeto: str | None = None
     alcance: AlcanceConvenio | None = None
     unidad_organizacional_id: int | None = None
@@ -66,13 +104,17 @@ class ConvenioElaboracionActualizar(BaseModel):
 
 
 class ConvenioElaboracionGuardar(ConvenioElaboracionActualizar):
+    """Guardar avance: persiste el borrador sin crear una versión formal."""
+
     contenido: dict[str, Any]
-    expected_version: int = Field(ge=0)
+    # Revisión del borrador con la que se abrió el editor (0 si aún no hay
+    # borrador). Si otra persona guardó antes, la operación responde 409.
+    expected_revision: int = Field(ge=0)
 
 
 class ConvenioElaboracionFinalizar(ConvenioElaboracionActualizar):
     contenido: dict[str, Any] | None = None
-    expected_version: int | None = Field(default=None, ge=0)
+    expected_revision: int | None = Field(default=None, ge=0)
 
 
 class UsuarioResumen(BaseModel):
@@ -86,15 +128,25 @@ class AliadoResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     nombre: str
+    tipo_identificacion: str
     identificacion: str
+    digito_verificacion: str | None
     activo: bool
+
+    @computed_field
+    @property
+    def identificacion_completa(self) -> str:
+        return identificacion_completa(
+            self.tipo_identificacion, self.identificacion, self.digito_verificacion
+        )
 
 
 class ConvenioLeer(ConvenioCamposEditables):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    solicitud_id: int
+    solicitud_id: int | None
+    origen: OrigenConvenio
     aliado_id: int | None
     etapa_actual_id: int | None
     plantilla_origen_id: int | None
@@ -192,7 +244,9 @@ class SolicitudAntecedenteLeer(BaseModel):
 
     # Contraparte tal como se propuso: sigue visible aunque ya exista aliado formal.
     nombre_aliado_propuesto: str | None
+    tipo_identificacion_aliado_propuesto: str | None
     identificacion_aliado_propuesto: str | None
+    digito_verificacion_aliado_propuesto: str | None
     tipo_aliado_propuesto: str | None
     correo_aliado_propuesto: str | None
     pais_aliado_propuesto: str | None
@@ -213,16 +267,28 @@ class SolicitudAntecedenteLeer(BaseModel):
     supervisor_contraparte_telefono: str | None
     supervisor_contraparte_correo: str | None
 
+    @computed_field
+    @property
+    def identificacion_aliado_propuesto_completa(self) -> str | None:
+        return identificacion_completa(
+            self.tipo_identificacion_aliado_propuesto,
+            self.identificacion_aliado_propuesto,
+            self.digito_verificacion_aliado_propuesto,
+        )
+
 
 class ConvenioElaboracionLeer(ConvenioLeer):
     """Vista de la etapa de Elaboración: el convenio más su antecedente."""
 
-    solicitud: SolicitudAntecedenteLeer
+    solicitud: SolicitudAntecedenteLeer | None
     etapa_actual: EtapaResumen | None
     tipo_convenio: TipoConvenioResumen | None
     unidad_organizacional: UnidadOrganizacionalResumen | None
     plantilla_origen: PlantillaConvenioResumen | None
     contenido: dict[str, Any] | None
+    # Estado del borrador de trabajo, independiente de version_actual (HT-13).
+    revision_borrador: int = 0
+    borrador_guardado_en: datetime | None = None
 
 
 class CampoFaltante(BaseModel):
@@ -324,7 +390,7 @@ class RevisionJuridicaPendienteLeer(BaseModel):
     revision_id: int
     convenio_id: int
     codigo_convenio: str | None
-    solicitud_consecutivo: str
+    solicitud_consecutivo: str | None
     objeto: str | None
     tipo_convenio: TipoConvenioResumen | None
     responsable: UsuarioResumen
@@ -372,6 +438,17 @@ class ConvenioTableroLeer(BaseModel):
 class TableroConveniosLeer(BaseModel):
     etapas: list[EtapaTableroLeer]
     convenios: list[ConvenioTableroLeer]
+
+
+class AlertaVencimientoLeer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    convenio_id: int
+    codigo: str | None
+    objeto: str | None
+    fecha_vencimiento: date
+    dias_restantes: int
+    rango_vencimiento: Literal["0_30", "31_60", "61_90", "91_120"]
 
 
 class HistorialEtapaLeer(BaseModel):
@@ -609,3 +686,78 @@ class ConfigurarFirmaConvenio(BaseModel):
         if not normalizado:
             raise ValueError("El campo debe tener contenido")
         return normalizado
+
+
+class HitoLineaTiempoLeer(BaseModel):
+    codigo: Literal["INICIO_ELABORACION", "ACTIVACION", "VENCIMIENTO"]
+    nombre: str
+    # datetime para los hitos que registra el servidor; date para el vencimiento.
+    fecha: datetime | date | None
+    estado: Literal["COMPLETADO", "PENDIENTE", "PROGRAMADO"]
+
+
+# ---- HU-26: contrato de consulta compartido con HU-27 y HU-28 -------------
+# Este contrato (filtros + ConvenioConsultaItem/Listado) queda fijado para que
+# HU-27 y HU-28 solo le agreguen campos, sin reescribirlo.
+
+
+class EtapaConsultaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    codigo: str
+    nombre: str
+
+
+class TipoConvenioConsultaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+
+
+class ProgramaConsultaResumen(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+
+
+class ContraparteConsultaLeer(BaseModel):
+    """Contraparte del convenio: del Aliado formal si ya existe (CA-02), o de
+    los campos *_aliado_propuesto de la solicitud de origen mientras el
+    convenio está en trámite y aún no tiene aliado_id."""
+
+    nombre: str | None
+    tipo: str | None
+    identificacion: str | None
+    es_aliado_formal: bool
+
+
+class ConvenioConsultaItem(BaseModel):
+    id: int
+    puede_ver_detalle: bool
+    codigo: str | None
+    objeto: str | None
+    estado: EstadoConvenio
+    etapa: EtapaConsultaResumen | None
+    tipo_convenio: TipoConvenioConsultaResumen | None
+    contraparte: ContraparteConsultaLeer
+    programa: ProgramaConsultaResumen | None
+    fecha_inicio: date | None
+    fecha_vencimiento: date | None
+    fecha_formalizacion: date | None
+
+
+class ConvenioConsultaListado(BaseModel):
+    items: list[ConvenioConsultaItem]
+    total: int
+
+
+class CatalogosConsultaLeer(BaseModel):
+    """HU-28 BE-1: opciones para los filtros avanzados de /convenios.
+    No incluye un listado de aliados: CA-03 filtra por tipo de entidad, no
+    por un aliado puntual (eso ya lo resuelve la búsqueda de HU-26)."""
+
+    estados: list[EstadoConvenio]
+    tipos_contraparte: list[TipoAliado]
+    programas: list[UnidadOrganizacionalResumen]

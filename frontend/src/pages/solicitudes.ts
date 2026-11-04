@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../app/api'
 import type { TipoUsuario } from '../auth/sesion'
-import type { EstadoConvenio, TipoAliado, TipoIdentificacion } from './epica02'
+import type { EstadoConvenio, TipoAliado, TipoIdentificacion, UsuarioResumen } from './epica02'
 
 export type EstadoSolicitud = 'BORRADOR' | 'RADICADA' | 'EN_ESTUDIO' | 'DEVUELTA' | 'APROBADA' | 'RECHAZADA'
 export type TipoDocumento = 'CAMARA_COMERCIO' | 'RUT' | 'CEDULA_REPRESENTANTE_LEGAL' | 'OTRO_DOCUMENTO_REPRESENTACION' | 'OTRO_SOPORTE'
@@ -24,7 +24,10 @@ export interface Solicitud {
   unidad_organizacional_id: number | null
   solicitante_nombre: string | null
   solicitante_correo: string | null
+  solicitante_tipo_documento: TipoIdentificacion | null
   solicitante_documento: string | null
+  solicitante_digito_verificacion: string | null
+  solicitante_documento_completo: string | null
   solicitante_cargo: string | null
   solicitante_entidad: string | null
   solicitante_unidad: string | null
@@ -32,8 +35,11 @@ export interface Solicitud {
   nombre_aliado_propuesto: string | null
   tipo_identificacion_aliado_propuesto: TipoIdentificacion | null
   identificacion_aliado_propuesto: string | null
+  digito_verificacion_aliado_propuesto: string | null
+  identificacion_aliado_propuesto_completa: string | null
   tipo_aliado_propuesto: TipoAliado | null
   correo_aliado_propuesto: string | null
+  pais_aliado_propuesto_id: number | null
   pais_aliado_propuesto: string | null
   ciudad_aliado_propuesto: string | null
   telefono_aliado_propuesto: string | null
@@ -120,6 +126,96 @@ export function useSolicitudRecibida(id: number | null) {
     queryKey: ['solicitudes', 'recibidas', id],
     queryFn: () => apiFetch<SolicitudRecibida>(`/solicitudes/recibidas/${id}`),
     enabled: id !== null,
+    retry: false,
+  })
+}
+
+export interface DevolucionSolicitud {
+  observaciones: string
+  devuelta_por_nombre: string
+  devuelta_en: string
+  corregida_en_version: number | null
+}
+
+export interface VersionSolicitudHistorial {
+  numero: number
+  radicada_en: string
+  devolucion: DevolucionSolicitud | null
+}
+
+export interface HistorialSolicitud {
+  solicitud_id: number
+  consecutivo: string
+  estado: EstadoSolicitud
+  versiones: VersionSolicitudHistorial[]
+}
+
+/** La ORI consulta las solicitudes recibidas; el Solicitante, las propias. */
+export type AlcanceHistorialSolicitud = 'recibida' | 'propia'
+
+export function useHistorialSolicitud(id: number | null, alcance: AlcanceHistorialSolicitud) {
+  const recibida = alcance === 'recibida'
+  return useQuery({
+    queryKey: recibida ? ['solicitudes', 'recibidas', id, 'historial'] : ['solicitudes', id, 'historial'],
+    queryFn: () => apiFetch<HistorialSolicitud>(recibida ? `/solicitudes/recibidas/${id}/historial` : `/solicitudes/${id}/historial`),
+    enabled: id !== null,
+    retry: false,
+  })
+}
+
+export interface DocumentoVersion {
+  id: number
+  tipo: TipoDocumento
+  nombre_archivo: string
+  tipo_mime: string
+  tamano_bytes: number
+}
+
+export type ValorCampoVersion = string | number | boolean | null
+
+export interface CambioCampo {
+  campo: string
+  etiqueta: string
+  valor_anterior: ValorCampoVersion
+  valor_nuevo: ValorCampoVersion
+}
+
+export interface VersionComparada {
+  numero: number
+  radicada_en: string
+  radicada_por: UsuarioResumen
+}
+
+export interface ComparacionVersiones {
+  solicitud_id: number
+  version_base: VersionComparada
+  version_comparada: VersionComparada
+  hay_cambios: boolean
+  campos: CambioCampo[]
+  documentos: {
+    agregados: DocumentoVersion[]
+    eliminados: DocumentoVersion[]
+    sustituidos: Array<{ tipo: TipoDocumento; anterior: DocumentoVersion; nuevo: DocumentoVersion }>
+  }
+}
+
+/** HT-02: compara una versión radicada contra la anterior. */
+export function useComparacionVersionesSolicitud(
+  id: number,
+  numero: number | null,
+  alcance: AlcanceHistorialSolicitud = 'recibida',
+) {
+  const recibida = alcance === 'recibida'
+  return useQuery({
+    queryKey: recibida
+      ? ['solicitudes', 'recibidas', id, 'versiones', numero, 'comparacion']
+      : ['solicitudes', id, 'versiones', numero, 'comparacion'],
+    queryFn: () => apiFetch<ComparacionVersiones>(
+      recibida
+        ? `/solicitudes/recibidas/${id}/versiones/${numero}/comparacion`
+        : `/solicitudes/${id}/versiones/${numero}/comparacion`,
+    ),
+    enabled: numero !== null,
     retry: false,
   })
 }

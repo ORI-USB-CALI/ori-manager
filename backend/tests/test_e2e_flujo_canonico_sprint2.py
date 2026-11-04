@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
+from backend.core.validaciones import calcular_digito_verificacion_nit
 from backend.models.auditoria import Auditoria
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoFirmaConvenio
@@ -22,14 +23,19 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
 
 
-def _datos_solicitud(tipo_convenio_id: int, unico: str) -> dict[str, object]:
+def _datos_solicitud(tipo_convenio_id: int, unico: str, pais_id: int) -> dict[str, object]:
+    identificacion = f"9{int(unico[:8], 16) % 10**8:08d}"
     return {
         "nombre_aliado_propuesto": f"Universidad E2E {unico}",
         "tipo_identificacion_aliado_propuesto": "NIT",
-        "identificacion_aliado_propuesto": f"9{unico[:15]}",
+        "identificacion_aliado_propuesto": identificacion,
+        "digito_verificacion_aliado_propuesto": str(
+            calcular_digito_verificacion_nit(identificacion)
+        ),
+        "solicitante_tipo_documento": "OTRO",
         "tipo_aliado_propuesto": "UNIVERSIDAD",
         "correo_aliado_propuesto": f"convenios-{unico}@example.com",
-        "pais_aliado_propuesto": "Colombia",
+        "pais_aliado_propuesto_id": pais_id,
         "ciudad_aliado_propuesto": "Cali",
         "telefono_aliado_propuesto": "6025550101",
         "direccion_aliado_propuesto": "Calle 1 # 2-3",
@@ -110,6 +116,7 @@ def _es_subsecuencia(valores: list[str], esperados: list[str]) -> bool:
 
 
 def test_e2e_flujo_canonico_sprint2_por_api(
+    id_colombia,
     client, db, crear_usuario, entrar_como, correo_local
 ) -> None:
     unico = uuid4().hex
@@ -130,7 +137,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
 
     # Fases 1-2: solicitud, radicación, devolución, corrección y re-radicación.
     entrar_como(solicitante)
-    creada = client.post("/api/solicitudes", json=_datos_solicitud(tipo.id, unico))
+    creada = client.post("/api/solicitudes", json=_datos_solicitud(tipo.id, unico, id_colombia))
     assert creada.status_code == 201, creada.text
     solicitud_id = creada.json()["id"]
     assert creada.json()["solicitante_id"] == solicitante.id
@@ -237,7 +244,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
         f"/api/convenios/{convenio_id}/elaboracion",
         json={
             "contenido": contenido_editado,
-            "expected_version": elaboracion.json()["version_actual"],
+            "expected_revision": elaboracion.json()["revision_borrador"],
             "tipo_convenio_id": tipo.id,
             "objeto": "Convenio canónico completo del Sprint 2",
             "alcance": "INSTITUCIONAL",
@@ -246,12 +253,14 @@ def test_e2e_flujo_canonico_sprint2_por_api(
         },
     )
     assert guardada.status_code == 200, guardada.text
-    assert guardada.json()["version_actual"] > elaboracion.json()["version_actual"]
+    # Guardar avance no versiona; la versión formal nace al enviar a revisión.
+    assert guardada.json()["version_actual"] == elaboracion.json()["version_actual"]
     finalizada = client.post(
         f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": guardada.json()["version_actual"]},
+        json={"expected_revision": guardada.json()["revision_borrador"]},
     )
     assert finalizada.status_code == 200, finalizada.text
+    assert finalizada.json()["version_actual"] > elaboracion.json()["version_actual"]
     db.expire_all()
     assert db.get(Convenio, convenio_id).etapa_actual.codigo == (
         "REVISION_AVAL_JURIDICO"
@@ -356,17 +365,17 @@ def test_e2e_flujo_canonico_sprint2_por_api(
                 elaboracion_corregida.json()["contenido"],
                 "Corrección posterior a la devolución de RJ2 en E2E",
             ),
-            "expected_version": elaboracion_corregida.json()["version_actual"],
+            "expected_revision": elaboracion_corregida.json()["revision_borrador"],
         },
     )
     assert correccion.status_code == 200, correccion.text
-    version_consistente = correccion.json()["version_actual"]
-    assert version_consistente > edicion_rj2.json()["numero"]
     nueva_ronda = client.post(
         f"/api/convenios/{convenio_id}/elaboracion/finalizar",
-        json={"expected_version": version_consistente},
+        json={"expected_revision": correccion.json()["revision_borrador"]},
     )
     assert nueva_ronda.status_code == 200, nueva_ronda.text
+    version_consistente = nueva_ronda.json()["version_actual"]
+    assert version_consistente > edicion_rj2.json()["numero"]
 
     entrar_como(revisor_a)
     rj1_ronda2 = _revision_juridica_pendiente(client, convenio_id)

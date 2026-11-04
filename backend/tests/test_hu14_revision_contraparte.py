@@ -19,6 +19,7 @@ from backend.models.documento import Documento
 from backend.models.enums import AlcanceConvenio, EstadoSolicitud, TipoSolicitante
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.invitacion_revision_contraparte import InvitacionRevisionContraparte
+from backend.models.notificacion import Notificacion
 from backend.models.observacion_revision import ObservacionRevision
 from backend.models.respuesta_revision_contraparte import RespuestaRevisionContraparte
 from backend.models.revision_convenio import RevisionConvenio
@@ -172,6 +173,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict) -> None:
         ))
         sesion.execute(delete(Auditoria).where(
             Auditoria.usuario_id.in_(escenario["usuario_ids"])
+        ))
+        sesion.execute(delete(Notificacion).where(
+            Notificacion.usuario_id.in_(escenario["usuario_ids"])
         ))
         sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
         sesion.execute(delete(SolicitudConvenio).where(
@@ -412,7 +416,7 @@ def test_correccion_y_dos_avales_crean_nuevo_ciclo_sin_sobrescribir_anterior(
         convenio_listo.id,
         ConvenioElaboracionGuardar(
             contenido=_contenido_corregido(elaboracion.contenido),
-            expected_version=elaboracion.version_actual,
+            expected_revision=elaboracion.revision_borrador,
         ),
         gestor,
     )
@@ -448,8 +452,10 @@ def test_correccion_y_dos_avales_crean_nuevo_ciclo_sin_sobrescribir_anterior(
 
 
 @pytest.mark.parametrize("accion", ["acceso", "aprobar", "devolver"])
-def test_endpoints_publicos_no_existen(client, accion) -> None:
-    assert client.post(f"/api/public/revision-contraparte/{accion}").status_code == 404
+def test_endpoints_publicos_rechazan_solicitudes_sin_cuerpo(client, accion) -> None:
+    respuesta = client.post(f"/api/public/revision-contraparte/{accion}")
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"][0]["loc"] == ["body"]
 
 
 def test_fallo_commit_revierte_aprobacion_autenticada(

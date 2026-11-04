@@ -1,9 +1,22 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    ValidationInfo,
+    computed_field,
+    field_validator,
+)
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
+from backend.core.validaciones import (
+    identificacion_completa,
+    normalizar_texto_ubicacion,
+    recortar_espacios_formato,
+)
 from backend.models.enums import (
     EstadoConvenio,
     EstadoSolicitud,
@@ -15,10 +28,15 @@ from backend.models.enums import (
 from backend.schemas.convenio import EtapaResumen
 
 
-class SolicitudCampos(BaseModel):
+class SolicitudCamposEditables(BaseModel):
+    """Campos que el solicitante escribe. HT-14: el país se elige por id del
+    catálogo y el DV del NIT va aparte de la identificación."""
+
     solicitante_nombre: str | None = Field(default=None, max_length=160)
     solicitante_correo: EmailStr | None = None
+    solicitante_tipo_documento: TipoIdentificacion | None = None
     solicitante_documento: str | None = Field(default=None, max_length=40)
+    solicitante_digito_verificacion: str | None = Field(default=None, max_length=1)
     solicitante_cargo: str | None = Field(default=None, max_length=120)
     solicitante_entidad: str | None = Field(default=None, max_length=160)
     solicitante_unidad: str | None = Field(default=None, max_length=160)
@@ -26,9 +44,10 @@ class SolicitudCampos(BaseModel):
     nombre_aliado_propuesto: str | None = Field(default=None, max_length=200)
     tipo_identificacion_aliado_propuesto: TipoIdentificacion | None = None
     identificacion_aliado_propuesto: str | None = Field(default=None, max_length=40)
+    digito_verificacion_aliado_propuesto: str | None = Field(default=None, max_length=1)
     tipo_aliado_propuesto: TipoAliado | None = None
     correo_aliado_propuesto: EmailStr | None = None
-    pais_aliado_propuesto: str | None = Field(default=None, max_length=80)
+    pais_aliado_propuesto_id: int | None = None
     ciudad_aliado_propuesto: str | None = Field(default=None, max_length=120)
     telefono_aliado_propuesto: str | None = Field(default=None, max_length=40)
     direccion_aliado_propuesto: str | None = Field(default=None, max_length=200)
@@ -57,17 +76,50 @@ class SolicitudCampos(BaseModel):
 
     @field_validator("*", mode="before")
     @classmethod
-    def limpiar_texto(cls, valor: object) -> object:
+    def limpiar_texto(cls, valor: object, info: ValidationInfo) -> object:
         if isinstance(valor, str):
+            if info.field_name in {
+                "identificacion_aliado_propuesto", "solicitante_documento",
+                "digito_verificacion_aliado_propuesto", "solicitante_digito_verificacion",
+                "telefono_aliado_propuesto", "contacto_contraparte_telefono",
+                "supervisor_usb_telefono", "supervisor_contraparte_telefono",
+            }:
+                return recortar_espacios_formato(valor) or None
             return valor.strip() or None
         return valor
 
 
-class SolicitudCrear(SolicitudCampos):
+class SolicitudCampos(SolicitudCamposEditables):
+    """Campos que se guardan en cada versión radicada. El nombre del país lo
+    completa el backend desde el catálogo (HT-14)."""
+
+    pais_aliado_propuesto: str | None = Field(default=None, max_length=80)
+
+
+class SolicitudEntrada(SolicitudCamposEditables):
+    """Normalización exclusiva de escritura: no transforma lecturas históricas."""
+
+    # El servicio mide la identificación canónica con la regla de su tipo.
+    # En PATCH el tipo puede proceder de la fila guardada, no del cuerpo HTTP.
+    # Los modelos de lectura conservan max_length=40 y la columna no cambia.
+    solicitante_documento: str | None = None
+    identificacion_aliado_propuesto: str | None = None
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def limpiar_texto(cls, valor: object, info: ValidationInfo) -> object:
+        if isinstance(valor, str) and info.field_name in {
+            "ciudad_aliado_propuesto", "direccion_aliado_propuesto",
+        }:
+            return normalizar_texto_ubicacion(valor) or None
+        return super().limpiar_texto(valor, info)
+
+
+class SolicitudCrear(SolicitudEntrada):
     model_config = ConfigDict(extra="forbid")
 
 
-class SolicitudActualizar(SolicitudCampos):
+class SolicitudActualizar(SolicitudEntrada):
     model_config = ConfigDict(extra="forbid")
 
 
@@ -100,6 +152,24 @@ class SolicitudLeer(SolicitudCampos):
     documentos: list[DocumentoSolicitudLeer]
     creado_en: datetime
     actualizado_en: datetime
+
+    @computed_field
+    @property
+    def identificacion_aliado_propuesto_completa(self) -> str | None:
+        return identificacion_completa(
+            self.tipo_identificacion_aliado_propuesto,
+            self.identificacion_aliado_propuesto,
+            self.digito_verificacion_aliado_propuesto,
+        )
+
+    @computed_field
+    @property
+    def solicitante_documento_completo(self) -> str | None:
+        return identificacion_completa(
+            self.solicitante_tipo_documento,
+            self.solicitante_documento,
+            self.solicitante_digito_verificacion,
+        )
 
 
 class SolicitudListado(BaseModel):
@@ -163,3 +233,23 @@ class CatalogosSolicitud(BaseModel):
     tipos_convenio: list[TipoConvenioOpcion]
     tipos_documento: list[TipoDocumentoOpcion]
     requiere_documento_representacion: bool = True
+
+
+class DevolucionSolicitudLeer(BaseModel):
+    observaciones: str
+    devuelta_por_nombre: str
+    devuelta_en: datetime
+    corregida_en_version: int | None
+
+
+class VersionSolicitudHistorialLeer(BaseModel):
+    numero: int
+    radicada_en: datetime
+    devolucion: DevolucionSolicitudLeer | None
+
+
+class HistorialSolicitudLeer(BaseModel):
+    solicitud_id: int
+    consecutivo: str
+    estado: str
+    versiones: list[VersionSolicitudHistorialLeer]

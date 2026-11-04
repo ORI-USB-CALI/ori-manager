@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -12,13 +13,35 @@ from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import generar_token_sesion, hash_contrasena
 from backend.db.session import get_db
 from backend.main import app
+from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
-from backend.models.enums import AlcanceConvenio, EstadoSolicitud, TipoSolicitante
+from backend.models.enums import (
+    AlcanceConvenio,
+    EstadoConvenio,
+    EstadoFirmaConvenio,
+    EstadoProcesoFirmasConvenio,
+    EstadoRevisionConvenio,
+    EstadoSolicitud,
+    ParteFirmaConvenio,
+    ResultadoRevisionConvenio,
+    RolFirmanteConvenio,
+    TipoAliado,
+    TipoIdentificacion,
+    TipoRevisionConvenio,
+    TipoSolicitante,
+)
+from backend.models.etapa import Etapa
+from backend.models.firma_convenio import FirmaConvenio
+from backend.models.pais import Pais
+from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
+from backend.models.revision_convenio import RevisionConvenio
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
+from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioCrear
+from backend.services import convenios as servicio_convenios
 from backend.services.auth import DURACION_SESION
 from backend.services.convenios import ServicioConvenios
 from backend.services.correo import CorreoLocal, get_enviador_correo
@@ -86,6 +109,14 @@ def client(
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def id_colombia(db: Session) -> int:
+    """HT-14: la solicitud recibe el país por id del catálogo poblado por migración."""
+    pais_id = db.scalar(select(Pais.id).where(Pais.codigo_iso == "CO"))
+    assert pais_id is not None
+    return pais_id
 
 
 @pytest.fixture
@@ -163,6 +194,10 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
     """Crea el convenio mediante el contrato canónico de HU-06."""
 
     def _crear(autor: Usuario, **cambios) -> Convenio:
+        # HT-06, CA-05: el contrato de creación ya no acepta `codigo`; lo genera
+        # el backend al formalizar. Las pruebas que necesitan un código concreto
+        # (búsqueda por código, tablero) lo fijan sobre el modelo ya creado.
+        codigo = cambios.pop("codigo", None)
         solicitud = SolicitudConvenio(
             consecutivo=f"SOL-{uuid4().hex}",
             tipo_solicitante=TipoSolicitante.INTERNO.value,
@@ -183,10 +218,19 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        return ServicioConvenios(db).crear(
-            ConvenioCrear.model_validate(datos),
-            autor,
-        )
+        # HT-08: el fixture fabrica convenios con vigencias históricas (vigentes,
+        # vencidos) para otras HU. Se congela "hoy" en date.min para que no aplique
+        # el CA-01 (vencimiento pasado); el CA-02 (inicio <= vencimiento) sí aplica.
+        # Las reglas de HT-08 se prueban en test_ht08_validacion_vigencia.py.
+        with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min):
+            convenio = ServicioConvenios(db).crear(
+                ConvenioCrear.model_validate(datos),
+                autor,
+            )
+        if codigo is not None:
+            convenio.codigo = codigo
+            db.commit()
+        return convenio
 
     return _crear
 
@@ -203,3 +247,114 @@ def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
         fecha_inicio=date(2026, 1, 1),
         fecha_vencimiento=date(2028, 1, 1),
     )
+
+
+# ---- Fixture compartida de HU-32 (evaluación) -----------------------------
+
+
+@pytest.fixture
+def crear_convenio_finalizado(db: Session, crear_convenio) -> Callable[..., Convenio]:
+    """Convenio en estado FINALIZADO, el único evaluable hoy.
+
+    El estado se fuerza en lugar de pasar por la conciliación de
+    services/ciclo_vida_convenios.py: estas pruebas verifican las reglas de
+    evaluación, no cómo se llega a FINALIZADO, que tiene sus propias pruebas.
+    Forzarlo mantiene cada caso independiente de fechas de vencimiento.
+    """
+
+    def _crear(autor: Usuario, **cambios) -> Convenio:
+        convenio = crear_convenio(autor, **cambios)
+        convenio.estado = EstadoConvenio.FINALIZADO.value
+        db.commit()
+        return convenio
+
+    return _crear
+
+
+@pytest.fixture
+def convenio_finalizado(gestor, crear_convenio_finalizado) -> Convenio:
+    return crear_convenio_finalizado(gestor)
+
+
+# ---- Fixture compartida de HU-24 (exportación) ----------------------------
+
+
+@pytest.fixture
+def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
+    """Convenio con todos los datos que exige la exportación oficial (CA-03).
+
+    Además de lo que trae `convenio_listo` (tipo, objeto, fechas y una versión
+    con texto), registra código, aliado y un proceso de firmas con el Rector y
+    el representante legal de la entidad.
+
+    HT-06, CA-06: queda **formalizado** (estado y fecha de firma), porque eso
+    es lo que ahora habilita el documento oficial. Antes bastaba con dejarlo
+    fuera de la etapa de elaboración.
+    """
+    aliado = Aliado(
+        nombre="Universidad Aliada de Prueba",
+        tipo=TipoAliado.UNIVERSIDAD.value,
+        tipo_identificacion=TipoIdentificacion.NIT.value,
+        identificacion=f"9{uuid4().int % 10**8:08d}",
+        ciudad="Bogotá",
+    )
+    db.add(aliado)
+    db.flush()
+    convenio_listo.aliado_id = aliado.id
+    convenio_listo.codigo = f"CONV-{uuid4().hex[:8].upper()}"
+
+    version = db.scalar(
+        select(VersionConvenio).where(
+            VersionConvenio.convenio_id == convenio_listo.id,
+            VersionConvenio.numero == convenio_listo.version_actual,
+        )
+    )
+    revision_final = RevisionConvenio(
+        convenio_id=convenio_listo.id,
+        tipo=TipoRevisionConvenio.FINAL.value,
+        version_convenio_id=version.id,
+        estado=EstadoRevisionConvenio.RESUELTA.value,
+        resultado=ResultadoRevisionConvenio.APROBADA.value,
+    )
+    db.add(revision_final)
+    db.flush()
+    proceso = ProcesoFirmasConvenio(
+        convenio_id=convenio_listo.id,
+        version_convenio_id=version.id,
+        revision_final_id=revision_final.id,
+        creado_por_id=gestor.id,
+        estado=EstadoProcesoFirmasConvenio.CONFIGURACION.value,
+    )
+    db.add(proceso)
+    db.flush()
+    db.add_all(
+        [
+            FirmaConvenio(
+                proceso_firmas_id=proceso.id,
+                orden=6,
+                rol_firmante=RolFirmanteConvenio.RECTOR.value,
+                parte=ParteFirmaConvenio.UNIVERSIDAD.value,
+                nombre_firmante="Rector de Prueba",
+                cargo_firmante="Rector",
+                estado=EstadoFirmaConvenio.PENDIENTE.value,
+            ),
+            FirmaConvenio(
+                proceso_firmas_id=proceso.id,
+                orden=7,
+                rol_firmante=RolFirmanteConvenio.PARTE_SOLICITANTE.value,
+                parte=ParteFirmaConvenio.REPRESENTANTE_LEGAL_ENTIDAD.value,
+                nombre_firmante="Representante Legal de Prueba",
+                cargo_firmante="Representante legal",
+                estado=EstadoFirmaConvenio.PENDIENTE.value,
+            ),
+        ]
+    )
+    convenio_listo.etapa_actual = db.scalar(
+        select(Etapa).where(Etapa.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO")
+    )
+    convenio_listo.estado = EstadoConvenio.VIGENTE.value
+    convenio_listo.fecha_firma = date(2026, 1, 15)
+    db.commit()
+    # Las colecciones cargadas antes del commit no se refrescan solas.
+    db.refresh(convenio_listo)
+    return convenio_listo

@@ -111,6 +111,9 @@ jobs:
       - name: Run TypeScript checks
         run: npm run typecheck
 
+      - name: Run frontend tests
+        run: npm test
+
       - name: Run ESLint
         run: npm run lint
 

@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from backend.models.aliado import Aliado
     from backend.models.convenio import Convenio
     from backend.models.documento import Documento
+    from backend.models.pais import Pais
+    from backend.models.solicitud_version import SolicitudVersion
     from backend.models.tipo_convenio import TipoConvenio
     from backend.models.usuario import Usuario
 
@@ -53,6 +55,22 @@ class SolicitudConvenio(Base):
         CheckConstraint(
             f"tipo_aliado_propuesto IN ({_TIPOS_ALIADO})",
             name="ck_solicitud_tipo_aliado_propuesto",
+        ),
+        CheckConstraint(
+            f"solicitante_tipo_documento IN ({_TIPOS_IDENTIFICACION})",
+            name="ck_solicitud_solicitante_tipo_documento",
+        ),
+        CheckConstraint(
+            "digito_verificacion_aliado_propuesto IS NULL OR "
+            "(tipo_identificacion_aliado_propuesto = 'NIT' "
+            "AND digito_verificacion_aliado_propuesto ~ '^[0-9]$')",
+            name="ck_solicitud_digito_verificacion_aliado_propuesto",
+        ),
+        CheckConstraint(
+            "solicitante_digito_verificacion IS NULL OR "
+            "(solicitante_tipo_documento = 'NIT' "
+            "AND solicitante_digito_verificacion ~ '^[0-9]$')",
+            name="ck_solicitud_solicitante_digito_verificacion",
         ),
         Index("ix_solicitud_convenio_solicitante_estado", "solicitante_id", "estado"),
     )
@@ -78,11 +96,19 @@ class SolicitudConvenio(Base):
     identificacion_aliado_propuesto: Mapped[str | None] = mapped_column(
         String(40), nullable=True
     )
+    digito_verificacion_aliado_propuesto: Mapped[str | None] = mapped_column(
+        String(1), nullable=True
+    )
     tipo_aliado_propuesto: Mapped[str | None] = mapped_column(String(22), nullable=True)
     correo_aliado_propuesto: Mapped[str | None] = mapped_column(
         String(160), nullable=True
     )
     pais_aliado_propuesto: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # HT-14: el país se elige del catálogo; el texto anterior se conserva con el
+    # nombre oficial para el historial y los consumidores que ya lo leen.
+    pais_aliado_propuesto_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pais.id"), nullable=True
+    )
     ciudad_aliado_propuesto: Mapped[str | None] = mapped_column(
         String(120), nullable=True
     )
@@ -142,7 +168,13 @@ class SolicitudConvenio(Base):
     )
     solicitante_nombre: Mapped[str | None] = mapped_column(String(160), nullable=True)
     solicitante_correo: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    solicitante_tipo_documento: Mapped[str | None] = mapped_column(
+        String(33), nullable=True
+    )
     solicitante_documento: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    solicitante_digito_verificacion: Mapped[str | None] = mapped_column(
+        String(1), nullable=True
+    )
     solicitante_cargo: Mapped[str | None] = mapped_column(String(120), nullable=True)
     solicitante_entidad: Mapped[str | None] = mapped_column(String(160), nullable=True)
     solicitante_unidad: Mapped[str | None] = mapped_column(String(160), nullable=True)
@@ -186,6 +218,18 @@ class SolicitudConvenio(Base):
         back_populates="solicitud", uselist=False
     )
     tipo_convenio: Mapped[TipoConvenio | None] = relationship()
+    pais_aliado: Mapped[Pais | None] = relationship()
     solicitante: Mapped[Usuario] = relationship(foreign_keys=[solicitante_id])
     decidida_por: Mapped[Usuario | None] = relationship(foreign_keys=[decidida_por_id])
-    documentos: Mapped[list[Documento]] = relationship(back_populates="solicitud")
+    # Solo los documentos vigentes; los retirados se conservan en sus versiones.
+    documentos: Mapped[list[Documento]] = relationship(
+        primaryjoin=(
+            "and_(SolicitudConvenio.id == Documento.solicitud_id, "
+            "Documento.es_vigente.is_(True))"
+        ),
+        order_by="Documento.id",
+        viewonly=True,
+    )
+    versiones: Mapped[list[SolicitudVersion]] = relationship(
+        back_populates="solicitud", order_by="SolicitudVersion.numero"
+    )

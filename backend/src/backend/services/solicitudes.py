@@ -1,29 +1,50 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from secrets import token_hex
 
-from sqlalchemy import exists, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from backend.core.roles import TipoUsuario
 from backend.core.unidades_organizacionales import TipoUnidad
-from backend.models.auditoria import Auditoria
+from backend.core.validaciones import (
+    normalizar_ciudad,
+    normalizar_digito_verificacion_nit,
+    normalizar_direccion,
+    normalizar_identificacion,
+    normalizar_telefono,
+)
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
-    AccionAuditoria,
+    EntidadNotificacion,
     EstadoSolicitud,
     TipoAliado,
     TipoDocumentoSolicitud,
+    TipoIdentificacion,
+    TipoNotificacion,
 )
+from backend.models.pais import Pais
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.solicitud_usuario import SolicitudUsuario
+from backend.models.solicitud_version import (
+    SolicitudVersion,
+    solicitud_version_documento,
+)
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.usuario import Usuario
-from backend.schemas.solicitud import SolicitudActualizar, SolicitudCrear
+from backend.schemas.solicitud import (
+    DevolucionSolicitudLeer,
+    HistorialSolicitudLeer,
+    SolicitudActualizar,
+    SolicitudCampos,
+    SolicitudCrear,
+    VersionSolicitudHistorialLeer,
+)
+from backend.services.bitacora import describir_accion, describir_cambios_automaticos
 from backend.services.documentos import (
     EXTENSIONES_PERMITIDAS,
     TAMANO_MAXIMO_DOCUMENTO,
@@ -31,6 +52,7 @@ from backend.services.documentos import (
     TIPOS_MIME_PERMITIDOS,
     AlmacenDocumentos,
 )
+from backend.services.notificaciones import ServicioNotificaciones
 
 
 class ErrorSolicitud(Exception):
@@ -46,9 +68,18 @@ class SolicitudNoEditable(ErrorSolicitud):
 
 
 class SolicitudIncompleta(ErrorSolicitud):
-    def __init__(self, errores: dict[str, str]):
-        super().__init__("La solicitud está incompleta")
+    def __init__(
+        self, errores: dict[str, str], mensaje: str = "La solicitud está incompleta"
+    ):
+        super().__init__(mensaje)
         self.errores = errores
+
+
+class DatosSolicitudInvalidos(SolicitudIncompleta):
+    """HT-14 CA-06: errores de formato por campo, con el mismo 422 de radicación."""
+
+    def __init__(self, errores: dict[str, str]):
+        super().__init__(errores, "La solicitud tiene datos con formato inválido")
 
 
 class DocumentoInvalido(ErrorSolicitud):
@@ -63,9 +94,51 @@ class SolicitudNoRevisable(ErrorSolicitud):
     pass
 
 
+# HT-14: campos con reglas de formato (core/validaciones.py).
+CAMPOS_TELEFONO = (
+    "telefono_aliado_propuesto",
+    "contacto_contraparte_telefono",
+    "supervisor_usb_telefono",
+    "supervisor_contraparte_telefono",
+)
+# (tipo, número, dígito de verificación) de cada identificación de la solicitud.
+GRUPOS_IDENTIFICACION = (
+    (
+        "tipo_identificacion_aliado_propuesto",
+        "identificacion_aliado_propuesto",
+        "digito_verificacion_aliado_propuesto",
+    ),
+    (
+        "solicitante_tipo_documento",
+        "solicitante_documento",
+        "solicitante_digito_verificacion",
+    ),
+)
+CAMPOS_CON_FORMATO = frozenset(
+    {
+        *CAMPOS_TELEFONO,
+        "ciudad_aliado_propuesto",
+        "direccion_aliado_propuesto",
+        "pais_aliado_propuesto_id",
+        *(campo for grupo in GRUPOS_IDENTIFICACION for campo in grupo),
+    }
+)
+
+# Campos que se guardan en cada versión radicada. El país se conserva por su
+# nombre: el id no es legible y duplicaría el cambio al comparar versiones.
+CAMPOS_VERSION = tuple(
+    campo for campo in SolicitudCampos.model_fields if campo != "pais_aliado_propuesto_id"
+)
+
 ESTADOS_PENDIENTES_REVISION = frozenset(
     {EstadoSolicitud.RADICADA.value, EstadoSolicitud.EN_ESTUDIO.value}
 )
+
+ACCION_POR_DECISION = {
+    EstadoSolicitud.APROBADA: "Aceptó la solicitud",
+    EstadoSolicitud.RECHAZADA: "Rechazó la solicitud",
+    EstadoSolicitud.DEVUELTA: "Devolvió la solicitud al Solicitante para corrección",
+}
 
 
 class ServicioSolicitudes:
@@ -144,7 +217,12 @@ class ServicioSolicitudes:
         return solicitud
 
     def crear(self, datos: SolicitudCrear, usuario: Usuario) -> SolicitudConvenio:
-        valores = {**self._snapshot(usuario), **self._valores(datos)}
+        recibidos = self._valores(datos)
+        valores = {**self._snapshot(usuario), **recibidos}
+        ajustes, errores = self._validar_formatos(valores, set(recibidos))
+        if errores:
+            raise DatosSolicitudInvalidos(errores)
+        valores.update(ajustes)
         solicitud = SolicitudConvenio(
             consecutivo=f"TEMP-{token_hex(12)}",
             solicitante_id=usuario.id,
@@ -182,10 +260,82 @@ class ServicioSolicitudes:
         self._validar_tipo_convenio(
             cambios.get("tipo_convenio_id", solicitud.tipo_convenio_id)
         )
+        # Un PATCH puede traer solo una parte de una identificación: se valida
+        # sobre la combinación de lo recibido con lo ya guardado.
+        efectivos = {
+            campo: getattr(solicitud, campo) for campo in CAMPOS_CON_FORMATO
+        } | cambios
+        ajustes, errores = self._validar_formatos(efectivos, set(cambios))
+        if errores:
+            raise DatosSolicitudInvalidos(errores)
+        cambios.update(ajustes)
         for campo, valor in cambios.items():
             setattr(solicitud, campo, valor)
         self.db.commit()
         return self.obtener(solicitud.id, usuario)
+
+    def _validar_formatos(
+        self, valores: dict[str, object], campos: set[str]
+    ) -> tuple[dict[str, object], dict[str, str]]:
+        """HT-14. Valida los ``campos`` indicados sobre ``valores`` y devuelve
+        los valores canónicos a guardar y los errores por campo.
+
+        Los campos vacíos no se validan aquí: la obligatoriedad se exige solo
+        al radicar (CA-05).
+        """
+        ajustes: dict[str, object] = {}
+        errores: dict[str, str] = {}
+
+        def aplicar(campo: str, regla, *argumentos) -> object:
+            try:
+                ajustes[campo] = regla(*argumentos)
+            except ValueError as error:
+                errores[campo] = str(error)
+            return ajustes.get(campo)
+
+        for campo in CAMPOS_TELEFONO:
+            if campo in campos and valores.get(campo):
+                aplicar(campo, normalizar_telefono, valores[campo])
+        for campo, regla in (
+            ("ciudad_aliado_propuesto", normalizar_ciudad),
+            ("direccion_aliado_propuesto", normalizar_direccion),
+        ):
+            if campo in campos and valores.get(campo):
+                aplicar(campo, regla, valores[campo])
+
+        for campo_tipo, campo_numero, campo_dv in GRUPOS_IDENTIFICACION:
+            if not campos.intersection((campo_tipo, campo_numero, campo_dv)):
+                continue
+            tipo = valores.get(campo_tipo)
+            numero = valores.get(campo_numero)
+            digito = valores.get(campo_dv)
+            if tipo != TipoIdentificacion.NIT and digito:
+                if campo_dv in campos:
+                    errores[campo_dv] = "El dígito de verificación solo aplica a NIT"
+                else:
+                    # El tipo dejó de ser NIT: el DV ya no tiene sentido.
+                    ajustes[campo_dv] = None
+                digito = None
+            base = (
+                aplicar(campo_numero, normalizar_identificacion, TipoIdentificacion(tipo) if tipo else TipoIdentificacion.OTRO, numero)
+                if numero
+                else None
+            )
+            # Un borrador puede tener DV sin base: su sintaxis sí se valida;
+            # la coincidencia matemática espera a que exista una base válida.
+            if tipo == TipoIdentificacion.NIT and digito:
+                aplicar(campo_dv, normalizar_digito_verificacion_nit, base, digito)
+
+        if "pais_aliado_propuesto_id" in campos:
+            pais_id = valores.get("pais_aliado_propuesto_id")
+            pais = self.db.get(Pais, pais_id) if pais_id is not None else None
+            if pais_id is not None and pais is None:
+                errores["pais_aliado_propuesto_id"] = "El país seleccionado no existe"
+            else:
+                # El nombre oficial se conserva para el historial y los
+                # consumidores que leen el país como texto.
+                ajustes["pais_aliado_propuesto"] = pais.nombre if pais else None
+        return ajustes, errores
 
     def listar(self, usuario: Usuario) -> list[SolicitudConvenio]:
         return list(
@@ -238,6 +388,40 @@ class ServicioSolicitudes:
             raise SolicitudNoEncontrada("Solicitud recibida no encontrada")
         return solicitud
 
+    def historial(self, solicitud: SolicitudConvenio) -> HistorialSolicitudLeer:
+        """HT-02 CA-05: cada radicación con su devolución y la versión que la corrigió."""
+        versiones = self.db.scalars(
+            select(SolicitudVersion)
+            .where(SolicitudVersion.solicitud_id == solicitud.id)
+            .options(selectinload(SolicitudVersion.devuelta_por))
+            .order_by(SolicitudVersion.numero)
+        ).all()
+        numeros = {version.numero for version in versiones}
+        return HistorialSolicitudLeer(
+            solicitud_id=solicitud.id,
+            consecutivo=solicitud.consecutivo,
+            estado=solicitud.estado,
+            versiones=[
+                VersionSolicitudHistorialLeer(
+                    numero=version.numero,
+                    radicada_en=version.radicada_en,
+                    devolucion=None
+                    if version.devuelta_en is None
+                    else DevolucionSolicitudLeer(
+                        observaciones=version.observaciones_devolucion,
+                        devuelta_por_nombre=version.devuelta_por.nombre_completo,
+                        devuelta_en=version.devuelta_en,
+                        corregida_en_version=(
+                            version.numero + 1
+                            if version.numero + 1 in numeros
+                            else None
+                        ),
+                    ),
+                )
+                for version in versiones
+            ],
+        )
+
     def _decidir(
         self, solicitud_id: int, actor: Usuario, estado: EstadoSolicitud
     ) -> SolicitudConvenio:
@@ -246,20 +430,19 @@ class ServicioSolicitudes:
             raise SolicitudNoRevisable(
                 f"La solicitud está {solicitud.estado} y ya no admite decisión"
             )
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="estado",
-                valor_anterior=solicitud.estado,
-                valor_nuevo=estado.value,
-            )
+        instante = datetime.now(UTC)
+        describir_accion(
+            self.db,
+            actor,
+            ACCION_POR_DECISION[estado],
+            instante=instante,
+            evento=f"SOLICITUD_{estado.value}",
+            # El solicitante es titular de la solicitud, no responsable de la
+            # decisión de ORI; no existe una asignación institucional verificable.
         )
         solicitud.estado = estado.value
         solicitud.decidida_por = actor
-        solicitud.fecha_decision = datetime.now(UTC)
+        solicitud.fecha_decision = instante
         return solicitud
 
     def aceptar(self, solicitud_id: int, actor: Usuario) -> SolicitudConvenio:
@@ -279,19 +462,32 @@ class ServicioSolicitudes:
         self, solicitud_id: int, observaciones: str, actor: Usuario
     ) -> SolicitudConvenio:
         solicitud = self._decidir(solicitud_id, actor, EstadoSolicitud.DEVUELTA)
-        self.db.add(
-            Auditoria(
-                usuario_id=actor.id,
-                entidad="solicitud",
-                registro_id=solicitud.id,
-                accion=AccionAuditoria.UPDATE.value,
-                campo="observaciones_devolucion",
-                valor_anterior=solicitud.observaciones_devolucion,
-                valor_nuevo=observaciones,
+        notificaciones = ServicioNotificaciones(self.db)
+        try:
+            solicitud.observaciones_devolucion = observaciones
+            version = self.db.scalar(
+                select(SolicitudVersion)
+                .where(SolicitudVersion.solicitud_id == solicitud.id)
+                .order_by(SolicitudVersion.numero.desc())
+                .limit(1)
             )
-        )
-        solicitud.observaciones_devolucion = observaciones
-        self.db.commit()
+            # Las solicitudes radicadas antes de HT-02 no tienen versión que marcar.
+            if version is not None:
+                version.observaciones_devolucion = observaciones
+                version.devuelta_por_id = actor.id
+                version.devuelta_en = solicitud.fecha_decision
+            notificaciones.crear(
+                solicitud.solicitante_id,
+                TipoNotificacion.SOLICITUD_DEVUELTA,
+                EntidadNotificacion.SOLICITUD,
+                solicitud.id,
+                f"Su solicitud {solicitud.consecutivo} fue devuelta con observaciones.",
+            )
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        notificaciones.avisar_tiempo_real()
         return self.obtener_recibida(solicitud_id)
 
     def obtener_contenido_documento_recibido(
@@ -360,10 +556,54 @@ class ServicioSolicitudes:
         )
         if documento is None:
             raise SolicitudNoEncontrada("Documento no encontrado")
+        if self._pertenece_a_version(documento):
+            documento.es_vigente = False
+            self.db.commit()
+            self.db.expire(solicitud, ["documentos"])
+            return
         clave = documento.ruta_almacenamiento
         self.db.delete(documento)
         self.db.commit()
+        self.db.expire(solicitud, ["documentos"])
         self._almacen_requerido().eliminar(clave)
+
+    def _pertenece_a_version(self, documento: Documento) -> bool:
+        return bool(
+            self.db.scalar(
+                select(
+                    exists().where(
+                        solicitud_version_documento.c.documento_id == documento.id
+                    )
+                )
+            )
+        )
+
+    @staticmethod
+    def _datos_version(solicitud: SolicitudConvenio) -> dict[str, object]:
+        datos: dict[str, object] = {}
+        for campo in CAMPOS_VERSION:
+            valor = getattr(solicitud, campo)
+            datos[campo] = valor.isoformat() if isinstance(valor, date) else valor
+        return datos
+
+    def _registrar_version(
+        self, solicitud: SolicitudConvenio, usuario: Usuario, instante: datetime
+    ) -> None:
+        ultimo = self.db.scalar(
+            select(func.max(SolicitudVersion.numero)).where(
+                SolicitudVersion.solicitud_id == solicitud.id
+            )
+        )
+        self.db.add(
+            SolicitudVersion(
+                solicitud_id=solicitud.id,
+                numero=(ultimo or 0) + 1,
+                datos=self._datos_version(solicitud),
+                radicada_por_id=usuario.id,
+                radicada_en=instante,
+                documentos=list(solicitud.documentos),
+            )
+        )
 
     def _errores_radicacion(
         self, solicitud: SolicitudConvenio, usuario: Usuario
@@ -374,7 +614,7 @@ class ServicioSolicitudes:
             "identificacion_aliado_propuesto",
             "tipo_aliado_propuesto",
             "correo_aliado_propuesto",
-            "pais_aliado_propuesto",
+            "pais_aliado_propuesto_id",
             "ciudad_aliado_propuesto",
             "telefono_aliado_propuesto",
             "direccion_aliado_propuesto",
@@ -430,10 +670,30 @@ class ServicioSolicitudes:
             if not solicitud.solicitante_cargo:
                 errores["solicitante_cargo"] = "Este campo es obligatorio"
         else:
+            if not solicitud.solicitante_tipo_documento:
+                errores["solicitante_tipo_documento"] = "Este campo es obligatorio"
             if not solicitud.solicitante_documento:
                 errores["solicitante_documento"] = "Este campo es obligatorio"
+            if (
+                solicitud.solicitante_tipo_documento == TipoIdentificacion.NIT
+                and not solicitud.solicitante_digito_verificacion
+            ):
+                errores["solicitante_digito_verificacion"] = "Este campo es obligatorio"
             if not solicitud.solicitante_entidad:
                 errores["solicitante_entidad"] = "Este campo es obligatorio"
+        if (
+            solicitud.tipo_identificacion_aliado_propuesto == TipoIdentificacion.NIT
+            and not solicitud.digito_verificacion_aliado_propuesto
+        ):
+            errores["digito_verificacion_aliado_propuesto"] = "Este campo es obligatorio"
+        # RN-09 y RN-10: los valores guardados antes de HT-14 o en una solicitud
+        # devuelta se revalidan al radicar, sin corregirlos automáticamente.
+        _, errores_formato = self._validar_formatos(
+            {campo: getattr(solicitud, campo) for campo in CAMPOS_CON_FORMATO},
+            set(CAMPOS_CON_FORMATO),
+        )
+        for campo, mensaje in errores_formato.items():
+            errores.setdefault(campo, mensaje)
         cargados = {item.tipo for item in solicitud.documentos}
         tipos_representacion = {
             tipo.value for tipo in TIPOS_DOCUMENTO_REPRESENTACION
@@ -454,11 +714,38 @@ class ServicioSolicitudes:
         errores = self._errores_radicacion(solicitud, usuario)
         if errores:
             raise SolicitudIncompleta(errores)
-        solicitud.estado = EstadoSolicitud.RADICADA.value
         instante = datetime.now(UTC)
+        reradicacion = solicitud.estado == EstadoSolicitud.DEVUELTA.value
+        describir_accion(
+            self.db,
+            usuario,
+            "Volvió a radicar la solicitud corregida"
+            if reradicacion
+            else "Radicó la solicitud",
+            instante=instante,
+            evento="SOLICITUD_RERADICADA" if reradicacion else "SOLICITUD_RADICADA",
+            responsable_id=solicitud.solicitante_id,
+        )
+        describir_cambios_automaticos(
+            self.db, solicitud, "estado", "fecha_radicacion", "fecha_recibido_ori",
+            "decidida_por_id", "fecha_decision",
+        )
+        solicitud.estado = EstadoSolicitud.RADICADA.value
         solicitud.fecha_radicacion = instante
         solicitud.fecha_recibido_ori = instante
         solicitud.decidida_por_id = None
         solicitud.fecha_decision = None
-        self.db.commit()
+        notificaciones = ServicioNotificaciones(self.db)
+        try:
+            self._registrar_version(solicitud, usuario, instante)
+            notificaciones.resolver(
+                TipoNotificacion.SOLICITUD_DEVUELTA,
+                EntidadNotificacion.SOLICITUD,
+                solicitud.id,
+            )
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        notificaciones.avisar_tiempo_real()
         return self.obtener(solicitud.id, usuario)

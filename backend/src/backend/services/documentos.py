@@ -1,11 +1,12 @@
-from __future__ import annotations
-
+import logging
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 from urllib.parse import quote
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from backend.core.config import settings
 from backend.models.enums import TipoDocumentoSolicitud
@@ -225,12 +226,30 @@ class AlmacenDocumentosMicrosoftGraph:
                 raise ErrorAlmacenDocumentos(
                     "Microsoft Graph devolvió una carpeta inválida"
                 ) from exc
-        self._solicitar(
-            "PUT",
-            f"{self._ruta_item(parent_id, (partes[-1],))}:/content",
-            content=contenido,
-            headers={"Content-Type": "application/octet-stream"},
-        )
+        try:
+            self._solicitar(
+                "PUT",
+                f"{self._ruta_item(parent_id, (partes[-1],))}:/content",
+                content=contenido,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+        except ErrorAlmacenDocumentos:
+            # Caso en el que OneDrive guarda el archivo pero la respuesta falla por timeout:
+            # no asumir automáticamente que el archivo no existe; verificar si ya está disponible.
+            try:
+                if self.existe(clave):
+                    logger.info(
+                        "Archivo %s confirmado en OneDrive tras fallo en la respuesta de guardado",
+                        clave,
+                    )
+                    return
+            except ErrorAlmacenDocumentos as exc_existe:
+                logger.debug(
+                    "No fue posible verificar existencia tras fallo de guardado en %s: %s",
+                    clave,
+                    exc_existe,
+                )
+            raise
 
     def existe(self, clave: str) -> bool:
         return self._buscar(self._partes(clave)).status_code != 404

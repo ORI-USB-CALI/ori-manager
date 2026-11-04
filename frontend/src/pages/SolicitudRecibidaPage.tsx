@@ -5,8 +5,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
+import { DocumentoPreviewModal } from '../components/DocumentoPreviewModal'
 import type { Convenio } from './epica02'
-import { useSolicitudRecibida } from './solicitudes'
+import { type SolicitudRecibida, useSolicitudRecibida } from './solicitudes'
 
 function valor(dato: string | null | undefined) {
   return dato || '—'
@@ -34,28 +35,39 @@ export function SolicitudRecibidaPage() {
   const [observacionesDevolucion, setObservacionesDevolucion] = useState('')
   const [rechazando, setRechazando] = useState(false)
   const [devolviendo, setDevolviendo] = useState(false)
-  const refrescar = () => cliente.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] })
+  const [documentoPreview, setDocumentoPreview] = useState<{
+    nombre: string
+    urlContenido: string
+    urlDescarga?: string
+    tipoMime?: string
+  } | null>(null)
+  const refrescar = async (actualizada: SolicitudRecibida) => {
+    cliente.setQueryData(['solicitudes', 'recibidas', actualizada.id], actualizada)
+    await cliente.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] })
+    await cliente.invalidateQueries({ queryKey: ['solicitudes', 'mias'] })
+    await cliente.invalidateQueries({ queryKey: ['solicitudes', actualizada.id] })
+  }
   const aceptar = useMutation({
-    mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/aceptar`, { method: 'POST' }),
-    onSuccess: async () => {
-      await refrescar()
-      notify({ type: 'success', message: 'Solicitud aceptada' })
+    mutationFn: () => apiFetch<SolicitudRecibida>(`/solicitudes/recibidas/${id}/aceptar`, { method: 'POST' }),
+    onSuccess: async (actualizada) => {
+      await refrescar(actualizada)
+      notify({ type: 'success', message: 'Solicitud aprobada' })
     },
     onError: (error: Error) => notify({ type: 'error', message: error.message }),
   })
   const rechazar = useMutation({
-    mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/rechazar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
-    onSuccess: async () => {
-      await refrescar()
+    mutationFn: () => apiFetch<SolicitudRecibida>(`/solicitudes/recibidas/${id}/rechazar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+    onSuccess: async (actualizada) => {
+      await refrescar(actualizada)
       setRechazando(false)
       notify({ type: 'success', message: 'Solicitud rechazada' })
     },
     onError: (error: Error) => notify({ type: 'error', message: error.message }),
   })
   const devolver = useMutation({
-    mutationFn: () => apiFetch(`/solicitudes/recibidas/${id}/devolver`, { method: 'POST', body: JSON.stringify({ observaciones: observacionesDevolucion }) }),
-    onSuccess: async () => {
-      await refrescar()
+    mutationFn: () => apiFetch<SolicitudRecibida>(`/solicitudes/recibidas/${id}/devolver`, { method: 'POST', body: JSON.stringify({ observaciones: observacionesDevolucion }) }),
+    onSuccess: async (actualizada) => {
+      await refrescar(actualizada)
       setDevolviendo(false)
       notify({ type: 'success', message: 'Solicitud devuelta con observaciones' })
     },
@@ -105,18 +117,76 @@ export function SolicitudRecibidaPage() {
         <dt>Supervisor contraparte</dt><dd>{[solicitud.supervisor_contraparte_nombre, solicitud.supervisor_contraparte_cargo, solicitud.supervisor_contraparte_correo, solicitud.supervisor_contraparte_telefono].filter(Boolean).join(' · ') || '—'}</dd>
       </dl></section>
 
-      <section className="card"><h2>Documentos adjuntos</h2>
-        {solicitud.documentos.length === 0 ? <p>No hay documentos adjuntos.</p> : <ul>{solicitud.documentos.map((documento) => <li key={documento.id}><a href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido`} target="_blank" rel="noreferrer">{documento.nombre_original}</a> <span className="badge">{documento.tipo_documento}</span></li>)}</ul>}
+      <section className="card">
+        <h2>Documentos adjuntos</h2>
+        {solicitud.documentos.length === 0 ? (
+          <p>No hay documentos adjuntos.</p>
+        ) : (
+          <ul className="solicitud-documentos-lista">
+            {solicitud.documentos.map((documento) => (
+              <li key={documento.id} className="solicitud-documento-item">
+                <div className="solicitud-documento-info">
+                  <a
+                    href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=inline`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(evento) => {
+                      evento.preventDefault()
+                      setDocumentoPreview({
+                        nombre: documento.nombre_original,
+                        urlContenido: `/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=inline`,
+                        urlDescarga: `/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=attachment`,
+                        tipoMime: documento.tipo_mime,
+                      })
+                    }}
+                  >
+                    {documento.nombre_original}
+                  </a>{' '}
+                  <span className="badge">{documento.tipo_documento}</span>
+                </div>
+                <div className="solicitud-documento-acciones">
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-small"
+                    onClick={() =>
+                      setDocumentoPreview({
+                        nombre: documento.nombre_original,
+                        urlContenido: `/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=inline`,
+                        urlDescarga: `/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=attachment`,
+                        tipoMime: documento.tipo_mime,
+                      })
+                    }
+                  >
+                    Previsualizar
+                  </button>
+                  <a
+                    className="btn btn-outline btn-small"
+                    href={`/api/solicitudes/recibidas/${solicitud.id}/documentos/${documento.id}/contenido?disposicion=attachment`}
+                    download={documento.nombre_original}
+                  >
+                    Descargar
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {solicitud.fecha_decision && (
         <section className="card"><h2>Decisión ORI</h2><dl>
-          <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : solicitud.estado === 'DEVUELTA' ? 'Devuelta' : 'Aceptada'}</dd>
+          <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : solicitud.estado === 'DEVUELTA' ? 'Devuelta' : 'Aprobada'}</dd>
           <dt>Responsable</dt><dd>{valor(solicitud.decidida_por_nombre)}</dd>
           <dt>Fecha y hora</dt><dd>{new Date(solicitud.fecha_decision).toLocaleString()}</dd>
-          {solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
-          {solicitud.observaciones_devolucion && <><dt>Observaciones de devolución</dt><dd>{solicitud.observaciones_devolucion}</dd></>}
+          {solicitud.estado === 'RECHAZADA' && solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
+          {solicitud.estado === 'DEVUELTA' && solicitud.observaciones_devolucion && <><dt>Observaciones de devolución</dt><dd>{solicitud.observaciones_devolucion}</dd></>}
         </dl></section>
+      )}
+
+      {solicitud.estado !== 'DEVUELTA' && solicitud.observaciones_devolucion && (
+        <section className="card"><h2>Observaciones de devolución anterior</h2>
+          <p>{solicitud.observaciones_devolucion}</p>
+        </section>
       )}
 
       {pendiente && gestiona && rechazando && (
@@ -143,14 +213,25 @@ export function SolicitudRecibidaPage() {
 
       <div className="page-toolbar">
         <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
+        <Link className="btn btn-outline" to={`/ori/solicitudes/${solicitud.id}/historial`}>Ver historial</Link>
         {pendiente && gestiona && !rechazando && !devolviendo && <>
           <button className="btn btn-danger" type="button" disabled={ocupado} onClick={() => setRechazando(true)}>Rechazar</button>
           <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setDevolviendo(true)}>Devolver</button>
-          <button className="btn btn-primary" type="button" disabled={ocupado} onClick={() => window.confirm('¿Confirma que acepta esta solicitud?') && aceptar.mutate()}>Aceptar</button>
+          <button className="btn btn-primary" type="button" disabled={ocupado} onClick={() => window.confirm('¿Confirma que aprueba esta solicitud?') && aceptar.mutate()}>Aprobar</button>
         </>}
         {solicitud.estado === 'APROBADA' && solicitud.convenio_id && gestiona && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
         {solicitud.estado === 'APROBADA' && !solicitud.convenio_id && gestiona && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
       </div>
+
+      {documentoPreview && (
+        <DocumentoPreviewModal
+          nombreArchivo={documentoPreview.nombre}
+          urlContenido={documentoPreview.urlContenido}
+          urlDescarga={documentoPreview.urlDescarga}
+          tipoMime={documentoPreview.tipoMime}
+          onCerrar={() => setDocumentoPreview(null)}
+        />
+      )}
     </>
   )
 }

@@ -108,8 +108,24 @@ that credential: the Staging FastAPI service continues to run exclusively as
 build or startup.
 
 Pull requests and pushes to `main` never run the Staging migration job.
-Production migrations remain a controlled manual operation as documented in
-[`production-release.md`](production-release.md).
+### Production migrations
+
+On `push` to `main` following the controlled `develop -> main` release PR,
+GitHub Actions runs the `Production DB Migrations` job automatically after
+Backend CI and Frontend CI succeed. It uses the `production` GitHub Environment
+and its administrative migration secrets:
+
+```text
+PRODUCTION_MIGRATION_DATABASE_HOST
+PRODUCTION_MIGRATION_DATABASE_USER
+PRODUCTION_MIGRATION_DATABASE_PASSWORD
+```
+
+The job checks Alembic heads/current, applies `alembic upgrade head`, and
+verifies the final revision. Runtime FastAPI credentials are not used for DDL.
+Render Production deploys after the configured CI checks pass and does not
+execute Alembic migrations in application startup. On failure stop the release,
+review actual DB state, and follow [`production-release.md`](production-release.md).
 
 ### Supabase / cloud runtime
 
@@ -248,11 +264,16 @@ The baseline revision has been validated with:
 uv run alembic current
 ```
 
-Expected result:
+Historical baseline validation result (at the initial cloud setup):
 
 ```text
-56626120dc9a (head)
+56626120dc9a (head at that time)
 ```
+
+This baseline is **not** a statement of the current revision of any deployed
+environment. Check `alembic heads` and `alembic current` on the relevant
+revision and connection. The 07/10/2026 production migration run (R0)
+finished at `68abde7e23b2` (historical result, not live current state).
 
 Schema changes must be performed through versioned Alembic migrations rather than manual changes in the Supabase Table Editor.
 

@@ -37,6 +37,7 @@ from backend.models.tipo_convenio import TipoConvenio
 from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.usuario import Usuario
 from backend.schemas.convenio import ConvenioCrear
+from backend.services import convenios as servicio_convenios
 from backend.services.convenios import ServicioConvenios
 
 
@@ -95,6 +96,7 @@ def _auditoria_de(db: Session, convenio_id: int) -> list[Auditoria]:
             .where(
                 Auditoria.entidad == "convenio",
                 Auditoria.registro_id == convenio_id,
+                Auditoria.accion == AccionAuditoria.UPDATE.value,
             )
             .order_by(Auditoria.campo)
         )
@@ -541,7 +543,7 @@ def test_ca06_finalizar_programa_sin_unidad_es_rechazado(
 
 
 def test_ca06_vencimiento_anterior_al_inicio_se_reporta(
-    client, db, gestor, crear_convenio
+    client, db, gestor, crear_convenio, monkeypatch
 ) -> None:
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
     convenio = crear_convenio(
@@ -549,8 +551,14 @@ def test_ca06_vencimiento_anterior_al_inicio_se_reporta(
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo",
         duracion_meses=12,
-        fecha_inicio=date(2026, 6, 1),
-        fecha_vencimiento=date(2026, 1, 1),
+    )
+    # HT-08 ya rechaza esta vigencia al crear o editar; se simula un dato
+    # cargado antes de esa regla para comprobar que la validación lo reporta.
+    convenio.fecha_inicio = date(2026, 6, 1)
+    convenio.fecha_vencimiento = date(2026, 1, 1)
+    db.commit()
+    monkeypatch.setattr(
+        servicio_convenios, "fecha_actual_dominio", lambda: date(2025, 12, 1)
     )
 
     cuerpo = client.get(
@@ -723,14 +731,16 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     assert revision.historial_etapa_id == transicion.id
 
 
-def test_ca08_snapshot_congela_los_trece_campos(client, db, convenio_listo) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+def test_ca08_snapshot_congela_los_catorce_campos(client, db, convenio_listo) -> None:
+    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    assert respuesta.status_code == 200, respuesta.text
 
     snapshot = _revisiones_de(db, convenio_listo.id)[0].snapshot_datos
 
     assert set(snapshot) == {
         "codigo",
         "solicitud_id",
+        "origen",
         "aliado_id",
         "tipo_convenio_id",
         "objeto",
@@ -744,6 +754,7 @@ def test_ca08_snapshot_congela_los_trece_campos(client, db, convenio_listo) -> N
         "numero_renovacion",
     }
     assert snapshot["objeto"] == convenio_listo.objeto
+    assert snapshot["origen"] == "SOLICITUD"
     assert snapshot["duracion_meses"] == 24
     assert snapshot["fecha_inicio"] == "2026-01-01"
     # Los nulos se conservan como nulos, no se omiten ni se rellenan.

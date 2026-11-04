@@ -8,21 +8,27 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
-from backend.models.enums import AlcanceConvenio, EstadoConvenio
+from backend.models.enums import AlcanceConvenio, EstadoConvenio, OrigenConvenio
 
 if TYPE_CHECKING:
+    from backend.models.actividad_convenio import ActividadConvenio
     from backend.models.aliado import Aliado
+    from backend.models.borrador_convenio import BorradorConvenio
+    from backend.models.decision_no_renovacion import DecisionNoRenovacion
     from backend.models.documento import Documento
     from backend.models.etapa import Etapa
+    from backend.models.evaluacion_convenio import EvaluacionConvenio
     from backend.models.historial_etapa import HistorialEtapa
     from backend.models.observacion_revision import ObservacionRevision
     from backend.models.plantilla_convenio import PlantillaConvenio
@@ -36,20 +42,35 @@ if TYPE_CHECKING:
 
 _ESTADOS = ", ".join(f"'{valor.value}'" for valor in EstadoConvenio)
 _ALCANCES = ", ".join(f"'{valor.value}'" for valor in AlcanceConvenio)
+_ORIGENES = ", ".join(f"'{valor.value}'" for valor in OrigenConvenio)
 
 
 class Convenio(Base):
     __tablename__ = "convenio"
     __table_args__ = (
         CheckConstraint(f"estado IN ({_ESTADOS})", name="ck_convenio_estado"),
+        CheckConstraint(f"origen IN ({_ORIGENES})", name="ck_convenio_origen"),
+        CheckConstraint("(origen = 'SOLICITUD' AND solicitud_id IS NOT NULL) OR (origen = 'MANUAL_ORI' AND solicitud_id IS NULL)", name="ck_convenio_origen_solicitud"),
         CheckConstraint(f"alcance IS NULL OR alcance IN ({_ALCANCES})", name="ck_convenio_alcance"),
         CheckConstraint("porcentaje_avance IS NULL OR porcentaje_avance BETWEEN 0 AND 100", name="ck_convenio_porcentaje_avance"),
         CheckConstraint("version_actual >= 0", name="ck_convenio_version_actual_no_negativa"),
+        Index(
+            "uq_convenio_origen_renovacion_activa",
+            "convenio_origen_id",
+            unique=True,
+            postgresql_where=text(
+                "convenio_origen_id IS NOT NULL AND estado = 'EN_TRAMITE'"
+            ),
+        ),
+        # HU-27 BE-4: filtros de fecha de ConsultaConveniosPage.
+        Index("ix_convenio_fecha_firma", "fecha_firma"),
+        Index("ix_convenio_vigencia", "fecha_inicio", "fecha_vencimiento"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     codigo: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
-    solicitud_id: Mapped[int] = mapped_column(ForeignKey("solicitud_convenio.id"), unique=True, nullable=False)
+    solicitud_id: Mapped[int | None] = mapped_column(ForeignKey("solicitud_convenio.id"), unique=True, nullable=True)
+    origen: Mapped[str] = mapped_column(String(20), default=OrigenConvenio.SOLICITUD.value, server_default=OrigenConvenio.SOLICITUD.value, nullable=False)
     plantilla_origen_id: Mapped[int | None] = mapped_column(
         ForeignKey("plantilla_convenio.id", ondelete="RESTRICT"), nullable=True
     )
@@ -65,15 +86,21 @@ class Convenio(Base):
     fecha_inicio: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_vencimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
     fecha_firma: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Hitos de la línea de tiempo: el momento exacto de "Iniciar elaboración" y el
+    # paso a VIGENTE al formalizar las firmas. Los asigna el servidor, nunca el cliente.
+    elaboracion_iniciada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    activado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duracion_meses: Mapped[int | None] = mapped_column(Integer, nullable=True)
     porcentaje_avance: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # El origen es siempre el convenio inmediatamente anterior. La numeración cuenta
+    # renovaciones efectivas; un intento CANCELADO no consume el siguiente número.
     convenio_origen_id: Mapped[int | None] = mapped_column(ForeignKey("convenio.id"), nullable=True)
     numero_renovacion: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     creado_por_id: Mapped[int] = mapped_column(ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    solicitud: Mapped[SolicitudConvenio] = relationship(back_populates="convenio")
+    solicitud: Mapped[SolicitudConvenio | None] = relationship(back_populates="convenio")
     plantilla_origen: Mapped[PlantillaConvenio | None] = relationship(
         back_populates="convenios"
     )
@@ -82,9 +109,23 @@ class Convenio(Base):
     etapa_actual: Mapped[Etapa | None] = relationship()
     unidad_organizacional: Mapped[UnidadOrganizacional | None] = relationship()
     creado_por: Mapped[Usuario] = relationship(foreign_keys=[creado_por_id])
-    convenio_origen: Mapped[Convenio | None] = relationship(remote_side=[id])
+    convenio_origen: Mapped[Convenio | None] = relationship(
+        remote_side=[id], back_populates="intentos_renovacion"
+    )
+    intentos_renovacion: Mapped[list[Convenio]] = relationship(
+        back_populates="convenio_origen"
+    )
+    decisiones_no_renovacion: Mapped[list[DecisionNoRenovacion]] = relationship(
+        back_populates="convenio"
+    )
     documentos: Mapped[list[Documento]] = relationship(
         back_populates="convenio", foreign_keys="Documento.convenio_id"
+    )
+    evaluacion: Mapped[EvaluacionConvenio | None] = relationship(
+        back_populates="convenio", uselist=False
+    )
+    actividades: Mapped[list[ActividadConvenio]] = relationship(
+        back_populates="convenio"
     )
     historial_etapas: Mapped[list[HistorialEtapa]] = relationship(
         back_populates="convenio"
@@ -97,6 +138,9 @@ class Convenio(Base):
     )
     versiones: Mapped[list[VersionConvenio]] = relationship(
         back_populates="convenio", order_by="VersionConvenio.numero"
+    )
+    borrador: Mapped[BorradorConvenio | None] = relationship(
+        back_populates="convenio", uselist=False
     )
     procesos_firmas: Mapped[list[ProcesoFirmasConvenio]] = relationship(
         back_populates="convenio", order_by="ProcesoFirmasConvenio.id"
