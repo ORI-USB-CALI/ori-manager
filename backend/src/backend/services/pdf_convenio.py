@@ -32,6 +32,7 @@ from backend.models.version_convenio import VersionConvenio
 from backend.schemas.exportacion import (
     INFORMACION_NO_DISPONIBLE,
     MARCA_BORRADOR,
+    SIN_VERSION_FORMAL,
     ConvenioPdfDTO,
     FirmantePdfDTO,
     ModoEmision,
@@ -467,7 +468,7 @@ class ServicioPdfConvenio:
             Paragraph(
                 f"{'Fecha de generación' if borrador else 'Fecha de emisión'}: "
                 f"{fecha_texto} · Identificador: #{dto.convenio_id} · "
-                f"Versión contractual: {dto.version_actual}",
+                f"Versión contractual: {dto.version_actual or SIN_VERSION_FORMAL}",
                 estilos["fecha_emision"],
             )
         )
@@ -515,7 +516,12 @@ class ServicioPdfConvenio:
             ],
             [
                 Paragraph("<b>Versión contractual:</b>", estilos["tabla_header"]),
-                Paragraph(f"Versión {dto.version_actual}", estilos["tabla_celda"]),
+                Paragraph(
+                    f"Versión {dto.version_actual}"
+                    if dto.version_actual
+                    else SIN_VERSION_FORMAL,
+                    estilos["tabla_celda"],
+                ),
                 Paragraph("<b>Alcance institucional:</b>", estilos["tabla_header"]),
                 Paragraph(_e(dto.alcance), estilos["tabla_celda"]),
             ],
