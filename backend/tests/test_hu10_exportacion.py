@@ -60,7 +60,7 @@ def manual_documentado(client, db, gestor):
     db.get(Convenio, convenio_id).codigo = f"MAN-{uuid4().hex[:8].upper()}"
     db.commit()
     guardado = client.patch(f"/api/convenios/{convenio_id}/elaboracion", json={
-        "expected_revision": 0,
+        "expected_revision": 1,
         "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
             {"type": "text", "text": "Cláusula documental de auditoría"},
         ]}]},
@@ -244,7 +244,9 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
         assert generales["Consecutivo de la solicitud"] == dto.solicitud_consecutivo
         assert generales["Fecha de inicio de vigencia"].date() == convenio.fecha_inicio
         assert generales["Fecha de fin de vigencia"].date() == convenio.fecha_vencimiento
-        assert generales["Versión del documento"] == convenio.version_actual
+        assert generales["Versión del documento"] == (
+            convenio.version_actual or "Sin versión formal"
+        )
         assert ("BORRADOR — NO FORMALIZADO" in valores) is (modo == "BORRADOR")
         assert {firma.nombre for firma in dto.firmantes} <= valores
     assert _conteos(db) == antes
