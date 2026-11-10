@@ -401,7 +401,9 @@ def _sin_entidad(db, client, convenio):
 
 def _sin_version(db, client, convenio):
     convenio.version_actual = 99
+    db.delete(convenio.borrador)
     db.commit()
+    db.expire(convenio, ["borrador"])
 
 
 def _contenido_vacio(db, client, convenio):
