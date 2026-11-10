@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import AccionAuditoria, EstadoConvenio, EstadoSolicitud
@@ -11,7 +12,6 @@ from backend.models.etapa import Etapa
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
-from backend.models.version_convenio import VersionConvenio
 
 
 def _texto_documento(nodo: dict[str, object]) -> str:
@@ -209,15 +209,12 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     assert convenio.fecha_inicio is None
     assert convenio.fecha_vencimiento is None
     assert convenio.duracion_meses is None
-    assert convenio.version_actual == 1
+    assert convenio.version_actual == 0
     assert convenio.plantilla_origen_id is not None
-    version_inicial = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio.id,
-            VersionConvenio.numero == 1,
-        )
+    borrador = db.scalar(
+        select(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio.id)
     )
-    contenido_inicial = _texto_documento(version_inicial.contenido)
+    contenido_inicial = _texto_documento(borrador.contenido)
     for precargado in (
         "Universidad del Pacífico",
         "Ana Pérez",
