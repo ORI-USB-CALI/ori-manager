@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.decision_no_renovacion import DecisionNoRenovacion
 from backend.models.documento import Documento
@@ -27,6 +28,7 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioCrearManual
+from backend.services import convenios as servicio_convenios
 from backend.services import renovaciones
 from backend.services.convenios import RevisionNoDisponible, ServicioConvenios
 from backend.services.renovaciones import ServicioRenovaciones
@@ -48,6 +50,9 @@ DOCUMENTO_VIGENTE = {
 @pytest.fixture(autouse=True)
 def fecha_dominio_fija(monkeypatch):
     monkeypatch.setattr(renovaciones, "fecha_actual_dominio", lambda: FECHA_REFERENCIA)
+    monkeypatch.setattr(
+        servicio_convenios, "fecha_actual_dominio", lambda: FECHA_REFERENCIA
+    )
 
 
 @pytest.fixture(params=["SOLICITUD", "MANUAL_ORI"])
@@ -73,12 +78,14 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
         convenio.solicitud.observaciones_devolucion = "Devolución histórica"
     convenio.fecha_firma = date(2025, 1, 1)
     convenio.porcentaje_avance = 100
-    ServicioConvenios(db)._crear_version(
+    servicio = ServicioConvenios(db)
+    servicio._crear_version(
         convenio,
         deepcopy(DOCUMENTO_VIGENTE),
         autor,
         ContextoVersionConvenio.FINALIZACION,
     )
+    db.delete(servicio._borrador(convenio.id))
     convenio.estado = EstadoConvenio.VIGENTE.value
     convenio.etapa_actual = db.scalar(
         select(Etapa).where(Etapa.codigo == "FIRMA_ARCHIVO_SEGUIMIENTO")
@@ -104,6 +111,7 @@ def conteos(db):
         for modelo in (
             SolicitudConvenio,
             Convenio,
+            BorradorConvenio,
             VersionConvenio,
             HistorialEtapa,
             DecisionNoRenovacion,
@@ -247,18 +255,13 @@ def test_crea_elaboracion_version_e_historial_propios_segun_origen(
     assert hijo.fecha_vencimiento is None
     assert hijo.fecha_firma is None
     assert hijo.porcentaje_avance is None
-    version = ServicioConvenios(db)._version_actual(hijo)
-    assert version.id != version_original.id
-    assert version.convenio_id == hijo.id
-    assert version.numero == hijo.version_actual == 1
-    assert version.contenido == DOCUMENTO_VIGENTE
-    assert version.contenido is not version_original.contenido
-    assert version.snapshot_metadata["convenio_origen_id"] == origen.id
-    assert version.snapshot_metadata["origen"] == origen.origen
-    assert version.autor_id == gestor.id
-    assert version.etapa.codigo == "ELABORACION"
-    assert version.contexto == ContextoVersionConvenio.INICIALIZACION.value
-    assert len(hijo.versiones) == 1
+    assert hijo.version_actual == 0
+    assert hijo.versiones == []
+    borrador = ServicioConvenios(db)._borrador(hijo.id)
+    assert borrador.contenido == DOCUMENTO_VIGENTE
+    assert borrador.contenido is not version_original.contenido
+    assert borrador.revision == 1
+    assert borrador.actualizado_por_id == gestor.id
     assert len(hijo.historial_etapas) == 1
     assert hijo.historial_etapas[0].etapa_origen_id is None
     assert hijo.historial_etapas[0].etapa_destino.codigo == "ELABORACION"
@@ -286,9 +289,9 @@ def test_crea_elaboracion_version_e_historial_propios_segun_origen(
     elaboracion = client.get(f"/api/convenios/{hijo.id}/elaboracion")
     assert elaboracion.status_code == 200, elaboracion.text
     assert elaboracion.json()["contenido"] == DOCUMENTO_VIGENTE
-    versiones = client.get(f"/api/convenios/{hijo.id}/versiones/1")
+    versiones = client.get(f"/api/convenios/{hijo.id}/versiones")
     assert versiones.status_code == 200, versiones.text
-    assert versiones.json()["contenido"] == DOCUMENTO_VIGENTE
+    assert versiones.json() == []
     seguimiento = client.get("/api/convenios/renovaciones", params={"estado": "RENOVACION_INICIADA"})
     assert seguimiento.status_code == 200, seguimiento.text
     fila = next(f for f in seguimiento.json() if f["convenio_id"] == origen.id)
@@ -331,19 +334,26 @@ def test_renovacion_se_edita_y_requiere_sus_dos_avales_propios(
         "type": "paragraph", "content": [{"type": "text", "text": "Cláusula de la renovación"}],
     })
     guardado = client.patch(ruta, json={
-        "expected_revision": 0, "contenido": contenido,
+        "expected_revision": 1, "contenido": contenido,
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
     })
     assert guardado.status_code == 200, guardado.text
-    assert guardado.json()["version_actual"] == 1
-    assert guardado.json()["revision_borrador"] == 1
-    assert client.get(f"/api/convenios/{hijo.id}/versiones/1").json()["contenido"] == DOCUMENTO_VIGENTE
+    assert guardado.json()["version_actual"] == 0
+    assert guardado.json()["revision_borrador"] == 2
+    assert client.get(f"/api/convenios/{hijo.id}/versiones").json() == []
     assert ServicioConvenios(db)._version_actual(origen).contenido == DOCUMENTO_VIGENTE
     finalizado = client.post(f"{ruta}/finalizar", json={
-        "expected_revision": 1, "contenido": contenido,
+        "expected_revision": 2, "contenido": contenido,
     })
     assert finalizado.status_code == 200, finalizado.text
+    version = client.get(f"/api/convenios/{hijo.id}/versiones/1").json()
+    assert version["contenido"] == contenido
+    assert version["snapshot_metadata"]["convenio_origen_id"] == origen.id
+    assert version["snapshot_metadata"]["origen"] == origen.origen
+    assert version["autor"]["id"] == gestor.id
+    assert version["etapa"]["codigo"] == "ELABORACION"
+    assert version["contexto"] == ContextoVersionConvenio.FINALIZACION.value
     primera = db.scalar(select(RevisionConvenio).where(
         RevisionConvenio.convenio_id == hijo.id, RevisionConvenio.estado == "PENDIENTE",
     ))
@@ -510,25 +520,27 @@ def test_no_renovar_exige_pendiente_real(db, client, gestor, origen, dias, estad
     assert conteos(db) == antes
 
 
-@pytest.mark.parametrize("punto", ["inicializacion", "version", "commit"])
+@pytest.mark.parametrize("punto", ["inicializacion", "borrador", "commit"])
 def test_error_intermedio_revierte_solicitud_convenio_version_e_historial(
     db, gestor, origen, monkeypatch, punto,
 ):
     antes = conteos(db)
     padre = snapshot(origen)
-    crear_version = ServicioConvenios._crear_version
+    crear_borrador = ServicioConvenios._crear_borrador_inicial
 
     def crear_y_fallar(*args, **kwargs):
-        crear_version(*args, **kwargs)
-        raise RuntimeError("Fallo después de crear la versión")
+        crear_borrador(*args, **kwargs)
+        raise RuntimeError("Fallo después de crear el borrador")
 
     def fallar(*args, **kwargs):
         raise SQLAlchemyError("Fallo transaccional simulado")
 
-    if punto == "version":
-        monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_y_fallar)
+    if punto == "borrador":
+        monkeypatch.setattr(
+            ServicioConvenios, "_crear_borrador_inicial", crear_y_fallar
+        )
     elif punto == "inicializacion":
-        monkeypatch.setattr(ServicioConvenios, "_crear_version", fallar)
+        monkeypatch.setattr(ServicioConvenios, "_crear_borrador_inicial", fallar)
     else:
         monkeypatch.setattr(db, "commit", fallar)
     with pytest.raises((RuntimeError, SQLAlchemyError), match="Fallo"):
