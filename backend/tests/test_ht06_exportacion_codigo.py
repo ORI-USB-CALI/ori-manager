@@ -191,7 +191,7 @@ def test_rn14_exportar_un_convenio_formalizado_conserva_su_codigo(
 
 
 def test_en_etapa_intermedia_se_exporta_la_version_formal_no_un_borrador(
-    db, gestor, convenio_listo
+    db, gestor, convenio_listo, formalizar_version
 ):
     """HT-06 amplía el modo borrador; HT-13 decide qué contenido se exporta.
 
@@ -202,6 +202,7 @@ def test_en_etapa_intermedia_se_exporta_la_version_formal_no_un_borrador(
     que es lo correcto: una revisión jurídica no se hace sobre un avance sin
     versionar.
     """
+    formalizar_version(convenio_listo, gestor)
     convenio = _en_etapa(db, convenio_listo, "REVISION_AVAL_JURIDICO")
 
     assert modo_emision(convenio) is ModoEmision.BORRADOR
