@@ -67,7 +67,9 @@ function preparar({
   revisionData?: unknown
   estado?: unknown
 } = {}) {
-  const fetch = vi.fn(async (url: string) => {
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST' && url.endsWith('/observaciones')) return respuesta(201, {})
+    if (url === '/api/convenios/41') return respuesta(200, datos)
     if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
     if (url === '/api/solicitudes/recibidas/1/historial') {
       return historialSolicitudStatus === 200
@@ -259,5 +261,70 @@ describe('HU-23: previsualización de documentos asociados en revisión jurídic
       expect(screen.queryByRole('heading', { level: 2, name: 'propuesta_academica.pdf' })).toBeNull()
     })
     expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+})
+
+describe('HT-15: el Revisor marca si la observación obliga a corregir', () => {
+  const revisionConObservaciones = {
+    version_actual: {
+      numero: 1,
+      contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+    },
+    version_recibida: { numero: 1 },
+    revision_pendiente: {
+      id: 7,
+      instancia_juridica: 1,
+      numero_ronda: 1,
+      creado_en: '2026-10-20T10:00:00Z',
+      observaciones: [
+        { id: 1, descripcion: 'Falta la cláusula de vigencia', requiere_correccion: true, estado: 'PENDIENTE', registrada_por: { id: 1, nombre_completo: 'Revisor' }, creado_en: '2026-10-20T10:00:00Z' },
+        { id: 2, descripcion: 'Sugerencia de redacción', requiere_correccion: false, estado: 'PENDIENTE', registrada_por: { id: 1, nombre_completo: 'Revisor' }, creado_en: '2026-10-20T10:05:00Z' },
+      ],
+    },
+    documentos: [],
+  }
+
+  function prepararRevisor() {
+    return preparar({
+      sesionUsuario: { ...sesion, permisos: ['convenios.ver', 'convenios.revisar'] },
+      elaboracionData: { ...convenio, etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' } },
+      revisionData: revisionConObservaciones,
+    })
+  }
+
+  function cuerpoEnviado(fetch: ReturnType<typeof prepararRevisor>['fetch']) {
+    const envio = fetch.mock.calls.find(([url, init]) => init?.method === 'POST' && url.endsWith('/revisiones/7/observaciones'))
+    return JSON.parse(String(envio?.[1]?.body))
+  }
+
+  it('muestra en cada observación si obliga o no a corregir el documento', async () => {
+    prepararRevisor()
+
+    const obligatoria = (await screen.findByText('Falta la cláusula de vigencia')).closest('article') as HTMLElement
+    const informativa = screen.getByText('Sugerencia de redacción').closest('article') as HTMLElement
+    expect(within(obligatoria).getByText('Obliga a corregir')).toBeTruthy()
+    expect(within(informativa).getByText('No obliga a corregir')).toBeTruthy()
+  })
+
+  it('envía la observación como obligatoria por defecto', async () => {
+    const { fetch, usuario } = prepararRevisor()
+
+    const casilla = await screen.findByRole('checkbox', { name: 'Obliga a corregir el documento antes de reenviarlo' })
+    expect((casilla as HTMLInputElement).checked).toBe(true)
+    await usuario.type(screen.getByLabelText('Nueva observación'), 'Precisar el objeto')
+    await usuario.click(screen.getByRole('button', { name: '+ Agregar observación' }))
+
+    await waitFor(() => expect(cuerpoEnviado(fetch)).toEqual({ descripcion: 'Precisar el objeto', requiere_correccion: true }))
+  })
+
+  it('permite registrar una observación que no obliga a corregir', async () => {
+    const { fetch, usuario } = prepararRevisor()
+
+    await usuario.click(await screen.findByRole('checkbox', { name: 'Obliga a corregir el documento antes de reenviarlo' }))
+    await usuario.type(screen.getByLabelText('Nueva observación'), 'Mejorar la redacción')
+    await usuario.click(screen.getByRole('button', { name: '+ Agregar observación' }))
+
+    await waitFor(() => expect(cuerpoEnviado(fetch)).toEqual({ descripcion: 'Mejorar la redacción', requiere_correccion: false }))
+    await waitFor(() => expect((screen.getByRole('checkbox', { name: 'Obliga a corregir el documento antes de reenviarlo' }) as HTMLInputElement).checked).toBe(true))
   })
 })
