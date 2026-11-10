@@ -314,6 +314,7 @@ class ObservacionRevisionLeer(BaseModel):
     id: int
     origen: OrigenObservacionRevision
     descripcion: str
+    requiere_correccion: bool
     respuesta: str | None
     estado: EstadoObservacionRevision
     registrada_por: UsuarioResumen | None
@@ -525,6 +526,8 @@ class CrearObservacionRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     descripcion: str = Field(min_length=1)
+    # HT-15: el Revisor ORI indica si obliga a corregir el documento.
+    requiere_correccion: bool = True
 
     @field_validator("descripcion")
     @classmethod
