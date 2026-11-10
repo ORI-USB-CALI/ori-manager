@@ -143,6 +143,16 @@ describe('HT-13 - guardar avances del convenio', () => {
     expect(screen.getByText('Borrador guardado')).toBeTruthy()
   })
 
+  it('indica que aún no hay versión formal en un convenio nuevo (HT-15)', async () => {
+    preparar(() => respuesta(200, elaboracion), {
+      ...elaboracion, version_actual: 0, revision_borrador: 1, borrador_guardado_en: '2026-10-24T15:00:00Z',
+    })
+
+    expect(await screen.findByText(/Sin versión formal/)).toBeTruthy()
+    expect(screen.queryByText(/Versión formal 0/)).toBeNull()
+    expect(await screen.findByText(/La primera se crea al enviar el proyecto a revisión jurídica/)).toBeTruthy()
+  })
+
   it('guarda el avance con la revisión del borrador sin anunciar una versión nueva (CA-01)', async () => {
     const guardadoServidor = {
       ...elaboracion, contenido: DOCUMENTO_EDITADO, revision_borrador: 1,
