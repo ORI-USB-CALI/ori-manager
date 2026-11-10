@@ -24,6 +24,7 @@ interface UsuarioResumen { id: number; nombre_completo: string }
 interface ObservacionRevision {
   id: number
   descripcion: string
+  requiere_correccion: boolean
   estado: 'PENDIENTE' | 'ATENDIDA'
   registrada_por: UsuarioResumen
   creado_en: string
@@ -115,6 +116,7 @@ export function ConvenioDetallePage() {
     || puede('convenios.gestionar_firmas')
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
+  const [obligaCorregir, setObligaCorregir] = useState(true)
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
   const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
 
@@ -180,10 +182,11 @@ export function ConvenioDetallePage() {
   })
   const agregarObservacion = useMutation({
     mutationFn: () => apiFetch(`/convenios/${id}/revisiones/${revision?.id}/observaciones`, {
-      method: 'POST', body: JSON.stringify({ descripcion: observacion.trim() }),
+      method: 'POST', body: JSON.stringify({ descripcion: observacion.trim(), requiere_correccion: obligaCorregir }),
     }),
     onSuccess: async () => {
       setObservacion('')
+      setObligaCorregir(true)
       notify({ type: 'success', message: 'Observación registrada.' })
       await refrescarRevision(false)
     },
@@ -429,9 +432,22 @@ export function ConvenioDetallePage() {
                   <h2>Observaciones de la revisión</h2>
                   {revision.observaciones.length === 0 && <p className="section-help">Aún no se han registrado observaciones.</p>}
                   <div className="revision-observaciones">
-                    {revision.observaciones.map((item) => <article key={item.id}><p>{item.descripcion}</p><small>{item.registrada_por.nombre_completo} · {fecha(item.creado_en)}</small></article>)}
+                    {revision.observaciones.map((item) => (
+                      <article key={item.id}>
+                        <p>{item.descripcion}</p>
+                        <span className={item.requiere_correccion ? 'badge badge-pendiente' : 'badge badge-neutral'}>
+                          {item.requiere_correccion ? 'Obliga a corregir' : 'No obliga a corregir'}
+                        </span>
+                        <small>{item.registrada_por.nombre_completo} · {fecha(item.creado_en)}</small>
+                      </article>
+                    ))}
                   </div>
                   <label className="form-group" htmlFor="nueva-observacion"><span className="form-label">Nueva observación</span><textarea id="nueva-observacion" className="form-control" value={observacion} onChange={(event) => setObservacion(event.target.value)} /></label>
+                  <label className="observacion-obliga">
+                    <input type="checkbox" checked={obligaCorregir} onChange={(event) => setObligaCorregir(event.target.checked)} />
+                    Obliga a corregir el documento antes de reenviarlo
+                  </label>
+                  <small className="section-help">Si ninguna observación obliga a corregir y el Gestor las atiende, el convenio puede reenviarse sin una versión nueva.</small>
                   <button className="btn btn-outline btn-block" type="button" disabled={Boolean(borrador) || !observacionSinRegistrar || agregarObservacion.isPending} onClick={() => agregarObservacion.mutate()}>+ Agregar observación</button>
                   {borrador && <small>Guarda los cambios del documento antes de registrar una observación.</small>}
                 </section>
