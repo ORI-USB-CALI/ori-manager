@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
@@ -550,7 +551,15 @@ CASOS_RESERVADOS_CREACION = [
 def _conteos_creacion(db):
     return {
         modelo.__tablename__: db.scalar(select(func.count()).select_from(modelo))
-        for modelo in (Convenio, VersionConvenio, HistorialEtapa, Auditoria, SolicitudConvenio, Aliado)
+        for modelo in (
+            Convenio,
+            BorradorConvenio,
+            VersionConvenio,
+            HistorialEtapa,
+            Auditoria,
+            SolicitudConvenio,
+            Aliado,
+        )
     }
 
 
@@ -600,24 +609,26 @@ def test_contrato_http_creacion_solicitud_tiene_lista_publica_explicita(client):
 
 
 @pytest.mark.parametrize("ruta", ["crear", "iniciar"])
-@pytest.mark.parametrize("punto", ["version", "commit"])
+@pytest.mark.parametrize("punto", ["borrador", "commit"])
 def test_creacion_solicitud_revierte_escrituras_si_falla_version_o_commit(
     db, client, crear_usuario, entrar_como, crear_solicitud, monkeypatch, ruta, punto,
 ):
     actor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
     solicitud = crear_solicitud(actor)
     antes = _conteos_creacion(db)
-    crear_version = ServicioConvenios._crear_version
+    crear_borrador = ServicioConvenios._crear_borrador_inicial
 
     def fallar_commit():
         raise SQLAlchemyError("Fallo transaccional simulado")
 
-    def crear_version_y_fallar(*args, **kwargs):
-        crear_version(*args, **kwargs)
+    def crear_borrador_y_fallar(*args, **kwargs):
+        crear_borrador(*args, **kwargs)
         raise SQLAlchemyError("Fallo transaccional simulado")
 
-    if punto == "version":
-        monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_version_y_fallar)
+    if punto == "borrador":
+        monkeypatch.setattr(
+            ServicioConvenios, "_crear_borrador_inicial", crear_borrador_y_fallar
+        )
     else:
         monkeypatch.setattr(db, "commit", fallar_commit)
     with pytest.raises(SQLAlchemyError, match="Fallo transaccional simulado"):
@@ -678,15 +689,16 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
     assert historial.usuario_id == gestor.id
     assert historial.responsable_id == gestor.id
     assert historial.observacion is None
-    version = db.scalar(select(VersionConvenio).where(VersionConvenio.convenio_id == convenio.id))
-    assert version.numero == convenio.version_actual == 1
-    assert version.autor_id == gestor.id
-    assert version.etapa_id == elaboracion.id
-    assert version.contexto == "INICIALIZACION"
-    assert version.contenido["type"] == "doc"
-    assert version.snapshot_metadata["origen"] == "SOLICITUD"
-    assert version.snapshot_metadata["convenio_origen_id"] is None
-    assert version.snapshot_metadata["numero_renovacion"] is None
+    assert convenio.version_actual == 0
+    assert db.scalar(
+        select(VersionConvenio).where(VersionConvenio.convenio_id == convenio.id)
+    ) is None
+    borrador = db.scalar(
+        select(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio.id)
+    )
+    assert borrador.revision == 1
+    assert borrador.actualizado_por_id == gestor.id
+    assert borrador.contenido["type"] == "doc"
     assert (
         db.scalar(
             select(ObservacionRevision).where(
