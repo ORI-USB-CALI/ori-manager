@@ -231,7 +231,8 @@ def contexto_auditoria(
                 responsable_id = historial.responsable_id
     return {
         "etapa": etapa.codigo if etapa else None,
-        "version": version,
+        # Un convenio sin versión formal todavía no tiene un número que declarar.
+        "version": version or None,
         "responsable_id": responsable_id,
     }
 
@@ -472,6 +473,28 @@ class ServicioConvenios:
         self.db.flush()
         return version
 
+    def _crear_borrador_inicial(
+        self,
+        convenio: Convenio,
+        contenido: dict[str, object],
+        usuario: Usuario,
+    ) -> None:
+        """Deja el contenido inicial como trabajo en curso. Un convenio nuevo no
+        tiene versión formal: la primera se genera al enviarlo a revisión."""
+        try:
+            validar_contenido(contenido)
+        except ContenidoConvenioInvalido as exc:
+            raise ReferenciaConvenioInvalida(str(exc)) from exc
+        self.db.add(
+            BorradorConvenio(
+                convenio_id=convenio.id,
+                contenido=contenido,
+                revision=1,
+                actualizado_por_id=usuario.id,
+            )
+        )
+        self.db.flush()
+
     def _version_actual(self, convenio: Convenio) -> VersionConvenio | None:
         if convenio.version_actual == 0:
             return None
@@ -585,12 +608,7 @@ class ServicioConvenios:
             except ContenidoConvenioInvalido as exc:
                 raise ConfiguracionConvenioInvalida(str(exc)) from exc
             convenio.plantilla_origen_id = plantilla.id
-        self._crear_version(
-            convenio,
-            contenido_inicial,
-            usuario,
-            ContextoVersionConvenio.INICIALIZACION,
-        )
+        self._crear_borrador_inicial(convenio, contenido_inicial, usuario)
         return convenio
 
     def _crear_manual_en_transaccion(
@@ -600,7 +618,7 @@ class ServicioConvenios:
         *,
         renovacion: DatosRenovacion | None = None,
     ) -> Convenio:
-        """Construye el manual y su versión inicial sin confirmar la transacción."""
+        """Construye el manual y su borrador inicial sin confirmar la transacción."""
         if usuario.rol.codigo not in (
             CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value
         ):
@@ -650,12 +668,7 @@ class ServicioConvenios:
         if renovacion is not None:
             contenido = deepcopy(renovacion.version_base.contenido)
             convenio.plantilla_origen_id = renovacion.version_base.plantilla_id
-        self._crear_version(
-            convenio,
-            contenido,
-            usuario,
-            ContextoVersionConvenio.INICIALIZACION,
-        )
+        self._crear_borrador_inicial(convenio, contenido, usuario)
         return convenio
 
     def crear_manual(self, datos: ConvenioCrearManual, usuario: Usuario) -> Convenio:
@@ -666,7 +679,6 @@ class ServicioConvenios:
             "Creó el convenio manualmente",
             evento="CONVENIO_CREADO_MANUAL",
             etapa=CODIGO_ETAPA_ELABORACION,
-            version=1,
             responsable_id=usuario.id,
         )
         try:
@@ -690,7 +702,6 @@ class ServicioConvenios:
             "Creó el convenio",
             evento="CONVENIO_CREADO",
             etapa=CODIGO_ETAPA_ELABORACION,
-            version=1,
             responsable_id=usuario.id,
         )
         try:
@@ -738,7 +749,6 @@ class ServicioConvenios:
             "Inició la elaboración del convenio",
             evento="ELABORACION_INICIADA",
             etapa=CODIGO_ETAPA_ELABORACION,
-            version=1,
             responsable_id=usuario.id,
         )
         try:
