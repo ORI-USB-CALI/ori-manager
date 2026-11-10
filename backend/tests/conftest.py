@@ -17,6 +17,7 @@ from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     AlcanceConvenio,
+    ContextoVersionConvenio,
     EstadoConvenio,
     EstadoFirmaConvenio,
     EstadoProcesoFirmasConvenio,
@@ -236,6 +237,31 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
 
 
 @pytest.fixture
+def formalizar_version(db: Session) -> Callable[[Convenio, Usuario], VersionConvenio]:
+    """Genera la versión formal desde el borrador, como el envío a revisión.
+
+    Para las pruebas que llevan el convenio directamente a una etapa posterior:
+    un convenio nuevo no tiene versión formal hasta enviarse a revisión.
+    """
+
+    def _formalizar(
+        convenio: Convenio,
+        autor: Usuario,
+        contexto: ContextoVersionConvenio = ContextoVersionConvenio.FINALIZACION,
+    ) -> VersionConvenio:
+        servicio = ServicioConvenios(db)
+        borrador = servicio._borrador(convenio.id)
+        version = servicio._crear_version(
+            convenio, borrador.contenido, autor, contexto
+        )
+        db.delete(borrador)
+        db.commit()
+        return version
+
+    return _formalizar
+
+
+@pytest.fixture
 def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
     """Convenio con todo lo requerido para entregarlo a Jurídica."""
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
@@ -280,7 +306,9 @@ def convenio_finalizado(gestor, crear_convenio_finalizado) -> Convenio:
 
 
 @pytest.fixture
-def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
+def convenio_exportable(
+    db: Session, gestor, convenio_listo, formalizar_version
+) -> Convenio:
     """Convenio con todos los datos que exige la exportación oficial (CA-03).
 
     Además de lo que trae `convenio_listo` (tipo, objeto, fechas y una versión
@@ -303,12 +331,7 @@ def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
     convenio_listo.aliado_id = aliado.id
     convenio_listo.codigo = f"CONV-{uuid4().hex[:8].upper()}"
 
-    version = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == convenio_listo.version_actual,
-        )
-    )
+    version = formalizar_version(convenio_listo, gestor)
     revision_final = RevisionConvenio(
         convenio_id=convenio_listo.id,
         tipo=TipoRevisionConvenio.FINAL.value,
