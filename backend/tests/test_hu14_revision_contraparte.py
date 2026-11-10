@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.core.security import hash_contrasena
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import AlcanceConvenio, EstadoSolicitud, TipoSolicitante
@@ -176,6 +177,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict) -> None:
         ))
         sesion.execute(delete(Notificacion).where(
             Notificacion.usuario_id.in_(escenario["usuario_ids"])
+        ))
+        sesion.execute(delete(BorradorConvenio).where(
+            BorradorConvenio.convenio_id == convenio_id
         ))
         sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
         sesion.execute(delete(SolicitudConvenio).where(
