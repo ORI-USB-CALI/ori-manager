@@ -2519,10 +2519,13 @@ class ServicioConvenios:
                 raise RevisionNoDisponible(
                     "La revisión devuelta no identifica la versión que debe corregirse"
                 )
-            if version_final.numero <= version_base.numero:
+            if version_final.numero <= version_base.numero and self._exige_correccion(
+                ultima_devuelta
+            ):
                 self.db.rollback()
                 raise RevisionNoDisponible(
-                    "Debe crear una nueva versión del proyecto antes de reenviarlo"
+                    "Deben atenderse las observaciones obligatorias: corrija el "
+                    "documento antes de reenviarlo a revisión"
                 )
 
         historial = HistorialEtapa(
@@ -2577,6 +2580,23 @@ class ServicioConvenios:
             raise
         notificaciones.avisar_tiempo_real()
         return self.obtener(convenio.id)
+
+    def _exige_correccion(self, revision: RevisionConvenio) -> bool:
+        """Si la devolución impide reenviar la misma versión (RN-07 a RN-09 de
+        HT-15). Solo una revisión jurídica cuyas observaciones no obligan a
+        corregir el documento lo permite."""
+        if revision.tipo != TipoRevisionConvenio.JURIDICA.value:
+            return True
+        return bool(
+            self.db.scalar(
+                select(
+                    exists().where(
+                        ObservacionRevision.revision_convenio_id == revision.id,
+                        ObservacionRevision.requiere_correccion.is_(True),
+                    )
+                )
+            )
+        )
 
     def _revision_juridica_pendiente(
         self, convenio_id: int, revision_id: int, usuario: Usuario
@@ -2677,6 +2697,8 @@ class ServicioConvenios:
         revision_id: int,
         descripcion: str,
         usuario: Usuario,
+        *,
+        requiere_correccion: bool = True,
     ) -> ObservacionRevision:
         convenio, revision = self._revision_juridica_pendiente(
             convenio_id, revision_id, usuario
@@ -2703,6 +2725,7 @@ class ServicioConvenios:
             registrada_por_id=usuario.id,
             responsable_id=convenio.creado_por_id,
             descripcion=texto,
+            requiere_correccion=requiere_correccion,
             estado=EstadoObservacionRevision.PENDIENTE.value,
         )
         self.db.add(observacion)
