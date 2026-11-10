@@ -46,7 +46,9 @@ Comunicadas al equipo el 08/11/2026.
 - Las versiones existentes conservan sus números, contenidos y referencias. No se renumeran ni se eliminan.
 - Un convenio que ya tiene V1 al desplegar el cambio, incluso si sigue en Elaboración, continúa con su numeración: su siguiente versión formal es la que corresponda después de la actual.
 - Las reglas de la versión inicial no requieren migración de datos.
+- Las reglas del reenvío agregan una migración de esquema: la columna `requiere_correccion` en `observacion_revision`. Las observaciones existentes quedan marcadas como obligatorias (RN-09).
 
 ## Pendiente de confirmar
 
 - Observaciones de revisión final: las decisiones no las mencionan. Mientras no se defina otra cosa, se tratan como obligatorias, igual que las de contraparte.
+- Valor por defecto de la marca: la casilla del Revisor ORI viene marcada como "obliga a corregir", y las observaciones enviadas al devolver sin marca también cuentan como obligatorias. Así un olvido del Revisor no permite reenviar sin corregir.
