@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import ContextoVersionConvenio, TipoRevisionConvenio
 from backend.models.historial_etapa import HistorialEtapa
@@ -40,7 +41,14 @@ CASOS_RESERVADOS = [
 def _conteos(db):
     return {
         modelo.__tablename__: db.scalar(select(func.count()).select_from(modelo))
-        for modelo in (Convenio, VersionConvenio, HistorialEtapa, Auditoria, SolicitudConvenio)
+        for modelo in (
+            Convenio,
+            BorradorConvenio,
+            VersionConvenio,
+            HistorialEtapa,
+            Auditoria,
+            SolicitudConvenio,
+        )
     }
 
 
@@ -91,7 +99,7 @@ def test_actualizacion_y_elaboracion_ya_rechazan_campos_reservados(
     db.expire_all()
     convenio = db.get(Convenio, convenio_id)
     assert convenio.objeto == "Objeto original"
-    assert convenio.version_actual == 1
+    assert convenio.version_actual == 0
     assert convenio.etapa_actual.codigo == "ELABORACION"
     assert all(getattr(convenio, campo) is None for campo in RESERVADOS)
 
@@ -120,7 +128,7 @@ def test_creacion_sin_solicitud_con_origen_responsable_y_trazabilidad(
     assert creado["aliado_id"] is None
     assert creado["creado_por_id"] == gestor.id
     assert creado["creado_en"]
-    assert creado["version_actual"] == 1
+    assert creado["version_actual"] == 0
     assert all(creado[campo] is None for campo in RESERVADOS)
     convenio = db.get(Convenio, creado["id"])
     assert convenio.etapa_actual.codigo == "ELABORACION"
@@ -185,7 +193,7 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
     tipo_convenio_id = db.scalar(select(TipoConvenio.id).limit(1))
     assert tipo_convenio_id is not None
     payload = {
-        "expected_revision": 0,
+        "expected_revision": 1,
         "contenido": contenido,
         "objeto": "Cooperación académica",
         "tipo_convenio_id": tipo_convenio_id,
@@ -195,23 +203,23 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
     }
     guardado = client.patch(ruta, json=payload)
     assert guardado.status_code == 200, guardado.text
-    assert guardado.json()["version_actual"] == 1
-    assert guardado.json()["revision_borrador"] == 1
+    assert guardado.json()["version_actual"] == 0
+    assert guardado.json()["revision_borrador"] == 2
     assert guardado.json()["etapa_actual"]["codigo"] == "ELABORACION"
     assert client.get(ruta).json()["contenido"] == contenido
-    repetir = client.patch(ruta, json={"contenido": contenido, "expected_revision": 1})
+    repetir = client.patch(ruta, json={"contenido": contenido, "expected_revision": 2})
     assert repetir.status_code == 200
-    assert repetir.json()["revision_borrador"] == 1
-    conflicto = client.patch(ruta, json={"contenido": contenido, "expected_revision": 0})
+    assert repetir.json()["revision_borrador"] == 2
+    conflicto = client.patch(ruta, json={"contenido": contenido, "expected_revision": 1})
     assert conflicto.status_code == 409
 
     versiones = client.get(f"/api/convenios/{id_convenio}/versiones")
     assert versiones.status_code == 200
-    assert [v["numero"] for v in versiones.json()] == [1]
+    assert versiones.json() == []
 
     final = client.post(
         f"{ruta}/finalizar",
-        json={"expected_revision": 1, "contenido": contenido},
+        json={"expected_revision": 2, "contenido": contenido},
     )
     assert final.status_code == 200, final.text
     assert db.get(Convenio, id_convenio).etapa_actual.codigo == "REVISION_AVAL_JURIDICO"
@@ -227,7 +235,7 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
         VersionConvenio.convenio_id == id_convenio,
         VersionConvenio.numero == numero,
     ))
-    assert numero == 2
+    assert numero == 1
     assert version.contexto == ContextoVersionConvenio.FINALIZACION.value
     assert version.autor_id == gestor.id
 
@@ -246,7 +254,7 @@ def test_aliado_opcional_hasta_envio_contraparte(client, db, gestor):
     tipo_id = db.scalar(select(TipoConvenio.id).limit(1))
     ruta = f"/api/convenios/{creado['id']}/elaboracion"
     guardar = client.patch(ruta, json={
-        "expected_revision": 0,
+        "expected_revision": 1,
         "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
             {"type": "text", "text": "Acuerdo institucional redactado por la ORI"}
         ]}]},
