@@ -11,8 +11,13 @@ from sqlalchemy.orm import Session
 from backend.cli.conciliar_convenios import main
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
-from backend.models.enums import EstadoSolicitud, TipoSolicitante
+from backend.models.enums import (
+    ContextoVersionConvenio,
+    EstadoSolicitud,
+    TipoSolicitante,
+)
 from backend.models.historial_etapa import HistorialEtapa
 from backend.models.rol import Rol
 from backend.models.solicitud_convenio import SolicitudConvenio
@@ -77,6 +82,15 @@ def origen_confirmado(request, db_engine):
                     ),
                     usuario,
                 )
+        servicio = ServicioConvenios(db)
+        borrador = servicio._borrador(convenio.id)
+        servicio._crear_version(
+            convenio,
+            borrador.contenido,
+            usuario,
+            ContextoVersionConvenio.FINALIZACION,
+        )
+        db.delete(borrador)
         convenio.estado = "FINALIZADO"
         db.commit()
         ids = convenio.id, usuario.id
@@ -87,7 +101,12 @@ def origen_confirmado(request, db_engine):
             convenios = list(
                 db.scalars(select(Convenio.id).where(Convenio.creado_por_id == ids[1]))
             )
-            for modelo in (TransicionEstadoConvenio, VersionConvenio, HistorialEtapa):
+            for modelo in (
+                TransicionEstadoConvenio,
+                VersionConvenio,
+                HistorialEtapa,
+                BorradorConvenio,
+            ):
                 db.execute(delete(modelo).where(modelo.convenio_id.in_(convenios)))
             db.execute(delete(Auditoria).where(Auditoria.usuario_id == ids[1]))
             db.execute(delete(Convenio).where(Convenio.convenio_origen_id == ids[0]))
