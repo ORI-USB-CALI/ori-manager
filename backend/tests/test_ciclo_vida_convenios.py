@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import EstadoConvenio, EstadoSolicitud, TipoSolicitante
 from backend.models.rol import Rol
@@ -24,13 +25,14 @@ HOY = date(2026, 10, 8)
 
 
 @pytest.fixture
-def preparar(db, gestor, crear_convenio):
+def preparar(db, gestor, crear_convenio, formalizar_version):
     def crear(estado=EstadoConvenio.VIGENTE, dias=30):
         convenio = crear_convenio(
             gestor,
             fecha_inicio=date(2025, 1, 1),
             fecha_vencimiento=HOY + timedelta(days=dias) if dias is not None else None,
         )
+        formalizar_version(convenio, gestor)
         convenio.estado = estado.value
         db.commit()
         return convenio
@@ -350,6 +352,9 @@ def test_conciliaciones_concurrentes_registran_una_transicion(db_engine):
                 delete(TransicionEstadoConvenio).where(
                     TransicionEstadoConvenio.convenio_id == ids[0]
                 )
+            )
+            sesion.execute(
+                delete(BorradorConvenio).where(BorradorConvenio.convenio_id == ids[0])
             )
             sesion.execute(delete(Convenio).where(Convenio.id == ids[0]))
             sesion.execute(
