@@ -7,6 +7,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -132,5 +134,8 @@ def test_h03_upgrade_downgrade_reaplicar_preserva_catalogo_e_historia(
     comprobar_historia()
     columnas = {columna["name"] for columna in inspect(motor).get_columns("solicitud_convenio")}
     assert "pais_aliado_propuesto_id" in columnas
+    cabeza = ScriptDirectory.from_config(
+        Config(Path(__file__).parents[1] / "alembic.ini")
+    ).get_current_head()
     with motor.connect() as conexion:
-        assert conexion.scalar(text("SELECT version_num FROM alembic_version")) == "0b2fb1bed5b2"
+        assert conexion.scalar(text("SELECT version_num FROM alembic_version")) == cabeza
