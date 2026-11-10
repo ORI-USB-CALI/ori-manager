@@ -331,7 +331,7 @@ export function ConvenioElaboracionPage() {
         <h1>Proyecto de convenio {referenciaConvenio(datos.codigo, datos.id)}</h1>
         <p>
           <span className="badge">{datos.etapa_actual?.nombre ?? datos.estado}</span>
-          {' · '}Versión formal {datos.version_actual} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
+          {' · '}{datos.version_actual ? `Versión formal ${datos.version_actual}` : 'Sin versión formal'} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
         </p>
       </section>
 
@@ -452,7 +452,7 @@ export function ConvenioElaboracionPage() {
               <h2>Proyecto de convenio</h2>
               <dl className="proyecto-datos">
                 <dt>Etapa actual</dt><dd>{datos.etapa_actual?.nombre ?? '—'}</dd>
-                <dt>Versión formal</dt><dd>{datos.version_actual || 'Sin versión'}</dd>
+                <dt>Versión formal</dt><dd>{datos.version_actual || 'Aún no tiene'}</dd>
                 <dt>Borrador</dt>
                 <dd>
                   {datos.borrador_guardado_en
@@ -551,6 +551,9 @@ export function ConvenioElaboracionPage() {
             <section className="card historial-versiones">
               <h2>Historial de versiones</h2>
               <p className="section-help">Solo incluye versiones formales; guardar avances no agrega versiones.</p>
+              {versiones.data?.length === 0 && (
+                <p>Aún no hay versiones formales. La primera se crea al enviar el proyecto a revisión jurídica.</p>
+              )}
               <div className="version-lista">
                 {versiones.data?.map((version) => (
                   <article className={version.numero === datos.version_actual ? 'version-actual' : undefined} key={version.numero}>
