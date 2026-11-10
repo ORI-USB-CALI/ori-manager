@@ -6,6 +6,13 @@ from backend.models.borrador_convenio import BorradorConvenio
 CONTENIDO = {"type": "doc", "content": [{"type": "paragraph"}]}
 
 
+@pytest.fixture
+def convenio_listo(convenio_listo, gestor, formalizar_version):
+    """Los casos de este módulo parten de un convenio que ya tiene versión formal."""
+    formalizar_version(convenio_listo, gestor)
+    return convenio_listo
+
+
 def _borrador(convenio, usuario, revision: int = 1) -> BorradorConvenio:
     return BorradorConvenio(
         convenio_id=convenio.id,
