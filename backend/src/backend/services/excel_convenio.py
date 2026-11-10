@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from backend.schemas.exportacion import (
     INFORMACION_NO_DISPONIBLE,
     MARCA_BORRADOR,
+    SIN_VERSION_FORMAL,
     ConvenioPdfDTO,
     ModoEmision,
 )
@@ -86,7 +87,7 @@ class ConvenioExcelExportService:
             ("Fecha de fin de vigencia", dto.fecha_vencimiento),
             ("Duración (meses)", dto.duracion_meses),
             ("Porcentaje de avance", dto.porcentaje_avance),
-            ("Versión del documento", dto.version_actual),
+            ("Versión del documento", dto.version_actual or SIN_VERSION_FORMAL),
             ("Unidad solicitante", dto.solicitante_unidad),
         ]
         for fila, (campo, valor) in enumerate(filas, start=inicio + 1):
