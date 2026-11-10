@@ -189,9 +189,10 @@ def test_responsable_de_negocio_es_distinto_del_originador(
 
 
 def test_editar_convenio_registra_evento_etapa_version_y_responsable(
-    db: Session, gestor: Usuario, crear_convenio
+    db: Session, gestor: Usuario, crear_convenio, formalizar_version
 ) -> None:
     convenio = crear_convenio(gestor)
+    formalizar_version(convenio, gestor)
     etapa_esperada = convenio.etapa_actual.codigo
     version_esperada = convenio.version_actual
 
@@ -579,14 +580,15 @@ def test_redaccion_se_conserva_con_ejecucion_automatica(modelo, campo, secreto):
     assert fila["ejecucion"] == "AUTOMATICA" and fila["usuario_id"] == 7
 
 
-def test_creacion_audita_la_version_inicial_real(client, db, gestor):
+def test_creacion_no_audita_una_version_inexistente(client, db, gestor):
     creada = client.post("/api/convenios/manual", json={})
     assert creada.status_code == 201
     convenio_id = creada.json()["id"]
     fila = _ultima_fila(db, "convenio", convenio_id)
     assert fila.evento == "CONVENIO_CREADO_MANUAL"
     assert fila.etapa == "ELABORACION"
-    assert fila.version == creada.json()["version_actual"] == 1
+    assert creada.json()["version_actual"] == 0
+    assert fila.version is None
 
 
 def test_revision_audita_la_version_generada_y_su_asignacion(
@@ -620,8 +622,9 @@ def test_revision_audita_la_version_generada_y_su_asignacion(
     (True, "VERSION_GENERADA", 2), (False, "VERSION_REUTILIZADA", 1),
 ])
 def test_eventos_ht13_se_persisten_sin_versionar_cada_guardado(
-    client, db, gestor, convenio_listo, con_cambios, evento, numero,
+    client, db, gestor, convenio_listo, formalizar_version, con_cambios, evento, numero,
 ):
+    formalizar_version(convenio_listo, gestor)
     ruta = f"/api/convenios/{convenio_listo.id}/elaboracion"
     datos = client.get(ruta).json()
     if con_cambios:
