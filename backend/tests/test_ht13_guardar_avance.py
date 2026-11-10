@@ -17,6 +17,13 @@ from backend.services.convenios import ConflictoBorradorConvenio, ServicioConven
 from backend.services.notificaciones import ServicioNotificaciones
 
 
+@pytest.fixture
+def convenio_listo(convenio_listo, gestor, formalizar_version):
+    """Los casos de este módulo parten de un convenio que ya tiene versión formal."""
+    formalizar_version(convenio_listo, gestor)
+    return convenio_listo
+
+
 def _ruta(convenio_id: int) -> str:
     return f"/api/convenios/{convenio_id}/elaboracion"
 
