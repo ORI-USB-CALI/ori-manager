@@ -1027,7 +1027,11 @@ def registrar_observacion_revision(
 ) -> ObservacionRevisionLeer:
     try:
         observacion = ServicioConvenios(db).registrar_observacion_revision(
-            convenio_id, revision_id, datos.descripcion, usuario
+            convenio_id,
+            revision_id,
+            datos.descripcion,
+            usuario,
+            requiere_correccion=datos.requiere_correccion,
         )
         convenio = ServicioConvenios(db).obtener_historial(convenio_id)
         cargada = next(
