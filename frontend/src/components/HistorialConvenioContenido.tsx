@@ -65,7 +65,7 @@ function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
     <>
       <ObservacionesJuridicas revisiones={revisiones} />
 
-      {solicitudId != null && <VersionesSolicitud solicitudId={solicitudId} />}
+      {solicitudId != null && solicitudId > 0 && <VersionesSolicitud solicitudId={solicitudId} />}
 
       <section className="card">
         <h2>Cambios de etapa</h2>

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useRef, useState } from 'react'
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
@@ -74,6 +74,7 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
 
 export function ConvenioDetallePage() {
   const ubicacion = useLocation()
+  const navigate = useNavigate()
   const retorno = volverA(ubicacion, 'Volver al convenio')
   const id = Number(useParams().convenioId)
   const [parametros, setParametros] = useSearchParams()
@@ -108,7 +109,7 @@ export function ConvenioDetallePage() {
 
   const cliente = useQueryClient()
   const notify = useNotifications()
-  const { puede } = useSesion()
+  const { puede, sesion } = useSesion()
   const puedeConsultarEtapa = puede('convenios.editar')
     || puede('convenios.revisar')
     || puede('convenios.gestionar_revision_contraparte')
@@ -159,6 +160,7 @@ export function ConvenioDetallePage() {
       cliente.invalidateQueries({ queryKey: ['convenio', id] }),
       cliente.invalidateQueries({ queryKey: ['convenio', id, 'revision'] }),
       cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
+      cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
       cliente.invalidateQueries({ queryKey: ['revisiones-juridicas', 'pendientes'] }),
     ])
   }
@@ -203,6 +205,18 @@ export function ConvenioDetallePage() {
             : 'Segunda revisión aprobada. El proyecto quedó habilitado para contraparte.'
           : 'Proyecto devuelto a Elaboración con observaciones.',
       })
+      if (sesion?.rol.codigo === 'REVISOR_ORI' || !puede('convenios.editar')) {
+        setBorrador(null)
+        await Promise.all([
+          cliente.invalidateQueries({ queryKey: ['convenio', id], refetchType: 'none' }),
+          cliente.invalidateQueries({ queryKey: ['convenio', id, 'revision'], refetchType: 'none' }),
+          cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'], refetchType: 'none' }),
+          cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
+          cliente.invalidateQueries({ queryKey: ['revisiones-juridicas', 'pendientes'] }),
+        ])
+        navigate(`/convenios/${id}/historial`, { replace: true, state: ubicacion.state })
+        return
+      }
       await refrescarRevision()
     },
     onError: (error) => notify({
@@ -328,7 +342,10 @@ export function ConvenioDetallePage() {
 
       {pestana === 'historial' && (
         <div className="panel-pestana" role="tabpanel" id="panel-historial" aria-labelledby="pestana-historial">
-          <HistorialConvenioContenido convenioId={id} solicitudId={datos.solicitud_id} />
+          <HistorialConvenioContenido
+            convenioId={id}
+            solicitudId={datos.origen === 'MANUAL_ORI' ? null : datos.solicitud_id}
+          />
         </div>
       )}
 

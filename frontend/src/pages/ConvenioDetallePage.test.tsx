@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { ConvenioDetallePage } from './ConvenioDetallePage'
+import { ConvenioHistorialPage } from './ConvenioHistorialPage'
 import type { Convenio, HistorialConvenio } from './epica02'
 
 beforeAll(() => {
@@ -44,8 +45,13 @@ function respuesta(status: number, cuerpo: unknown): Response {
 }
 
 function Ubicacion() {
-  const { search } = useLocation()
-  return <output data-testid="ubicacion">{search}</output>
+  const { pathname, search } = useLocation()
+  return (
+    <>
+      <output data-testid="ubicacion">{search}</output>
+      <output data-testid="ruta-actual">{pathname}{search}</output>
+    </>
+  )
 }
 
 function preparar({
@@ -67,7 +73,14 @@ function preparar({
   revisionData?: unknown
   estado?: unknown
 } = {}) {
-  const fetch = vi.fn(async (url: string) => {
+  const notify = vi.fn()
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/aprobar') && init?.method === 'POST') {
+      return respuesta(200, { id: 1, estado: 'RESUELTA', resultado: 'APROBADA' })
+    }
+    if (url.endsWith('/devolver') && init?.method === 'POST') {
+      return respuesta(200, { id: 1, estado: 'RESUELTA', resultado: 'DEVUELTA' })
+    }
     if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
     if (url === '/api/solicitudes/recibidas/1/historial') {
       return historialSolicitudStatus === 200
@@ -99,16 +112,17 @@ function preparar({
   cliente.setQueryData(['convenio', datos.id], datos)
   render(
     <QueryClientProvider client={cliente}>
-      <NotificationsContext.Provider value={vi.fn()}>
+      <NotificationsContext.Provider value={notify}>
         <MemoryRouter initialEntries={[estado === undefined ? ruta : { pathname: ruta, state: estado }]}>
           <Routes>
             <Route path="/convenios/:convenioId" element={<><ConvenioDetallePage /><Ubicacion /></>} />
+            <Route path="/convenios/:convenioId/historial" element={<><ConvenioHistorialPage /><Ubicacion /></>} />
           </Routes>
         </MemoryRouter>
       </NotificationsContext.Provider>
     </QueryClientProvider>,
   )
-  return { fetch, usuario: userEvent.setup() }
+  return { fetch, notify, usuario: userEvent.setup() }
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -259,5 +273,102 @@ describe('HU-23: previsualización de documentos asociados en revisión jurídic
       expect(screen.queryByRole('heading', { level: 2, name: 'propuesta_academica.pdf' })).toBeNull()
     })
     expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+})
+
+describe('CA-01 (#176): redirección posterior a la aprobación jurídica de convenios', () => {
+  const sesionRevisor: Sesion = {
+    ...sesion,
+    permisos: ['convenios.ver', 'convenios.revisar'],
+  }
+
+  function datosRevision(instancia: 1 | 2) {
+    return {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cláusula única' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 15,
+        instancia_juridica: instancia,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [],
+    }
+  }
+
+  it('redirige al historial del convenio tras aprobar un convenio manual sin intentar cargar una solicitud inexistente', async () => {
+    const convenioManual: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = preparar({
+      datos: convenioManual,
+      sesionUsuario: sesionRevisor,
+      elaboracionData: {
+        ...convenioManual,
+        etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+      },
+      revisionData: datosRevision(1),
+      estado: { volver: { to: '/revisiones-juridicas', texto: 'Volver a revisiones jurídicas' } },
+    })
+
+    const btnAprobar = await screen.findByRole('button', { name: 'Aprobar revisión' })
+    await usuario.click(btnAprobar)
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success',
+        message: 'Primera revisión aprobada. Se habilitó la segunda revisión.',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('ruta-actual').textContent).toBe('/convenios/41/historial')
+    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Historial y trazabilidad' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Volver a revisiones jurídicas' }).getAttribute('href'))
+      .toBe('/revisiones-juridicas')
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/solicitudes/'))).toBe(false)
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
+  })
+
+  it('redirige a una vista válida correspondiente al flujo tras aprobar un convenio derivado de solicitud', async () => {
+    const convenioSolicitud: Convenio = {
+      ...convenio,
+      origen: 'SOLICITUD',
+      solicitud_id: 1,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = preparar({
+      datos: convenioSolicitud,
+      sesionUsuario: sesionRevisor,
+      elaboracionData: {
+        ...convenioSolicitud,
+        etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+      },
+      revisionData: datosRevision(2),
+    })
+
+    const btnAprobar = await screen.findByRole('button', { name: 'Aprobar revisión' })
+    await usuario.click(btnAprobar)
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success',
+        message: 'Segunda revisión aprobada. El proyecto quedó habilitado para contraparte.',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('ruta-actual').textContent).toBe('/convenios/41/historial')
+    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Historial y trazabilidad' })).toBeTruthy()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
   })
 })
