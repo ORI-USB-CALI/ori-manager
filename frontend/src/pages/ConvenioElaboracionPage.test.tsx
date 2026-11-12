@@ -79,6 +79,7 @@ function respuesta(status: number, cuerpo: unknown): Response {
 function preparar(
   guardado: () => Response | Promise<Response>,
   inicial: ElaboracionConvenio = elaboracion,
+  revisiones: unknown = { revisiones: [], cambios_etapa: [] },
 ) {
   let datos = inicial
   let falloLectura = false
@@ -103,7 +104,7 @@ function preparar(
       return respuesta(200, { items: [{ id: 6, nombre: 'Universidad B' }], total: 1 })
     }
     if (url === '/api/convenios/7/versiones') return respuesta(200, [])
-    if (url === '/api/convenios/7/revisiones') return respuesta(200, { revisiones: [], cambios_etapa: [] })
+    if (url === '/api/convenios/7/revisiones') return respuesta(200, revisiones)
     return respuesta(404, { detail: 'Not Found' })
   })
   vi.stubGlobal('fetch', fetch)
@@ -129,6 +130,43 @@ function preparar(
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+describe('HT-15, Tarea 7 - marca "obliga a corregir" en el editor', () => {
+  it('muestra si cada observación jurídica pendiente obliga o no a corregir', async () => {
+    preparar(() => respuesta(200, elaboracion), elaboracion, {
+      revisiones: [{
+        id: 10, tipo: 'JURIDICA', instancia_juridica: 1, numero_ronda: 1,
+        estado: 'RESUELTA', resultado: 'DEVUELTA',
+        version_convenio_id: null, version_resultado_id: null, version_convenio: null,
+        version_resultado: null, snapshot_datos: null, creada_por: elaboracion.creado_por,
+        resuelta_por: elaboracion.creado_por, creado_en: '2026-10-20T12:00:00Z',
+        resuelta_en: '2026-10-20T13:00:00Z',
+        observaciones: [
+          {
+            id: 200, origen: 'REVISOR_ORI', descripcion: 'Falta la cláusula de vigencia',
+            requiere_correccion: true, respuesta: null, estado: 'PENDIENTE',
+            registrada_por: elaboracion.creado_por, responsable: null, atendida_por: null,
+            fecha_atencion: null, creado_en: '2026-10-20T12:00:00Z',
+          },
+          {
+            id: 201, origen: 'REVISOR_ORI', descripcion: 'Sugerencia de redacción',
+            requiere_correccion: false, respuesta: null, estado: 'PENDIENTE',
+            registrada_por: elaboracion.creado_por, responsable: null, atendida_por: null,
+            fecha_atencion: null, creado_en: '2026-10-20T12:05:00Z',
+          },
+        ],
+        invitaciones_contraparte: [], respuesta_contraparte: null,
+      }],
+      cambios_etapa: [],
+    })
+
+    const seccion = (await screen.findByRole('heading', { name: 'Observaciones jurídicas pendientes' })).closest('section') as HTMLElement
+    const obligatoria = within(seccion).getByText('Falta la cláusula de vigencia').closest('article') as HTMLElement
+    const informativa = within(seccion).getByText('Sugerencia de redacción').closest('article') as HTMLElement
+    expect(within(obligatoria).getByText('Obliga a corregir')).toBeTruthy()
+    expect(within(informativa).getByText('No obliga a corregir')).toBeTruthy()
+  })
+})
 
 describe('HT-13 - guardar avances del convenio', () => {
   it('distingue el borrador guardado del número de versión formal (RN-09)', async () => {

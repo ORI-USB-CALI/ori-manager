@@ -36,6 +36,7 @@ const historial: HistorialConvenio = {
           id: 100,
           origen: 'REVISOR_ORI',
           descripcion: 'Precisar el objeto del convenio',
+          requiere_correccion: true,
           respuesta: 'Objeto precisado con las actividades',
           estado: 'ATENDIDA',
           registrada_por: revisor,

@@ -22,6 +22,7 @@ interface Observacion {
   id: number
   origen: string
   descripcion: string
+  requiere_correccion: boolean
   respuesta: string | null
   estado: 'PENDIENTE' | 'ATENDIDA'
   creado_en: string
@@ -388,6 +389,9 @@ export function ConvenioElaboracionPage() {
                     <div className="observacion-cabecera">
                       <h3>{observacion.descripcion}</h3>
                       <span className="badge badge-pendiente">Pendiente</span>
+                      <span className={observacion.requiere_correccion ? 'badge badge-pendiente' : 'badge badge-neutral'}>
+                        {observacion.requiere_correccion ? 'Obliga a corregir' : 'No obliga a corregir'}
+                      </span>
                     </div>
                     <p className="texto-secundario">Registrada el {fechaHora(observacion.creado_en)}</p>
                     {editable && (
@@ -610,6 +614,7 @@ export function ConvenioElaboracionPage() {
         <FinalizarElaboracionModal
           convenioId={id}
           valores={payloadFinal}
+          tieneVersionFormal={datos.version_actual > 0}
           onCerrar={() => setModalAbierto(false)}
           onErrorValidacion={(error) => setErrores(erroresServidor(error))}
           onFinalizado={() => Promise.all([

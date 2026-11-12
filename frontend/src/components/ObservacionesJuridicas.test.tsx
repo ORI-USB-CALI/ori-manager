@@ -18,6 +18,7 @@ function autoria(nombre: string, fecha: string): string {
 function observacion(datos: Partial<ObservacionRevision> & Pick<ObservacionRevision, 'id' | 'descripcion'>): ObservacionRevision {
   return {
     origen: 'REVISOR_ORI',
+    requiere_correccion: true,
     respuesta: null,
     estado: 'PENDIENTE',
     registrada_por: revisor,
@@ -133,6 +134,24 @@ describe('ObservacionesJuridicas', () => {
     expect(within(pendiente).getByText('Ajustar la vigencia')).toBeTruthy()
     expect(within(pendiente).getByText('Pendiente de atención')).toBeTruthy()
     expect(within(pendiente).getByText('Pendiente')).toBeTruthy()
+  })
+
+  it('muestra si la observación obliga a corregir el documento (HT-15)', () => {
+    const historialMixto: RevisionConvenioTrazabilidad[] = [
+      revision({
+        id: 30,
+        observaciones: [
+          observacion({ id: 200, descripcion: 'Obligatoria', requiere_correccion: true }),
+          observacion({ id: 201, descripcion: 'Informativa', requiere_correccion: false }),
+        ],
+      }),
+    ]
+
+    render(<ObservacionesJuridicas revisiones={historialMixto} />)
+
+    const [obligatoria, informativa] = screen.getAllByRole('listitem')
+    expect(within(obligatoria).getByText('Obliga a corregir')).toBeTruthy()
+    expect(within(informativa).getByText('No obliga a corregir')).toBeTruthy()
   })
 
   it('indica cuando el convenio no tiene observaciones jurídicas', () => {

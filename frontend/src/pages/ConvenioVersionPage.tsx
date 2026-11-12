@@ -5,7 +5,7 @@ import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
 import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor } from '../components/ConvenioEditor'
-import { contextoVersion, useVersionConvenio } from './epica02'
+import { contextoVersion, useVersionConvenio, useVersionesConvenio } from './epica02'
 
 // Etiquetas de los campos que congela el snapshot. Un campo desconocido (por
 // ejemplo, de un snapshot más antiguo o más reciente) se muestra con su clave.
@@ -48,6 +48,7 @@ export function ConvenioVersionPage() {
   const numero = Number(params.numero)
   const parametrosValidos = Number.isInteger(id) && id > 0 && Number.isInteger(numero) && numero > 0
   const version = useVersionConvenio(id, numero)
+  const versiones = useVersionesConvenio(id, parametrosValidos)
 
   // HU-21: una versión histórica no implica acceso al detalle operativo.
   const accionVolver = <AccionVolver alternativo={sesion?.rol.codigo === 'REVISOR_ORI' || !Number.isInteger(id) || id <= 0
@@ -80,6 +81,11 @@ export function ConvenioVersionPage() {
 
   const datos = version.data!
   const snapshot = Object.entries(datos.snapshot_metadata ?? {})
+  // La versión actual es la de mayor número entre las que existen; mientras
+  // esa lista cargue, no se afirma si es histórica o no.
+  const esVersionActual = versiones.data
+    ? datos.numero === Math.max(...versiones.data.map((v) => v.numero))
+    : null
 
   return (
     <>
@@ -87,14 +93,21 @@ export function ConvenioVersionPage() {
       <section className="header-banner">
         <h1>Versión {datos.numero} del convenio</h1>
         <p>
-          <span className="badge badge-historica">Versión histórica · Solo lectura</span>
+          <span className="badge badge-historica">
+            {esVersionActual ? 'Versión actual' : 'Versión histórica'} · Solo lectura
+          </span>
           {' · '}Convenio #{id}
         </p>
       </section>
 
       <div className="version-historica-aviso" role="note">
-        Estás consultando una versión formal almacenada. Su contenido no se puede editar
-        y no corresponde necesariamente al borrador de trabajo actual del convenio.
+        {esVersionActual
+          ? 'Estás consultando la versión formal vigente del convenio. Su contenido '
+            + 'no se puede editar desde aquí; el borrador de trabajo, si existe, puede '
+            + 'tener cambios sin enviar todavía.'
+          : 'Estás consultando una versión formal almacenada. Su contenido no se puede '
+            + 'editar y no corresponde necesariamente al borrador de trabajo actual del '
+            + 'convenio.'}
       </div>
 
       <div className="elaboracion-workspace">

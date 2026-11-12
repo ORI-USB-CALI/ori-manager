@@ -43,7 +43,7 @@ describe('HT-05 - versiones en el historial del convenio', () => {
     ])
     const actual = within(seccion).getByText('Versión 2').closest('article') as HTMLElement
     expect(within(actual).getByText('Actual')).toBeTruthy()
-    expect(within(actual).getByText('Elaboración finalizada')).toBeTruthy()
+    expect(within(actual).getByText('Envío a revisión jurídica')).toBeTruthy()
     expect(within(seccion).getByText(/guardar avances no agrega versiones/)).toBeTruthy()
   })
 

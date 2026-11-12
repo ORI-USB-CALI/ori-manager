@@ -35,6 +35,11 @@ const versionV1: VersionConvenioDetalle = {
   contenido: DOCUMENTO_V1,
   snapshot_metadata: { objeto: 'Objeto congelado', duracion_meses: 24, fecha_inicio: '2026-01-01', unidad_organizacional_id: null },
 }
+const versionV2: VersionConvenioDetalle = {
+  ...resumenV2,
+  contenido: DOCUMENTO_V1,
+  snapshot_metadata: { objeto: 'Objeto congelado', duracion_meses: 24, fecha_inicio: '2026-01-01', unidad_organizacional_id: null },
+}
 // Versión creada por un guardado antes de HT-13: sin plantilla ni datos congelados.
 const versionLegado: VersionConvenioDetalle = {
   ...resumenV1, id: 9, numero: 3, contexto: 'GUARDADO', plantilla: null,
@@ -73,6 +78,7 @@ function preparar(ruta: string, opciones: { permisos?: string[]; detalle?: Respo
     if (url.startsWith('/api/convenios')) peticiones.push({ url, metodo: init?.method ?? 'GET' })
     if (init?.method && init.method !== 'GET') return respuesta(500, { detail: 'No esperado' })
     if (url === '/api/convenios/7/versiones/1') return opciones.detalle ?? respuesta(200, versionV1)
+    if (url === '/api/convenios/7/versiones/2') return opciones.detalle ?? respuesta(200, versionV2)
     if (url === '/api/convenios/7/versiones/3') return respuesta(200, versionLegado)
     if (url.startsWith('/api/convenios/7/versiones/')) return respuesta(404, { detail: 'Versión de convenio no encontrada' })
     if (url === '/api/convenios/7/versiones') return respuesta(200, [resumenV2, resumenV1])
@@ -134,6 +140,7 @@ describe('HT-05 - consultar versiones anteriores del convenio', () => {
     const documento = screen.getByTestId('documento')
     expect(documento.textContent).toBe(JSON.stringify(DOCUMENTO_V1))
     expect(documento.dataset.editable).toBe('false')
+    expect(screen.getByText('Versión histórica · Solo lectura')).toBeTruthy()
     expect(screen.getAllByText(/Solo lectura/).length).toBeGreaterThan(0)
 
     const datos = (screen.getByRole('heading', { name: 'Datos de la versión' }).closest('section')) as HTMLElement
@@ -142,7 +149,7 @@ describe('HT-05 - consultar versiones anteriores del convenio', () => {
     expect(valor('Autor')).toBe('Gestora ORI')
     expect(valor('Fecha')).toBe(new Date(versionV1.creado_en).toLocaleString())
     expect(valor('Etapa')).toBe('Elaboración')
-    expect(valor('Contexto de generación')).toBe('Creación del proyecto')
+    expect(valor('Contexto de generación')).toBe('Versión inicial (convenio anterior a HT-15)')
     expect(valor('Plantilla utilizada')).toBe('Plantilla base')
 
     const snapshot = (screen.getByRole('heading', { name: 'Datos del convenio en esta versión' }).closest('section')) as HTMLElement
@@ -154,7 +161,21 @@ describe('HT-05 - consultar versiones anteriores del convenio', () => {
 
     expect(screen.queryByRole('button', { name: /Guardar|Finalizar|Restaurar|Editar/ })).toBeNull()
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(peticiones).toEqual([{ url: '/api/convenios/7/versiones/1', metodo: 'GET' }])
+    // También consulta la lista de versiones, para saber si esta es la actual.
+    expect(peticiones).toEqual(expect.arrayContaining([
+      { url: '/api/convenios/7/versiones/1', metodo: 'GET' },
+      { url: '/api/convenios/7/versiones', metodo: 'GET' },
+    ]))
+    expect(peticiones.every((peticion) => peticion.metodo === 'GET')).toBe(true)
+  })
+
+  it('distingue la versión actual de una histórica (HT-15, Tarea 7)', async () => {
+    preparar('/convenios/7/versiones/2')
+
+    expect(await screen.findByRole('heading', { name: 'Versión 2 del convenio' })).toBeTruthy()
+    expect(screen.getByText('Versión actual · Solo lectura')).toBeTruthy()
+    expect(screen.getByText(/versión formal vigente/)).toBeTruthy()
+    expect(screen.queryByText(/no corresponde necesariamente al borrador/)).toBeNull()
   })
 
   it('consulta versiones previas a HT-13 sin plantilla ni datos congelados (CA-08)', async () => {

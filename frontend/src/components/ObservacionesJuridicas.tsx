@@ -36,6 +36,9 @@ function ObservacionConCorreccion({ observacion }: { observacion: ObservacionRev
           {observacion.registrada_por?.nombre_completo ?? 'Revisor no identificado'} ·{' '}
           {formatDateTime(observacion.creado_en)}
         </p>
+        <span className={observacion.requiere_correccion ? 'badge badge-pendiente' : 'badge badge-neutral'}>
+          {observacion.requiere_correccion ? 'Obliga a corregir' : 'No obliga a corregir'}
+        </span>
       </div>
       <span className="observacion-flecha" aria-hidden="true">→</span>
       <div className="correccion-gestor">
