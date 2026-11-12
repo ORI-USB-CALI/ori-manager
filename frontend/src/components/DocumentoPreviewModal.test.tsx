@@ -715,6 +715,59 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
     }
   })
 
+  it('HT-18: devuelve el foco al activador sin provocar desplazamiento', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const contenedor = document.createElement('div')
+    const activador = document.createElement('button')
+    contenedor.appendChild(activador)
+    document.body.appendChild(contenedor)
+    contenedor.scrollTop = 180
+    contenedor.scrollLeft = 35
+    activador.focus()
+    const focoEspia = vi.spyOn(activador, 'focus')
+    try {
+      render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+      // Simula un desplazamiento accidental mientras el visor está abierto.
+      contenedor.scrollTop = 0
+      contenedor.scrollLeft = 0
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+      expect(onCerrar).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(activador)
+      expect(focoEspia).toHaveBeenCalledWith({ preventScroll: true })
+      expect(contenedor.scrollTop).toBe(180)
+      expect(contenedor.scrollLeft).toBe(35)
+    } finally {
+      focoEspia.mockRestore()
+      contenedor.remove()
+    }
+  })
+
+  it('HT-18: conserva la posición de la página al cerrar con Escape', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const activador = document.createElement('button')
+    document.body.appendChild(activador)
+    activador.focus()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+      vi.stubGlobal('scrollX', x)
+      vi.stubGlobal('scrollY', y)
+    })
+    vi.stubGlobal('scrollX', 25)
+    vi.stubGlobal('scrollY', 670)
+    try {
+      render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+      vi.stubGlobal('scrollX', 0)
+      vi.stubGlobal('scrollY', 0)
+      const dialogo = screen.getByRole('dialog')
+      fireEvent(dialogo, new Event('cancel', { cancelable: true }))
+      expect(onCerrar).toHaveBeenCalledTimes(1)
+      expect(scrollTo).toHaveBeenCalledWith(25, 670)
+      expect(document.activeElement).toBe(activador)
+    } finally {
+      scrollTo.mockRestore()
+      activador.remove()
+    }
+  })
+
   it('permite cerrar cuando el activador ya no existe', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
     const activador = document.createElement('button')
