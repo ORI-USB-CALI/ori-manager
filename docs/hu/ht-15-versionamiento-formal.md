@@ -52,3 +52,27 @@ Comunicadas al equipo el 08/11/2026.
 
 - Observaciones de revisión final: las decisiones no las mencionan. Mientras no se defina otra cosa, se tratan como obligatorias, igual que las de contraparte.
 - Valor por defecto de la marca: la casilla del Revisor ORI viene marcada como "obliga a corregir", y las observaciones enviadas al devolver sin marca también cuentan como obligatorias. Así un olvido del Revisor no permite reenviar sin corregir.
+- `expected_revision` de `finalizar_elaboracion` sigue siendo opcional "por compatibilidad" (Tarea 6). Falta decidir con Jesús si se vuelve obligatorio para completar el control de concurrencia; si cambia, hay que ajustar las pruebas que envían sin body.
+
+## Regresión
+
+### Issues de QA que esta HT debía resolver
+
+| Issue | Síntoma reportado | Regla que lo resuelve | Evidencia |
+|---|---|---|---|
+| [#173](https://github.com/ORI-USB-CALI/ori-manager/issues/173) | El documento nacía como V1 vacía; la primera elaboración real enviada a revisión quedaba como V2. | RN-01/RN-02/RN-03: no hay versión formal al crear; el contenido inicial es borrador; el primer envío genera V1 con contenido real. | `test_ht15_numeracion_versiones.py` (`test_convenio_manual_nace_sin_version_y_con_documento_vacio_como_borrador`, `test_el_primer_envio_del_convenio_manual_genera_la_v1_con_lo_elaborado`, para los 3 orígenes). |
+| [#174](https://github.com/ORI-USB-CALI/ori-manager/issues/174) | No se podía reenviar a revisión un convenio sin cambios reutilizando la versión existente; siempre exigía una versión nueva. | RN-07/RN-08: si el contenido y los datos no cambiaron y ninguna observación obliga a corregir, el reenvío reutiliza la versión. | `test_ht15_reenvios.py` (`test_reenvio_sin_cambios_reutiliza_la_version_si_ninguna_observacion_obliga`) y `test_ht15_revisiones_juridicas.py` (reutilización parametrizada por origen). |
+| [#144](https://github.com/ORI-USB-CALI/ori-manager/issues/144) | Cada "Guardar avance" incrementaba la versión, generando varias versiones dentro de un mismo ciclo de elaboración. | RN-04/RN-06: guardar avances nunca crea versiones (antes y después de que exista V1); solo el envío a revisión versiona, y solo si hay cambios reales. | `test_ht13_guardar_avance.py` (ya existente) + `test_ht15_atomicidad_concurrencia.py` (confirma también con convenios nuevos en revisión 1). |
+
+Los tres issues quedan resueltos por las reglas ya implementadas y cubiertos por pruebas automatizadas. No se modificó manualmente nada en GitHub (cerrarlos es decisión de QA/PO, no de esta rama).
+
+### Cobertura automatizada (tareas 5 y 6)
+
+- **Tarea 5** — `test_ht15_revisiones_juridicas.py`: integridad de RJ1/RJ2 (CA-05) parametrizada por los tres orígenes (manual, solicitud, renovación): reutilizar la versión abre una ronda nueva sin heredar avales (RN-11), y un aval de RJ1 no sirve para una versión distinta.
+- **Tarea 6** — `test_ht15_atomicidad_concurrencia.py`: tres fallos simulados en `finalizar_elaboracion` (CA-06: al crear la versión, al crear la revisión, al cambiar la etapa) sin dejar nada a medias; concurrencia real con hilos (dos envíos simultáneos, dos guardados simultáneos con `expected_revision=1`); histórico (V1 vacía + V2 conservan número/contenido tras un ciclo nuevo).
+- Suite completa al cierre de las tareas 5-7: backend **2859 passed**, frontend **859 passed** (sin regresiones sobre los `2847`/`854` reportados al subir la tarea 4).
+
+### Pendiente de QA (no ejecutable desde esta rama)
+
+- **Casos de QA solicitados y aún no entregados**: HT13-TC04, HT13-TC05, HT13-TC10 y HU10-TC13. No están en el repositorio; hay que pedírselos a QA y ejecutarlos cuando los entregue, registrando el resultado en esta sección.
+- **Prueba manual en navegador** de los 3 orígenes (crear sin versión → guardar → primer envío V1 → devolución y corrección V2 → reenvío sin cambios con observaciones que no obligan [reutiliza] y con observaciones que sí obligan [bloquea]): el flujo está cubierto por las pruebas automatizadas de extremo a extremo citadas arriba, pero falta la verificación manual en un navegador real, que requiere a una persona con la rama desplegada.
