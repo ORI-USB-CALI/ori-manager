@@ -7,11 +7,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { ConvenioDetallePage } from './ConvenioDetallePage'
+import { ConvenioHistorialPage } from './ConvenioHistorialPage'
 import type { Convenio, HistorialConvenio } from './epica02'
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '')
+    this.querySelector('button')?.focus()
   }
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute('open')
@@ -44,8 +46,13 @@ function respuesta(status: number, cuerpo: unknown): Response {
 }
 
 function Ubicacion() {
-  const { search } = useLocation()
-  return <output data-testid="ubicacion">{search}</output>
+  const { pathname, search } = useLocation()
+  return (
+    <>
+      <output data-testid="ubicacion">{search}</output>
+      <output data-testid="ruta-actual">{pathname}{search}</output>
+    </>
+  )
 }
 
 function preparar({
@@ -53,6 +60,7 @@ function preparar({
   lineaTiempoDisponible = true,
   datos = convenio,
   historialSolicitudStatus = 200,
+  documentoStatus = 200,
   sesionUsuario = sesion,
   elaboracionData = null,
   revisionData = null,
@@ -62,12 +70,20 @@ function preparar({
   lineaTiempoDisponible?: boolean
   datos?: Convenio
   historialSolicitudStatus?: number
+  documentoStatus?: number
   sesionUsuario?: Sesion
   elaboracionData?: unknown
   revisionData?: unknown
   estado?: unknown
 } = {}) {
-  const fetch = vi.fn(async (url: string) => {
+  const notify = vi.fn()
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/aprobar') && init?.method === 'POST') {
+      return respuesta(200, { id: 1, estado: 'RESUELTA', resultado: 'APROBADA' })
+    }
+    if (url.endsWith('/devolver') && init?.method === 'POST') {
+      return respuesta(200, { id: 1, estado: 'RESUELTA', resultado: 'DEVUELTA' })
+    }
     if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
     if (url === '/api/solicitudes/recibidas/1/historial') {
       return historialSolicitudStatus === 200
@@ -84,6 +100,14 @@ function preparar({
       return revisionData ? respuesta(200, revisionData) : respuesta(404, { detail: 'Not Found' })
     }
     if (url.includes('disposicion=inline')) {
+      if (documentoStatus !== 200) {
+        return {
+          ok: false,
+          status: documentoStatus,
+          statusText: 'Error',
+          text: async () => JSON.stringify({ detail: 'Error de acceso al documento' }),
+        } as unknown as Response
+      }
       return {
         ok: true,
         status: 200,
@@ -99,16 +123,17 @@ function preparar({
   cliente.setQueryData(['convenio', datos.id], datos)
   render(
     <QueryClientProvider client={cliente}>
-      <NotificationsContext.Provider value={vi.fn()}>
+      <NotificationsContext.Provider value={notify}>
         <MemoryRouter initialEntries={[estado === undefined ? ruta : { pathname: ruta, state: estado }]}>
           <Routes>
             <Route path="/convenios/:convenioId" element={<><ConvenioDetallePage /><Ubicacion /></>} />
+            <Route path="/convenios/:convenioId/historial" element={<><ConvenioHistorialPage /><Ubicacion /></>} />
           </Routes>
         </MemoryRouter>
       </NotificationsContext.Provider>
     </QueryClientProvider>,
   )
-  return { fetch, usuario: userEvent.setup() }
+  return { fetch, notify, usuario: userEvent.setup() }
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -259,5 +284,257 @@ describe('HU-23: previsualización de documentos asociados en revisión jurídic
       expect(screen.queryByRole('heading', { level: 2, name: 'propuesta_academica.pdf' })).toBeNull()
     })
     expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+
+  it('CA-03 y CA-05 (HU23-TC06): conserva el foco y el scroll al cerrar el visor en revisión jurídica sin forzar descarga', async () => {
+    const sesionRevisor: Sesion = {
+      ...sesion,
+      permisos: ['convenios.ver', 'convenios.revisar'],
+    }
+    const elaboracionConEtapa = {
+      ...convenio,
+      etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+    }
+    const revisionConDocs = {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 1,
+        instancia_juridica: 1,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [
+        {
+          id: 1,
+          tipo: 'PROPUESTA_CONVENIO',
+          nombre_archivo: 'propuesta_academica.pdf',
+          tipo_mime: 'application/pdf',
+          tamano_bytes: 2048,
+          creado_en: '2026-10-20T10:00:00Z',
+        },
+      ],
+    }
+
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+      vi.stubGlobal('scrollX', x)
+      vi.stubGlobal('scrollY', y)
+    })
+    vi.stubGlobal('scrollX', 0)
+    vi.stubGlobal('scrollY', 420)
+
+    try {
+      const { fetch, usuario } = preparar({
+        sesionUsuario: sesionRevisor,
+        elaboracionData: elaboracionConEtapa,
+        revisionData: revisionConDocs,
+      })
+
+      const btnVer = await screen.findByRole('link', { name: 'Ver' })
+      btnVer.focus()
+      await usuario.click(btnVer)
+
+      // Simular que el navegador desplazó la ventana al abrir el modal
+      vi.stubGlobal('scrollX', 0)
+      vi.stubGlobal('scrollY', 0)
+
+      expect(await screen.findByTestId('preview-iframe')).toBeTruthy()
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('disposicion=attachment'))).toBe(false)
+
+      await usuario.click(screen.getByRole('button', { name: 'Cerrar previsualizador' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull()
+      })
+      expect(document.activeElement).toBe(btnVer)
+      expect(scrollTo).toHaveBeenCalledWith(0, 420)
+      expect(fetch.mock.calls.filter(([url]) => String(url).includes('disposicion=inline'))).toHaveLength(1)
+    } finally {
+      scrollTo.mockRestore()
+    }
+  })
+
+  it.each([
+    [403, 'No tiene permiso para consultar este documento.'],
+    [404, 'El documento solicitado no fue encontrado o no está vigente.'],
+  ])('CA-05 (HU23-TC06): maneja respuesta %i en el visor durante revisión jurídica y restaura el foco al cerrar', async (codigo, mensajeEsperado) => {
+    const sesionRevisor: Sesion = {
+      ...sesion,
+      permisos: ['convenios.ver', 'convenios.revisar'],
+    }
+    const elaboracionConEtapa = {
+      ...convenio,
+      etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+    }
+    const revisionConDocs = {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 1,
+        instancia_juridica: 1,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [
+        {
+          id: 1,
+          tipo: 'PROPUESTA_CONVENIO',
+          nombre_archivo: 'propuesta_academica.pdf',
+          tipo_mime: 'application/pdf',
+          tamano_bytes: 2048,
+          creado_en: '2026-10-20T10:00:00Z',
+        },
+      ],
+    }
+
+    const { usuario } = preparar({
+      sesionUsuario: sesionRevisor,
+      elaboracionData: elaboracionConEtapa,
+      revisionData: revisionConDocs,
+      documentoStatus: codigo,
+    })
+
+    const btnVer = await screen.findByRole('link', { name: 'Ver' })
+    btnVer.focus()
+    await usuario.click(btnVer)
+
+    expect(await screen.findByTestId('preview-error')).toBeTruthy()
+    expect(screen.getByText(mensajeEsperado)).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+
+    await usuario.click(screen.getByRole('button', { name: 'Cerrar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+    expect(document.activeElement).toBe(btnVer)
+    expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+
+  it('CA-04: restringe las acciones visibles en el detalle según los permisos del perfil ORI', async () => {
+    const sesionGestor: Sesion = {
+      ...sesion,
+      rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' },
+      permisos: ['convenios.ver', 'convenios.editar', 'convenios.gestionar_soportes'],
+    }
+    const { fetch } = preparar({
+      datos: { ...convenio, estado: 'EN_TRAMITE', fecha_firma: null },
+      sesionUsuario: sesionGestor,
+      elaboracionData: {
+        ...convenio,
+        estado: 'EN_TRAMITE',
+        etapa_actual: { codigo: 'ELABORACION', nombre: 'Elaboración' },
+      },
+    })
+
+    expect(await screen.findByRole('link', { name: 'Continuar elaboración' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Aprobar revisión' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41/revision')).toBe(false)
+  })
+})
+
+describe('CA-01 (#176): redirección posterior a la aprobación jurídica de convenios', () => {
+  const sesionRevisor: Sesion = {
+    ...sesion,
+    permisos: ['convenios.ver', 'convenios.revisar'],
+  }
+
+  function datosRevision(instancia: 1 | 2) {
+    return {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cláusula única' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 15,
+        instancia_juridica: instancia,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [],
+    }
+  }
+
+  it('redirige al historial del convenio tras aprobar un convenio manual sin intentar cargar una solicitud inexistente', async () => {
+    const convenioManual: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = preparar({
+      datos: convenioManual,
+      sesionUsuario: sesionRevisor,
+      elaboracionData: {
+        ...convenioManual,
+        etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+      },
+      revisionData: datosRevision(1),
+      estado: { volver: { to: '/revisiones-juridicas', texto: 'Volver a revisiones jurídicas' } },
+    })
+
+    const btnAprobar = await screen.findByRole('button', { name: 'Aprobar revisión' })
+    await usuario.click(btnAprobar)
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success',
+        message: 'Primera revisión aprobada. Se habilitó la segunda revisión.',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('ruta-actual').textContent).toBe('/convenios/41/historial')
+    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Historial y trazabilidad' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Volver a revisiones jurídicas' }).getAttribute('href'))
+      .toBe('/revisiones-juridicas')
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/solicitudes/'))).toBe(false)
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
+  })
+
+  it('redirige a una vista válida correspondiente al flujo tras aprobar un convenio derivado de solicitud', async () => {
+    const convenioSolicitud: Convenio = {
+      ...convenio,
+      origen: 'SOLICITUD',
+      solicitud_id: 1,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = preparar({
+      datos: convenioSolicitud,
+      sesionUsuario: sesionRevisor,
+      elaboracionData: {
+        ...convenioSolicitud,
+        etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+      },
+      revisionData: datosRevision(2),
+    })
+
+    const btnAprobar = await screen.findByRole('button', { name: 'Aprobar revisión' })
+    await usuario.click(btnAprobar)
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success',
+        message: 'Segunda revisión aprobada. El proyecto quedó habilitado para contraparte.',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('ruta-actual').textContent).toBe('/convenios/41/historial')
+    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Historial y trazabilidad' })).toBeTruthy()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
   })
 })

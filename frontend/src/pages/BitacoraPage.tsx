@@ -48,10 +48,16 @@ function etapaYVersion(fila: RegistroBitacora): string {
 }
 
 const COLUMNAS: DataTableColumn<RegistroBitacora>[] = [
-  { id: 'fecha', header: 'Fecha y hora', render: (fila) => formatDateTime(fila.fecha_hora) },
+  {
+    id: 'fecha',
+    header: 'Fecha y hora',
+    className: 'bitacora-col-fecha',
+    render: (fila) => formatDateTime(fila.fecha_hora),
+  },
   {
     id: 'usuario',
     header: 'Originador',
+    className: 'bitacora-col-originador',
     render: (fila) =>
       fila.usuario ? (
         <>
@@ -62,29 +68,52 @@ const COLUMNAS: DataTableColumn<RegistroBitacora>[] = [
         <span className="tabla-ayuda">Proceso automático</span>
       ),
   },
-  { id: 'rol', header: 'Rol', render: (fila) => etiquetaRol(fila.rol) },
+  { id: 'rol', header: 'Rol', className: 'bitacora-col-rol', render: (fila) => etiquetaRol(fila.rol) },
   {
     id: 'ejecucion',
     header: 'Naturaleza',
+    className: 'bitacora-col-naturaleza',
     render: (fila) => (fila.ejecucion ? ETIQUETAS_EJECUCION[fila.ejecucion] : NO_DISPONIBLE),
   },
   {
     id: 'responsable',
     header: 'Responsable',
+    className: 'bitacora-col-responsable',
     render: (fila) => (fila.responsable ? fila.responsable.nombre_completo : '—'),
   },
   {
     id: 'accion',
     header: 'Acción',
+    className: 'bitacora-col-accion',
     render: (fila) => <StatusBadge value={fila.accion} label={ETIQUETAS_ACCION[fila.accion]} />,
   },
-  { id: 'evento', header: 'Evento', render: (fila) => valor(fila.evento) },
-  { id: 'etapa_version', header: 'Etapa / Versión', render: etapaYVersion },
-  { id: 'registro', header: 'Registro afectado', render: (fila) => `${fila.entidad} #${fila.registro_id}` },
-  { id: 'campo', header: 'Campo', render: (fila) => valor(fila.campo) },
-  { id: 'anterior', header: 'Valor anterior', render: (fila) => valor(fila.valor_anterior) },
-  { id: 'nuevo', header: 'Valor nuevo', render: (fila) => valor(fila.valor_nuevo) },
-  { id: 'contexto', header: 'Contexto', render: (fila) => valor(fila.contexto) },
+  { id: 'evento', header: 'Evento', className: 'bitacora-col-evento', render: (fila) => valor(fila.evento) },
+  {
+    id: 'etapa_version',
+    header: 'Etapa / Versión',
+    className: 'bitacora-col-etapa',
+    render: etapaYVersion,
+  },
+  {
+    id: 'registro',
+    header: 'Registro afectado',
+    className: 'bitacora-col-registro',
+    render: (fila) => `${fila.entidad} #${fila.registro_id}`,
+  },
+  { id: 'campo', header: 'Campo', className: 'bitacora-col-campo', render: (fila) => valor(fila.campo) },
+  {
+    id: 'anterior',
+    header: 'Valor anterior',
+    className: 'bitacora-col-valor',
+    render: (fila) => valor(fila.valor_anterior),
+  },
+  {
+    id: 'nuevo',
+    header: 'Valor nuevo',
+    className: 'bitacora-col-valor',
+    render: (fila) => valor(fila.valor_nuevo),
+  },
+  { id: 'contexto', header: 'Contexto', className: 'bitacora-col-contexto', render: (fila) => valor(fila.contexto) },
 ]
 
 function AccesoDenegado() {
@@ -276,6 +305,8 @@ export function BitacoraPage() {
             rows={datos.items}
             rowKey={(fila) => fila.id}
             label="Bitácora de cambios"
+            containerClassName="bitacora-tabla-container"
+            tableClassName="bitacora-tabla"
             emptyMessage={
               hayFiltros
                 ? 'No se encontraron registros con los filtros seleccionados.'

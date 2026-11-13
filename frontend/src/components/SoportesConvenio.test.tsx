@@ -152,6 +152,40 @@ describe('SoportesConvenio (FE-02, CA-03: Visualización y descarga de soportes)
     })
   })
 
+  it.each([
+    [403, 'No tiene permiso para consultar este documento.'],
+    [404, 'El documento solicitado no fue encontrado o no está vigente.'],
+  ])('HT-18 CA-05: tras un %i en el visor, cerrar devuelve a la lista sin recargarla', async (status, mensaje) => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/descargar')) {
+        return { ok: false, status, statusText: 'Error', text: async () => JSON.stringify({ detail: 'Error' }) }
+      }
+      return { ok: true, status: 200, json: async () => soportesEjemplo }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const peticiones = (descarga: boolean) =>
+      fetchMock.mock.calls.filter(([url]) => url.includes('/descargar') === descarga)
+
+    renderizar()
+
+    const btnVer = await screen.findByTestId('btn-ver-soporte-1')
+    await user.click(btnVer)
+
+    expect(await screen.findByTestId('preview-error')).toBeTruthy()
+    expect(screen.getByText(mensaje)).toBeTruthy()
+
+    // El clic lleva el foco al visor; al cerrar debe volver al enlace "Ver".
+    await user.click(screen.getByRole('button', { name: 'Cerrar previsualizador' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByTestId('tabla-soportes')).toBeTruthy()
+    expect(document.activeElement).toBe(btnVer)
+    expect(peticiones(false)).toHaveLength(1)
+    expect(peticiones(true)).toHaveLength(1)
+    expect(peticiones(true)[0][0]).toContain('disposicion=inline')
+  })
+
   it('muestra el estado vacío cuando no existen soportes adjuntos', async () => {
     vi.stubGlobal(
       'fetch',
