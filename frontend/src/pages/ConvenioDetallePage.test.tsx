@@ -13,6 +13,7 @@ import type { Convenio, HistorialConvenio } from './epica02'
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '')
+    this.querySelector('button')?.focus()
   }
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute('open')
@@ -59,6 +60,7 @@ function preparar({
   lineaTiempoDisponible = true,
   datos = convenio,
   historialSolicitudStatus = 200,
+  documentoStatus = 200,
   sesionUsuario = sesion,
   elaboracionData = null,
   revisionData = null,
@@ -68,6 +70,7 @@ function preparar({
   lineaTiempoDisponible?: boolean
   datos?: Convenio
   historialSolicitudStatus?: number
+  documentoStatus?: number
   sesionUsuario?: Sesion
   elaboracionData?: unknown
   revisionData?: unknown
@@ -97,6 +100,14 @@ function preparar({
       return revisionData ? respuesta(200, revisionData) : respuesta(404, { detail: 'Not Found' })
     }
     if (url.includes('disposicion=inline')) {
+      if (documentoStatus !== 200) {
+        return {
+          ok: false,
+          status: documentoStatus,
+          statusText: 'Error',
+          text: async () => JSON.stringify({ detail: 'Error de acceso al documento' }),
+        } as unknown as Response
+      }
       return {
         ok: true,
         status: 200,
@@ -273,6 +284,161 @@ describe('HU-23: previsualización de documentos asociados en revisión jurídic
       expect(screen.queryByRole('heading', { level: 2, name: 'propuesta_academica.pdf' })).toBeNull()
     })
     expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+
+  it('CA-03 y CA-05 (HU23-TC06): conserva el foco y el scroll al cerrar el visor en revisión jurídica sin forzar descarga', async () => {
+    const sesionRevisor: Sesion = {
+      ...sesion,
+      permisos: ['convenios.ver', 'convenios.revisar'],
+    }
+    const elaboracionConEtapa = {
+      ...convenio,
+      etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+    }
+    const revisionConDocs = {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 1,
+        instancia_juridica: 1,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [
+        {
+          id: 1,
+          tipo: 'PROPUESTA_CONVENIO',
+          nombre_archivo: 'propuesta_academica.pdf',
+          tipo_mime: 'application/pdf',
+          tamano_bytes: 2048,
+          creado_en: '2026-10-20T10:00:00Z',
+        },
+      ],
+    }
+
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+      vi.stubGlobal('scrollX', x)
+      vi.stubGlobal('scrollY', y)
+    })
+    vi.stubGlobal('scrollX', 0)
+    vi.stubGlobal('scrollY', 420)
+
+    try {
+      const { fetch, usuario } = preparar({
+        sesionUsuario: sesionRevisor,
+        elaboracionData: elaboracionConEtapa,
+        revisionData: revisionConDocs,
+      })
+
+      const btnVer = await screen.findByRole('link', { name: 'Ver' })
+      btnVer.focus()
+      await usuario.click(btnVer)
+
+      // Simular que el navegador desplazó la ventana al abrir el modal
+      vi.stubGlobal('scrollX', 0)
+      vi.stubGlobal('scrollY', 0)
+
+      expect(await screen.findByTestId('preview-iframe')).toBeTruthy()
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('disposicion=attachment'))).toBe(false)
+
+      await usuario.click(screen.getByRole('button', { name: 'Cerrar previsualizador' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull()
+      })
+      expect(document.activeElement).toBe(btnVer)
+      expect(scrollTo).toHaveBeenCalledWith(0, 420)
+      expect(fetch.mock.calls.filter(([url]) => String(url).includes('disposicion=inline'))).toHaveLength(1)
+    } finally {
+      scrollTo.mockRestore()
+    }
+  })
+
+  it.each([
+    [403, 'No tiene permiso para consultar este documento.'],
+    [404, 'El documento solicitado no fue encontrado o no está vigente.'],
+  ])('CA-05 (HU23-TC06): maneja respuesta %i en el visor durante revisión jurídica y restaura el foco al cerrar', async (codigo, mensajeEsperado) => {
+    const sesionRevisor: Sesion = {
+      ...sesion,
+      permisos: ['convenios.ver', 'convenios.revisar'],
+    }
+    const elaboracionConEtapa = {
+      ...convenio,
+      etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+    }
+    const revisionConDocs = {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 1,
+        instancia_juridica: 1,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [
+        {
+          id: 1,
+          tipo: 'PROPUESTA_CONVENIO',
+          nombre_archivo: 'propuesta_academica.pdf',
+          tipo_mime: 'application/pdf',
+          tamano_bytes: 2048,
+          creado_en: '2026-10-20T10:00:00Z',
+        },
+      ],
+    }
+
+    const { usuario } = preparar({
+      sesionUsuario: sesionRevisor,
+      elaboracionData: elaboracionConEtapa,
+      revisionData: revisionConDocs,
+      documentoStatus: codigo,
+    })
+
+    const btnVer = await screen.findByRole('link', { name: 'Ver' })
+    btnVer.focus()
+    await usuario.click(btnVer)
+
+    expect(await screen.findByTestId('preview-error')).toBeTruthy()
+    expect(screen.getByText(mensajeEsperado)).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+
+    await usuario.click(screen.getByRole('button', { name: 'Cerrar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+    expect(document.activeElement).toBe(btnVer)
+    expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+
+  it('CA-04: restringe las acciones visibles en el detalle según los permisos del perfil ORI', async () => {
+    const sesionGestor: Sesion = {
+      ...sesion,
+      rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' },
+      permisos: ['convenios.ver', 'convenios.editar', 'convenios.gestionar_soportes'],
+    }
+    const { fetch } = preparar({
+      datos: { ...convenio, estado: 'EN_TRAMITE', fecha_firma: null },
+      sesionUsuario: sesionGestor,
+      elaboracionData: {
+        ...convenio,
+        estado: 'EN_TRAMITE',
+        etapa_actual: { codigo: 'ELABORACION', nombre: 'Elaboración' },
+      },
+    })
+
+    expect(await screen.findByRole('link', { name: 'Continuar elaboración' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Aprobar revisión' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41/revision')).toBe(false)
   })
 })
 
