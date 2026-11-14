@@ -1042,6 +1042,10 @@ def test_excepcion_inicial_no_autoriza_editar_posteriormente_la_identidad_compar
         Auditoria.campo == "aliado_identidad_sha256",
     ))
     assert len(huella.valor_nuevo) == 64
+    assert (huella.usuario_id, huella.rol, huella.evento, huella.etapa, huella.version) == (
+        gestor.id, CodigoRol.GESTOR_ORI.value, "CONTRAPARTE_ASIGNADA", "REVISION_CONTRAPARTE", convenio.version_actual,
+    )
+    assert huella.fecha_hora is not None and huella.ejecucion == "HUMANA"
     # Se conserva la edición normal del catálogo, sin veto por avales compartidos.
     assert client.patch(f"/api/aliados/{aliado.id}", json={"nombre": "Razón social rectificada"}).status_code == 200
     envio = client.post(f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
@@ -1257,6 +1261,11 @@ def test_recuperacion_revoca_resuelve_y_exige_nueva_ronda_sin_falsear_decision_e
     assert len(auditorias) == 1
     assert auditorias[0].usuario_id == actor.id and auditorias[0].rol == rol.value
     assert auditorias[0].ejecucion == "HUMANA"
+    assert auditorias[0].etapa == "REVISION_CONTRAPARTE"
+    assert auditorias[0].version == version_previa
+    assert auditorias[0].fecha_hora == vigente.revocado_en
+    assert auditorias[0].valor_nuevo == vigente.revocado_en.isoformat()
+    assert token not in str(auditorias[0].valor_nuevo)
     for accion in ("acceso", "aprobar", "devolver"):
         assert _decidir_publicamente(client, accion, token).status_code == 400
     _avalar_identidad(db, convenio, actor, crear_usuario)
@@ -1333,3 +1342,22 @@ def test_error_de_commit_revierte_toda_la_recuperacion_incluida_su_auditoria(
         Auditoria.evento == "CONTRAPARTE_INVALIDADA_IDENTIDAD",
         Auditoria.entidad == "invitacion_revision_contraparte", Auditoria.registro_id == invitacion.id,
     )) == 0
+
+
+def test_fallo_commit_de_asignacion_revierte_huella_centralizada_y_aliado(
+    client, db, gestor, crear_usuario, entrar_como, monkeypatch,
+):
+    convenio = _crear_convenio_manual_en_contraparte(client, db, gestor, crear_usuario, entrar_como)
+    aliado = _crear_aliado(db)
+    def fallar_commit():
+        raise SQLAlchemyError("Fallo simulado después de registrar la huella")
+    with monkeypatch.context() as cambio:
+        cambio.setattr(db, "commit", fallar_commit)
+        with pytest.raises(SQLAlchemyError):
+            ServicioConvenios(db).actualizar(convenio.id, ConvenioElaboracionActualizar(aliado_id=aliado.id), gestor)
+    db.refresh(convenio)
+    assert convenio.aliado_id is None
+    assert db.scalar(select(Auditoria.id).where(
+        Auditoria.entidad == "convenio", Auditoria.registro_id == convenio.id,
+        Auditoria.campo == "aliado_identidad_sha256",
+    )) is None

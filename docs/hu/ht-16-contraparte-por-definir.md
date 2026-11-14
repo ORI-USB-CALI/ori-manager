@@ -366,6 +366,41 @@ respuesta ya entregada no se puede retirar; cada uso posterior del enlace vuelve
 verificar identidad, y una recuperación confirmada deja los enlaces revocados de
 forma permanente. La edición del aliado permanece disponible fuera de la operación.
 
+## Integración de auditoría HU-18 posterior a `2a179e5`
+
+GitHub Actions detectó dos construcciones directas de registros de auditoría en
+el servicio de convenios: la huella inicial y cada revocación administrativa.
+Se sustituyen por `registrar_huella_identidad_inicial` y
+`registrar_revocacion_por_identidad`, funciones explícitas de `services/bitacora.py`.
+Ambas reutilizan `_fila` y la inserción central en la conexión de la transacción
+existente, sin flush, commit ni rollback propios. El servicio revierte el negocio
+si falla esa inserción o su commit.
+
+La primera función solo admite una huella SHA-256 hexadecimal de 64 caracteres;
+la segunda recibe únicamente ID de invitación e instante de revocación. Los campos,
+contextos y eventos son fijos: no hay una interfaz para serializar invitaciones,
+identidades o tokens arbitrarios. Se mantienen actor, rol, evento, etapa, versión,
+ejecución humana y fecha; para revocaciones, la fecha auditada coincide con el
+instante del cambio. No se añaden invitaciones a `ENTIDADES_AUDITADAS`.
+
+El test arquitectónico `test_ningun_modulo_escribe_la_bitacora_a_mano` permanece
+intacto. Se amplían las comprobaciones de metadatos y la prueba de rollback de la
+asignación inicial; las pruebas de recuperación siguen verificando una evidencia
+por invitación y rollback de toda la operación. No se cambia el funcionamiento del
+enlace, snapshots o recuperación. HU-31 permanece sin modificaciones; sus fixtures
+de fechas vencidas y la reproducción independiente documentada arriba no dependen
+de estas dos funciones, que no intervienen en creación/renovación de HU-31.
+
+Validación local: **209 pruebas aprobadas**, 69,55 s, ejecutando exclusivamente
+`test_hu18_registro_automatico.py`, `test_ht16_contraparte_por_definir.py`,
+`test_ht16_concurrencia.py` y `test_hu14_revision_contraparte_publica.py`.
+Ruff completo pasa sobre copia Linux 100644, sin supresiones nuevas;
+`git diff --check` pasa. Logs y JUnit `ori-ht16-hu18-*` se conservan en
+`backend/var/ht16-audit/`, fuera del commit.
+La comprobación separada de HU-31 obtuvo **49 aprobadas y 47 errores**, 55,88 s:
+los 47 identificadores coinciden exactamente con la reproducción del código base.
+Ni HU-31 ni el test arquitectónico de HU-18 tienen modificaciones en este commit.
+
 ## Compatibilidad, alcance y reversión
 
 No se añaden dependencias, tablas, columnas ni migraciones. `CAMPOS_SNAPSHOT` y

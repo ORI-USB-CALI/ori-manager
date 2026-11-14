@@ -16,7 +16,6 @@ from backend.core.roles import CodigoRol
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.core.validaciones import termino_busqueda_identificacion
 from backend.models.aliado import Aliado
-from backend.models.auditoria import Auditoria
 from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
@@ -62,7 +61,11 @@ from backend.schemas.convenio import (
     ConvenioElaboracionGuardar,
     RevisionContenidoGuardar,
 )
-from backend.services.bitacora import describir_accion
+from backend.services.bitacora import (
+    describir_accion,
+    registrar_huella_identidad_inicial,
+    registrar_revocacion_por_identidad,
+)
 from backend.services.contenido_convenio import (
     ContenidoConvenioInvalido,
     documento_tiene_texto,
@@ -1954,14 +1957,11 @@ class ServicioConvenios:
         for invitacion in invitaciones:
             if invitacion.revocado_en is None and invitacion.utilizado_en is None:
                 invitacion.revocado_en = ahora
-                self.db.add(Auditoria(
-                    usuario_id=usuario.id, rol=usuario.rol.codigo,
-                    entidad="invitacion_revision_contraparte", registro_id=invitacion.id,
-                    accion="UPDATE", campo="revocado_en", valor_anterior=None, valor_nuevo=ahora.isoformat(),
-                    contexto="Revocación administrativa por identidad jurídica incompatible",
-                    evento=evento, etapa=CODIGO_ETAPA_REVISION_CONTRAPARTE,
-                    version=convenio.version_actual, ejecucion="HUMANA",
-                ))
+                try:
+                    registrar_revocacion_por_identidad(self.db, usuario, invitacion.id, ahora, convenio.version_actual)
+                except SQLAlchemyError:
+                    self.db.rollback()
+                    raise
         revision.estado = EstadoRevisionConvenio.RESUELTA.value
         revision.resultado = ResultadoRevisionConvenio.DEVUELTA.value
         revision.resuelta_por_id = usuario.id
@@ -2651,15 +2651,13 @@ class ServicioConvenios:
         if etapa_codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE and elaboracion is not None:
             convenio.etapa_actual = elaboracion
         elif etapa_codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE and aliado_anterior_id is None:
-            self.db.add(Auditoria(
-                usuario_id=usuario.id, rol=usuario.rol.codigo,
-                entidad="convenio", registro_id=convenio.id, accion="UPDATE",
-                campo="aliado_identidad_sha256", valor_anterior=None,
-                valor_nuevo=_huella_identidad(_identidad_aliado(convenio)),
-                contexto="Identidad de la asignación inicial desde Por definir",
-                evento="CONTRAPARTE_ASIGNADA", etapa=etapa_codigo,
-                version=convenio.version_actual, ejecucion="HUMANA",
-            ))
+            try:
+                registrar_huella_identidad_inicial(
+                    self.db, usuario, convenio.id, _huella_identidad(_identidad_aliado(convenio)), convenio.version_actual,
+                )
+            except SQLAlchemyError:
+                self.db.rollback()
+                raise
         try:
             self.db.commit()
         except IntegrityError as exc:

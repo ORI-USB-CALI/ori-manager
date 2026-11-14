@@ -237,6 +237,38 @@ def _fila(
     return fila
 
 
+def registrar_huella_identidad_inicial(
+    db: Session, usuario: Usuario, convenio_id: int, huella: str, version: int,
+) -> None:
+    """Evidencia HT-16 permitida explícitamente; nunca recibe la identidad ni tokens.
+
+    Usa la misma conexión/transacción que el negocio, sin flush, commit o rollback.
+    El llamador revierte la operación completa si falla su persistencia.
+    """
+    if len(huella) != 64 or any(caracter not in "0123456789abcdef" for caracter in huella):
+        raise ValueError("La evidencia requiere una huella SHA-256 hexadecimal")
+    db.connection().execute(insert(Auditoria.__table__), _fila(
+        _actor_de(usuario), "Identidad de la asignación inicial desde Por definir", None,
+        "convenio", convenio_id, AccionAuditoria.UPDATE,
+        "aliado_identidad_sha256", nuevo=huella,
+        evento="CONTRAPARTE_ASIGNADA", etapa="REVISION_CONTRAPARTE",
+        version=version, ejecucion=EjecucionAuditoria.HUMANA.value,
+    ))
+
+
+def registrar_revocacion_por_identidad(
+    db: Session, usuario: Usuario, invitacion_id: int, instante: datetime, version: int,
+) -> None:
+    """Audita solo la revocación, sin incorporar invitaciones a los hooks generales."""
+    db.connection().execute(insert(Auditoria.__table__), _fila(
+        _actor_de(usuario), "Revocación administrativa por identidad jurídica incompatible", instante,
+        "invitacion_revision_contraparte", invitacion_id, AccionAuditoria.UPDATE,
+        "revocado_en", nuevo=instante,
+        evento="CONTRAPARTE_INVALIDADA_IDENTIDAD", etapa="REVISION_CONTRAPARTE",
+        version=version, ejecucion=EjecucionAuditoria.HUMANA.value,
+    ))
+
+
 def _filas_de_modificacion(
     objeto: object,
     entidad: str,

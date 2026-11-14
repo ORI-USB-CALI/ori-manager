@@ -59,6 +59,16 @@ No se modifica HU-31 ni se atribuyen resultados nuevos a su suite global.
 
 ## Riesgos y recuperación
 
+Integración posterior a `2a179e5`: las evidencias explícitas de huella inicial y
+revocaciones se centralizan en `services/bitacora.py`, reutilizando su constructor
+de filas y la misma transacción. Se conservan todos los metadatos y el rollback;
+no se serializan invitaciones ni se incorporan a los hooks generales. El test
+arquitectónico de HU-18 permanece intacto. No cambian los flujos de HT-16 ni HU-31.
+Validación de esta integración: **209 pruebas aprobadas** de HU-18, HT-16,
+concurrencia y HU-14 público (69,55 s); Ruff completo y `git diff --check` pasan.
+HU-31 se comprobó por separado: 49 aprobadas y los mismos 47 errores de fechas
+del baseline (55,88 s), sin modificar esa historia ni el test arquitectónico de HU-18.
+
 - Correo y PostgreSQL no comparten transacción: ante aceptación seguida de commit fallido o timeout ambiguo, puede llegar un enlace inválido o un correo adicional. Tras 503, consultar historial y usar el ID vigente antes de reintentar. No se promete una única entrega física ante fallos distribuidos. Outbox y conciliación del proveedor quedan como evolución separada del MVP.
 - Un snapshot antiguo sin identidad no se completa artificialmente: exige nueva versión y avales. Sin datos productivos, se elimina la compatibilidad del reenvío sin ID.
 - El bloqueo compartido dura hasta commit, incluido el envío síncrono del correo. Retener logs y habilitar INFO del servicio para correlacionar intentos y éxitos; no se registran tokens ni mensajes.
