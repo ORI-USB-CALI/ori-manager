@@ -70,7 +70,11 @@ export interface Convenio {
   solicitud_id: number | null
   origen: 'SOLICITUD' | 'MANUAL_ORI'
   aliado_id: number | null
-  aliado: Pick<Aliado, 'id' | 'nombre' | 'identificacion' | 'activo'> | null
+  aliado: (Pick<Aliado, 'id' | 'nombre' | 'identificacion' | 'activo'> & {
+    tipo?: TipoAliado | null
+    correo?: string | null
+    identificacion_completa?: string
+  }) | null
   tipo_convenio_id: number | null
   etapa_actual_id: number | null
   plantilla_origen_id: number | null

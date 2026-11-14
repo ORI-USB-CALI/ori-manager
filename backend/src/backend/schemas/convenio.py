@@ -128,9 +128,11 @@ class AliadoResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     nombre: str
+    tipo: str | None = None
     tipo_identificacion: str
     identificacion: str
     digito_verificacion: str | None
+    correo: str | None = None
     activo: bool
 
     @computed_field

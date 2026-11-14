@@ -72,7 +72,7 @@ from backend.services.contraparte_externa import (
     crear_invitacion_contraparte,
     enviar_invitacion_contraparte,
 )
-from backend.services.correo import EnviadorCorreo
+from backend.services.correo import EnviadorCorreo, ErrorEnvioCorreo
 from backend.services.documentos import AlmacenDocumentos
 from backend.services.notificaciones import ServicioNotificaciones
 from backend.services.vigencia import fecha_actual_dominio, validar_vigencia
@@ -1243,6 +1243,41 @@ class ServicioConvenios:
             convenio,
         )
 
+    def _validar_contraparte_manual(self, convenio: Convenio) -> str:
+        if convenio.aliado_id is None:
+            raise RevisionNoDisponible(
+                "La contraparte está Por definir: debe asociar un aliado válido antes de enviar a contraparte"
+            )
+        aliado = self.db.get(Aliado, convenio.aliado_id)
+        if aliado is None:
+            raise RevisionNoDisponible(
+                "El aliado requiere un correo válido y estar activo: la contraparte seleccionada no existe"
+            )
+        faltantes: list[str] = []
+        if not aliado.activo:
+            faltantes.append("estado activo")
+        if not (aliado.nombre or "").strip():
+            faltantes.append("nombre")
+        if not (aliado.tipo or "").strip():
+            faltantes.append("tipo")
+        if not (aliado.tipo_identificacion or "").strip() or not (aliado.identificacion or "").strip():
+            faltantes.append("identificación")
+        correo_limpio = (aliado.correo or "").strip()
+        correo_valido: str | None = None
+        if not correo_limpio:
+            faltantes.append("correo electrónico")
+        else:
+            try:
+                correo_valido = str(TypeAdapter(EmailStr).validate_python(correo_limpio))
+            except ValidationError:
+                faltantes.append("correo electrónico válido")
+        if faltantes or correo_valido is None:
+            raise RevisionNoDisponible(
+                "El aliado requiere un correo válido y estar activo. "
+                f"Datos requeridos pendientes en la contraparte: {', '.join(faltantes)}"
+            )
+        return correo_valido
+
     def enviar_a_contraparte(
         self, convenio_id: int, expected_version: int, usuario: Usuario
     ) -> RevisionConvenio:
@@ -1306,16 +1341,9 @@ class ServicioConvenios:
             .options(joinedload(SolicitudConvenio.solicitante))
             .where(SolicitudConvenio.id == convenio.solicitud_id)
         )
+        correo_destino_manual: str | None = None
         if convenio.origen == OrigenConvenio.MANUAL_ORI.value:
-            if convenio.aliado_id is None:
-                raise RevisionNoDisponible("Debe asociar un aliado antes de enviar a contraparte")
-            aliado = self.db.get(Aliado, convenio.aliado_id)
-            if aliado is None or not aliado.activo or not aliado.correo:
-                raise RevisionNoDisponible("El aliado requiere un correo válido y estar activo")
-            try:
-                TypeAdapter(EmailStr).validate_python(aliado.correo)
-            except ValidationError as exc:
-                raise RevisionNoDisponible("El aliado requiere un correo válido") from exc
+            correo_destino_manual = self._validar_contraparte_manual(convenio)
         elif solicitud is None or solicitud.solicitante_id is None:
             raise RevisionNoDisponible("El convenio no tiene un Solicitante asociado")
         responsable_externo_id = solicitud.solicitante_id if solicitud is not None else None
@@ -1375,7 +1403,19 @@ class ServicioConvenios:
                     f"El convenio {convenio.codigo or convenio.id} está pendiente de "
                     "revisión por la contraparte.",
                 )
-            self.db.commit()
+            if (
+                convenio.origen == OrigenConvenio.MANUAL_ORI.value
+                and correo_destino_manual is not None
+                and self.enviador is not None
+            ):
+                self.db.flush()
+                invitacion, token_plano = crear_invitacion_contraparte(
+                    self.db, revision, correo_destino_manual, None, usuario.id
+                )
+                self.db.flush()
+                self._entregar_invitacion(invitacion, token_plano, convenio)
+            else:
+                self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
             diagnostico = getattr(exc.orig, "diag", None)
@@ -1385,7 +1425,7 @@ class ServicioConvenios:
                     "Ya existe una revisión de contraparte pendiente"
                 ) from exc
             raise
-        except SQLAlchemyError:
+        except (ErrorEnvioCorreo, SQLAlchemyError, RuntimeError):
             self.db.rollback()
             raise
         notificaciones.avisar_tiempo_real()
@@ -1718,13 +1758,7 @@ class ServicioConvenios:
             .where(SolicitudConvenio.id == convenio.solicitud_id)
         )
         if convenio.origen == OrigenConvenio.MANUAL_ORI.value:
-            aliado = self.db.get(Aliado, convenio.aliado_id)
-            if aliado is None or not aliado.activo or not aliado.correo:
-                raise RevisionNoDisponible("El aliado no tiene un correo válido")
-            try:
-                correo_destino = str(TypeAdapter(EmailStr).validate_python(aliado.correo))
-            except ValidationError as exc:
-                raise RevisionNoDisponible("El aliado no tiene un correo válido") from exc
+            correo_destino = self._validar_contraparte_manual(convenio)
             correo_cc = None
         else:
             if solicitud is None:
@@ -1744,11 +1778,11 @@ class ServicioConvenios:
             self.db, revision, correo_destino, correo_cc, usuario.id
         )
         try:
-            self.db.commit()
-        except SQLAlchemyError:
+            self.db.flush()
+            self._entregar_invitacion(invitacion, token_plano, convenio)
+        except (ErrorEnvioCorreo, SQLAlchemyError, RuntimeError):
             self.db.rollback()
             raise
-        self._entregar_invitacion(invitacion, token_plano, convenio)
         return invitacion
 
     def obtener_para_revision(
@@ -2272,22 +2306,60 @@ class ServicioConvenios:
         datos: ConvenioElaboracionActualizar,
         usuario: Usuario,
     ) -> Convenio:
-        convenio = self.obtener(convenio_id)
-        if (
-            convenio.etapa_actual is None
-            or convenio.etapa_actual.codigo != CODIGO_ETAPA_ELABORACION
+        if usuario.rol.codigo not in (
+            CodigoRol.GESTOR_ORI.value,
+            CodigoRol.ADMINISTRADOR_ORI.value,
         ):
+            raise ConvenioNoEditable(
+                "Solo Gestor ORI o Administrador ORI pueden modificar el convenio"
+            )
+        convenio = self.obtener(convenio_id)
+        cambios = datos.model_dump(exclude_unset=True)
+        etapa_codigo = convenio.etapa_actual.codigo if convenio.etapa_actual else None
+        if etapa_codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE:
+            if not cambios or set(cambios.keys()) != {"aliado_id"}:
+                raise ConvenioNoEditable(
+                    "En etapa de revisión de contraparte solo se puede asignar o rectificar la contraparte antes del envío"
+                )
+            if convenio.origen != OrigenConvenio.MANUAL_ORI.value:
+                raise ReferenciaConvenioInvalida(
+                    "El aliado de un convenio con solicitud no se cambia desde elaboración"
+                )
+            pendiente = self.db.scalar(
+                select(RevisionConvenio.id).where(
+                    RevisionConvenio.convenio_id == convenio.id,
+                    RevisionConvenio.tipo == TipoRevisionConvenio.CONTRAPARTE.value,
+                    RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+                )
+            )
+            if pendiente is not None:
+                raise ConvenioNoEditable(
+                    "No se puede modificar la contraparte mientras exista una revisión de contraparte pendiente"
+                )
+            if cambios.get("aliado_id") is None:
+                raise ReferenciaConvenioInvalida(
+                    "Debe asignar una contraparte válida antes de enviar el convenio"
+                )
+            describir_accion(
+                self.db,
+                usuario,
+                "Asignó o rectificó la contraparte del convenio antes del envío",
+                evento="CONTRAPARTE_ASIGNADA",
+                **contexto_auditoria(convenio),
+            )
+        elif etapa_codigo == CODIGO_ETAPA_ELABORACION:
+            describir_accion(
+                self.db,
+                usuario,
+                "Editó los datos del convenio",
+                evento="CONVENIO_EDITADO",
+                **contexto_auditoria(convenio),
+            )
+        else:
             raise ConvenioNoEditable(
                 "Solo se puede editar un convenio en etapa de Elaboración"
             )
-        describir_accion(
-            self.db,
-            usuario,
-            "Editó los datos del convenio",
-            evento="CONVENIO_EDITADO",
-            **contexto_auditoria(convenio),
-        )
-        self._aplicar_cambios(convenio, datos.model_dump(exclude_unset=True))
+        self._aplicar_cambios(convenio, cambios)
         try:
             self.db.commit()
         except IntegrityError as exc:

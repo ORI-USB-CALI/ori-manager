@@ -18,7 +18,7 @@ import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFina
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import { SoportesConvenio } from '../components/SoportesConvenio'
-import { type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio } from './epica02'
+import { type Aliado, type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio } from './epica02'
 
 interface UsuarioResumen { id: number; nombre_completo: string }
 interface ObservacionRevision {
@@ -117,6 +117,7 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
+  const [aliadoSeleccionadoId, setAliadoSeleccionadoId] = useState<string | null>(null)
   const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
 
   const convenio = useQuery({
@@ -153,6 +154,20 @@ export function ConvenioDetallePage() {
   const revisionContrapartePendiente = historialContraparte.data?.revisiones.find(
     (item) => item.tipo === 'CONTRAPARTE' && item.estado === 'PENDIENTE',
   )
+  const requiereCatalogoAliados = Boolean(
+    Number.isInteger(id)
+      && id > 0
+      && puede('convenios.gestionar_revision_contraparte')
+      && convenio.data?.origen === 'MANUAL_ORI'
+      && flujoContraparte.data?.etapa_actual?.codigo === 'REVISION_CONTRAPARTE'
+      && !revisionContrapartePendiente,
+  )
+  const aliadosActivos = useQuery({
+    queryKey: ['aliados', 'solo_activos=true'],
+    queryFn: () => apiFetch<Aliado[]>('/aliados?solo_activos=true'),
+    enabled: requiereCatalogoAliados,
+    retry: false,
+  })
 
   async function refrescarRevision(limpiarBorrador = true) {
     if (limpiarBorrador) setBorrador(null)
@@ -268,6 +283,26 @@ export function ConvenioDetallePage() {
       type: 'error', message: error instanceof Error ? error.message : 'No se pudo reenviar la invitación.',
     }),
   })
+  const guardarContraparte = useMutation({
+    mutationFn: (nuevoAliadoId: number) => apiFetch<Convenio>(`/convenios/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ aliado_id: nuevoAliadoId }),
+    }),
+    onSuccess: async (actualizado) => {
+      setAliadoSeleccionadoId(null)
+      cliente.setQueryData(['convenio', id], actualizado)
+      notify({ type: 'success', message: 'Contraparte actualizada correctamente.' })
+      await Promise.all([
+        cliente.invalidateQueries({ queryKey: ['convenio', id] }),
+        cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
+        cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
+      ])
+    },
+    onError: (error) => notify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'No fue posible actualizar la contraparte.',
+    }),
+  })
 
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
   if (convenio.isError) {
@@ -295,6 +330,25 @@ export function ConvenioDetallePage() {
   const puedeIrAElaboracion = puede('convenios.editar') && etapaActual === 'ELABORACION'
   const invitacionesRevision = revisionContrapartePendiente?.invitaciones_contraparte ?? []
   const esProyecto = datos.estado === 'EN_TRAMITE' || datos.estado === 'CANCELADO' || !datos.fecha_firma
+  const aliadoActual = datos.aliado ?? flujoContraparte.data?.aliado ?? null
+  const detalleAliadoActual = aliadoActual
+    ? (aliadosActivos.data?.find((item) => item.id === aliadoActual.id) ?? aliadoActual)
+    : null
+  const correoAliadoActual = detalleAliadoActual?.correo?.trim() ?? ''
+  const correoAliadoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correoAliadoActual)
+  const datosFaltantesContraparte: string[] = []
+  if (datos.origen === 'MANUAL_ORI' && detalleAliadoActual) {
+    if (!detalleAliadoActual.activo) datosFaltantesContraparte.push('estado activo')
+    if (!detalleAliadoActual.nombre?.trim()) datosFaltantesContraparte.push('nombre')
+    if (!detalleAliadoActual.identificacion?.trim()) datosFaltantesContraparte.push('identificación')
+    if (!correoAliadoValido) datosFaltantesContraparte.push('correo electrónico válido')
+  }
+  const contrapartePorDefinir = datos.origen === 'MANUAL_ORI' && !aliadoActual
+  const contraparteListaParaEnvio = datos.origen === 'MANUAL_ORI'
+    ? Boolean(aliadoActual && datosFaltantesContraparte.length === 0)
+    : true
+  const valorSelectorAliado = aliadoSeleccionadoId ?? (datos.aliado_id !== null ? String(datos.aliado_id) : '')
+  const puedeModificarContraparte = puede('convenios.editar') || puede('convenios.gestionar_revision_contraparte')
 
   return (
     <>
@@ -368,15 +422,69 @@ export function ConvenioDetallePage() {
                   <h2>Revisión de contraparte</h2>
                   <p className="section-help">{datos.origen === 'MANUAL_ORI' ? 'Se enviará una invitación de revisión al correo del aliado registrado.' : `La versión ${datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.`}</p>
                 </div>
-                <span className="badge badge-neutral">Lista para envío</span>
+                <span className={`badge ${contraparteListaParaEnvio ? 'badge-neutral' : 'badge-pendiente'}`}>
+                  {contraparteListaParaEnvio ? 'Lista para envío' : 'Contraparte pendiente'}
+                </span>
               </div>
               <dl className="proyecto-datos revision-contraparte-datos">
                 <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
-                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}</dt><dd>{datos.origen === 'MANUAL_ORI' ? (datos.aliado?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</dd>
-                {datos.origen !== 'MANUAL_ORI' && <><dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</dd></>}
+                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}</dt><dd>{datos.origen === 'MANUAL_ORI' ? (aliadoActual?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</dd>
+                {datos.origen === 'MANUAL_ORI'
+                  ? <><dt>Correo de la contraparte</dt><dd>{correoAliadoActual || 'Sin correo registrado'}</dd></>
+                  : <><dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</dd></>}
               </dl>
+              {contrapartePorDefinir && (
+                <p className="alert-error" role="alert">
+                  La contraparte está configurada como Por definir. Debe asignar una contraparte válida antes de enviar a revisión de contraparte.
+                </p>
+              )}
+              {!contrapartePorDefinir && datosFaltantesContraparte.length > 0 && (
+                <p className="alert-error" role="alert">
+                  La contraparte seleccionada no cumple los requisitos para el envío. Datos por completar: {datosFaltantesContraparte.join(', ')}.
+                </p>
+              )}
+              {datos.origen === 'MANUAL_ORI' && puedeModificarContraparte && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="contraparte-revision-select">
+                    {aliadoActual ? 'Corregir contraparte' : 'Asignar contraparte'}
+                  </label>
+                  <select
+                    id="contraparte-revision-select"
+                    className="form-control"
+                    value={valorSelectorAliado}
+                    onChange={(event) => setAliadoSeleccionadoId(event.target.value)}
+                    disabled={guardarContraparte.isPending}
+                  >
+                    <option value="">Por definir — seleccione un aliado</option>
+                    {(aliadosActivos.data ?? []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.nombre} ({item.identificacion}){item.correo ? ` · ${item.correo}` : ' · Sin correo'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="page-toolbar">
+                    <button
+                      className="btn btn-outline"
+                      type="button"
+                      disabled={
+                        guardarContraparte.isPending
+                        || !valorSelectorAliado
+                        || Number(valorSelectorAliado) === (datos.aliado_id ?? 0)
+                      }
+                      onClick={() => guardarContraparte.mutate(Number(valorSelectorAliado))}
+                    >
+                      {guardarContraparte.isPending ? 'Guardando contraparte…' : 'Guardar contraparte'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="page-toolbar">
-                <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending}>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => setConfirmarEnvio(true)}
+                  disabled={!contraparteListaParaEnvio || enviarContraparte.isPending || guardarContraparte.isPending}
+                >
                   Enviar a revisión de contraparte
                 </button>
               </div>
@@ -517,7 +625,7 @@ export function ConvenioDetallePage() {
           onCerrar={() => setConfirmarEnvio(false)}
         >
           <p>Se enviará la versión {datos.version_actual}, aprobada jurídicamente.</p>
-          <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${datos.aliado?.nombre ?? 'por definir'}.` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
+          <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${aliadoActual?.nombre ?? ''} (${correoAliadoActual}).` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
           <p className="texto-secundario">{datos.origen === 'MANUAL_ORI' ? 'La contraparte recibirá un enlace externo de revisión.' : 'La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.'}</p>
         </ConfirmacionModal>
       )}

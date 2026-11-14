@@ -538,3 +538,262 @@ describe('CA-01 (#176): redirección posterior a la aprobación jurídica de con
     expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
   })
 })
+
+describe('HT-16 (#172): validación y asignación de contraparte antes del envío (CA-01, CA-02, CA-03)', () => {
+  const sesionGestor: Sesion = {
+    ...sesion,
+    rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' },
+    permisos: ['convenios.ver', 'convenios.editar', 'convenios.gestionar_revision_contraparte'],
+  }
+
+  const aliadosCatalogo = [
+    {
+      id: 10,
+      nombre: 'Aliado Sin Correo',
+      tipo: 'EMPRESA',
+      tipo_identificacion: 'NIT',
+      identificacion: '800111222',
+      digito_verificacion: '1',
+      identificacion_completa: '800111222-1',
+      pais: 'Colombia',
+      ciudad: 'Cali',
+      direccion: null,
+      telefono: null,
+      correo: null,
+      sitio_web: null,
+      activo: true,
+    },
+    {
+      id: 11,
+      nombre: 'Universidad Contraparte Válida',
+      tipo: 'UNIVERSIDAD',
+      tipo_identificacion: 'NIT',
+      identificacion: '890333444',
+      digito_verificacion: '5',
+      identificacion_completa: '890333444-5',
+      pais: 'Colombia',
+      ciudad: 'Cali',
+      direccion: null,
+      telefono: null,
+      correo: 'juridica@universidad.edu.co',
+      sitio_web: null,
+      activo: true,
+    },
+  ]
+
+  function montarEscenarioContraparte(convenioInicial: Convenio, envioStatus = 201) {
+    let actual: Convenio = convenioInicial
+    let revisionesActuales: HistorialConvenio['revisiones'] = []
+    const notify = vi.fn()
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/convenios/41' && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as { aliado_id: number }
+        const encontrado = aliadosCatalogo.find((item) => item.id === body.aliado_id) ?? null
+        actual = {
+          ...actual,
+          aliado_id: body.aliado_id,
+          aliado: encontrado
+            ? {
+                id: encontrado.id,
+                nombre: encontrado.nombre,
+                identificacion: encontrado.identificacion,
+                identificacion_completa: encontrado.identificacion_completa,
+                correo: encontrado.correo,
+                activo: encontrado.activo,
+              }
+            : null,
+        }
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41') {
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41/elaboracion') {
+        return respuesta(200, {
+          ...actual,
+          etapa_actual: { id: 3, orden: 3, codigo: 'REVISION_CONTRAPARTE', nombre: 'Revisión de contraparte' },
+        })
+      }
+      if (url === '/api/convenios/41/revisiones') {
+        return respuesta(200, { revisiones: revisionesActuales, cambios_etapa: [] })
+      }
+      if (
+        url === '/api/convenios/41/actividades' ||
+        url === '/api/convenios/41/documentos' ||
+        url === '/api/convenios/41/observaciones'
+      ) {
+        return respuesta(200, [])
+      }
+      if (url === '/api/aliados?solo_activos=true') {
+        return respuesta(200, aliadosCatalogo)
+      }
+      if (url === '/api/convenios/41/revision-contraparte/enviar' && init?.method === 'POST') {
+        if (envioStatus !== 201) {
+          return respuesta(envioStatus, { detail: 'No fue posible enviar el correo de revisión a la contraparte' })
+        }
+        const creada = {
+          id: 99,
+          convenio_id: 41,
+          tipo: 'CONTRAPARTE' as const,
+          historial_etapa_id: 1,
+          instancia_juridica: null,
+          numero_ronda: null,
+          estado: 'PENDIENTE' as const,
+          resultado: null,
+          version_convenio_id: 3,
+          version_resultado_id: null,
+          version_convenio: { id: 3, numero: 3 },
+          version_resultado: null,
+          snapshot_datos: null,
+          creada_por: { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.com' },
+          responsable: null,
+          resuelta_por: null,
+          creado_en: '2026-10-20T14:00:00Z',
+          resuelta_en: null,
+          observaciones: [],
+          invitaciones_contraparte: [
+            {
+              id: 501,
+              correo_destino: actual.aliado?.correo ?? 'juridica@universidad.edu.co',
+              correo_cc: null,
+              expira_en: '2026-10-20T15:00:00Z',
+              enviado_en: '2026-10-20T14:00:00Z',
+              utilizado_en: null,
+              revocado_en: null,
+              creado_en: '2026-10-20T14:00:00Z',
+              generada_por: { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.com' },
+            },
+          ],
+          respuesta_contraparte: null,
+        }
+        revisionesActuales = [creada]
+        return respuesta(201, creada)
+      }
+      return respuesta(404, { detail: 'Not Found' })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const cliente = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    cliente.setQueryData(CLAVE_SESION, sesionGestor)
+    render(
+      <QueryClientProvider client={cliente}>
+        <NotificationsContext.Provider value={notify}>
+          <MemoryRouter initialEntries={['/convenios/41']}>
+            <Routes>
+              <Route path="/convenios/:convenioId" element={<ConvenioDetallePage />} />
+            </Routes>
+          </MemoryRouter>
+        </NotificationsContext.Provider>
+      </QueryClientProvider>,
+    )
+    return { fetch, notify, usuario: userEvent.setup() }
+  }
+
+  it('CA-01, CA-02 y CA-03: bloquea el envío cuando está Por definir, permite asignar y rectificar la contraparte y habilita el envío con correo válido', async () => {
+    const manualPorDefinir: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      aliado_id: null,
+      aliado: null,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = montarEscenarioContraparte(manualPorDefinir)
+
+    const encabezadoContraparte = await screen.findByRole('heading', { name: 'Revisión de contraparte' })
+    const seccionContraparte = encabezadoContraparte.closest('section') as HTMLElement
+
+    const alertaPorDefinir = await within(seccionContraparte).findByRole('alert')
+    expect(alertaPorDefinir.textContent).toContain('Por definir')
+    expect(alertaPorDefinir.textContent).toContain('Debe asignar una contraparte válida')
+
+    const btnEnviar = within(seccionContraparte).getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement
+    expect(btnEnviar.disabled).toBe(true)
+
+    const selector = await within(seccionContraparte).findByLabelText('Asignar contraparte')
+    await usuario.selectOptions(selector, '10')
+    await usuario.click(within(seccionContraparte).getByRole('button', { name: 'Guardar contraparte' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/convenios/41',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ aliado_id: 10 }),
+        }),
+      )
+    })
+    expect(notify).toHaveBeenCalledWith({
+      type: 'success',
+      message: 'Contraparte actualizada correctamente.',
+    })
+
+    // Con el aliado sin correo, la interfaz identifica el dato pendiente y mantiene bloqueado el envío (CA-01 Escenario 2)
+    const alertaDatosFaltantes = await within(seccionContraparte).findByRole('alert')
+    expect(alertaDatosFaltantes.textContent).toContain('Datos por completar: correo electrónico válido')
+    expect((within(seccionContraparte).getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement).disabled).toBe(true)
+
+    // Rectificar seleccionando una contraparte con correo válido
+    const selectorCorregir = within(seccionContraparte).getByLabelText('Corregir contraparte')
+    await usuario.selectOptions(selectorCorregir, '11')
+    await usuario.click(within(seccionContraparte).getByRole('button', { name: 'Guardar contraparte' }))
+
+    await waitFor(() => {
+      expect(within(seccionContraparte).queryByRole('alert')).toBeNull()
+    })
+    const btnEnviarHabilitado = within(seccionContraparte).getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement
+    expect(btnEnviarHabilitado.disabled).toBe(false)
+
+    // No se creó revisión al guardar; solo se envía al confirmar el envío
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41/revision-contraparte/enviar')).toBe(false)
+
+    await usuario.click(btnEnviarHabilitado)
+    const modal = screen.getByRole('dialog')
+    expect(within(modal).getByText(/Universidad Contraparte Válida \(juridica@universidad\.edu\.co\)/)).toBeTruthy()
+    await usuario.click(within(modal).getByRole('button', { name: 'Enviar versión 3' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/convenios/41/revision-contraparte/enviar',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ expected_version: 3 }),
+        }),
+      )
+    })
+    expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+  })
+
+  it('CA-03 Escenario 2: informa un fallo durante el envío sin presentar la operación como revisión creada', async () => {
+    const manualConContraparte: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      aliado_id: 11,
+      aliado: {
+        id: 11,
+        nombre: 'Universidad Contraparte Válida',
+        identificacion: '890333444',
+        identificacion_completa: '890333444-5',
+        correo: 'juridica@universidad.edu.co',
+        activo: true,
+      },
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { notify, usuario } = montarEscenarioContraparte(manualConContraparte, 502)
+
+    const btnEnviar = await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' })
+    await usuario.click(btnEnviar)
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'error',
+        message: 'No fue posible enviar el correo de revisión a la contraparte',
+      })
+    })
+    expect(screen.queryByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Revisión de contraparte' })).toBeTruthy()
+  })
+})

@@ -1255,21 +1255,27 @@ def enviar_revision_contraparte(
         servicio = ServicioConvenios(
             db, enviador=correo, frontend_url=settings.public_frontend_url
         )
-        # No crear una revisión manual que no pueda recibir su enlace público.
+        # Validar primero los requisitos de la contraparte y evitar crear una
+        # revisión manual que no pueda recibir su enlace público.
         convenio_previo = servicio.obtener(convenio_id)
-        if convenio_previo.origen == "MANUAL_ORI" and not settings.public_frontend_url:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
+        if convenio_previo.origen == "MANUAL_ORI":
+            servicio._validar_contraparte_manual(convenio_previo)
+            if not settings.public_frontend_url:
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
         revision = servicio.enviar_a_contraparte(
             convenio_id, datos.expected_version, usuario
         )
-        if convenio_previo.origen == "MANUAL_ORI":
-            servicio.reenviar_invitacion_contraparte(convenio_id, revision.id, usuario)
         convenio = servicio.obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(
             next(item for item in convenio.revisiones if item.id == revision.id)
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible enviar el correo de revisión a la contraparte",
+        ) from exc
 
 
 @router.post("/{convenio_id}/revision-contraparte/{revision_id}/reenviar-invitacion")
@@ -1291,6 +1297,11 @@ def reenviar_invitacion_manual(
         return {"id": invitacion.id, "enviado_en": invitacion.enviado_en}
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible enviar el correo de revisión a la contraparte",
+        ) from exc
 
 
 @router.get("/{convenio_id}/revision-final", response_model=RevisionFinalLeer)
