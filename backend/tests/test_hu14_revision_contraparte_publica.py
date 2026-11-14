@@ -221,6 +221,7 @@ def test_reenvio_manual_revoca_el_token_anterior(
     entrar_como(gestor)
     respuesta = client.post(
         f"/api/convenios/{convenio.id}/revision-contraparte/{revision.id}/reenviar-invitacion",
+        json={"expected_invitacion_id": invitacion.id},
     )
     assert respuesta.status_code == 200, respuesta.text
     nuevo_token = correo_local.mensajes[-1].texto.split("#token=", 1)[1].splitlines()[0]

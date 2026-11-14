@@ -1,3 +1,4 @@
+import json
 import logging
 from collections.abc import Sequence
 from contextlib import nullcontext
@@ -5,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from hashlib import sha256
 from uuid import uuid4
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
@@ -16,6 +18,7 @@ from backend.core.roles import CodigoRol
 from backend.core.unidades_organizacionales import TipoUnidad
 from backend.core.validaciones import termino_busqueda_identificacion
 from backend.models.aliado import Aliado
+from backend.models.auditoria import Auditoria
 from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
@@ -102,6 +105,7 @@ CAMPOS_SNAPSHOT = (
     "solicitud_id",
     "origen",
     "aliado_id",
+    "aliado_identidad",
     "tipo_convenio_id",
     "objeto",
     "alcance",
@@ -115,10 +119,33 @@ CAMPOS_SNAPSHOT = (
 )
 
 
+CAMPOS_IDENTIDAD_ALIADO = (
+    "nombre", "tipo", "tipo_identificacion", "identificacion", "digito_verificacion",
+)
+
+
+def _identidad_aliado(convenio: Convenio) -> dict[str, object] | None:
+    if convenio.aliado_id is None:
+        return None
+    db = object_session(convenio)
+    aliado = convenio.aliado if db is None else db.scalar(
+        select(Aliado).where(Aliado.id == convenio.aliado_id)
+        .execution_options(populate_existing=True).with_for_update(read=True)
+    )
+    return {campo: getattr(aliado, campo) for campo in CAMPOS_IDENTIDAD_ALIADO} if aliado else None
+
+
+def _huella_identidad(identidad: dict[str, object] | None) -> str:
+    return sha256(json.dumps(identidad, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 def _snapshot_de(convenio: Convenio) -> dict[str, object]:
     """Congela los datos del convenio tal como se envían a revisión jurídica."""
     snapshot: dict[str, object] = {}
     for campo in CAMPOS_SNAPSHOT:
+        if campo == "aliado_identidad":
+            snapshot[campo] = _identidad_aliado(convenio)
+            continue
         valor = getattr(convenio, campo)
         # Las fechas van como ISO para que el JSONB las conserve legibles.
         snapshot[campo] = valor.isoformat() if isinstance(valor, date) else valor
@@ -280,6 +307,33 @@ class ConflictoBorradorConvenio(ErrorConvenio):
 
 
 class RevisionNoDisponible(ErrorConvenio):
+    pass
+
+
+class IdentidadAliadoIncompatible(RevisionNoDisponible):
+    def __init__(self) -> None:
+        super().__init__(
+            "La identidad jurídica del aliado cambió o no está acreditada en el snapshot; "
+            "requiere reiniciar la revisión jurídica desde Elaboración"
+        )
+
+
+def _exigir_identidad_congelada(
+    actual: dict[str, object], congelado: dict[str, object] | None,
+    *, asignacion_inicial: bool = False,
+) -> None:
+    if not congelado or "aliado_identidad" not in congelado or (
+        congelado["aliado_identidad"] != actual["aliado_identidad"]
+        and not (asignacion_inicial and congelado["aliado_identidad"] is None)
+    ):
+        raise IdentidadAliadoIncompatible()
+
+
+class InvitacionNoConfirmada(ErrorConvenio):
+    """El correo puede haber sido aceptado, pero no se confirmó su persistencia."""
+
+
+class CorreoContraparteNoDisponible(ErrorConvenio):
     pass
 
 
@@ -1232,15 +1286,64 @@ class ServicioConvenios:
         token_plano: str,
         convenio: Convenio,
     ) -> None:
+        self._exigir_correo_contraparte()
+        intento = uuid4().hex
+        contexto = {
+            "intento_id": intento, "convenio_id": convenio.id,
+            "revision_id": invitacion.revision_convenio_id,
+            "invitacion_id": invitacion.id, "actor_id": invitacion.generada_por_id,
+        }
+        logger.info("contraparte_correo_intento %s", contexto, extra=contexto)
+        try:
+            enviar_invitacion_contraparte(
+                self.enviador, self.frontend_url,
+                invitacion, token_plano, convenio,
+            )
+        except ErrorEnvioCorreo:
+            logger.warning("contraparte_correo_fallido %s", contexto, extra=contexto)
+            raise
+        logger.info("contraparte_correo_aceptado %s", contexto, extra=contexto)
+        try:
+            self.db.commit()
+        except SQLAlchemyError as exc:
+            # Nunca registrar la excepción: puede contener parámetros sensibles.
+            self.db.rollback()
+            logger.error("contraparte_correo_commit_no_confirmado %s", contexto, extra=contexto)
+            raise InvitacionNoConfirmada(
+                "El correo pudo ser aceptado, pero no se confirmó la invitación. "
+                "Recargue el historial antes de reintentar."
+            ) from exc
+        logger.info("contraparte_correo_confirmado %s", contexto, extra=contexto)
+
+    def _exigir_correo_contraparte(self) -> None:
         if self.enviador is None or not self.frontend_url:
-            raise RuntimeError("El servicio requiere correo y URL pública")
-        enviar_invitacion_contraparte(
-            self.db,
-            self.enviador,
-            self.frontend_url,
-            invitacion,
-            token_plano,
-            convenio,
+            raise CorreoContraparteNoDisponible(
+                "El servicio requiere correo y URL pública para invitar a la contraparte"
+            )
+
+    def _asignacion_inicial_auditada(self, convenio: Convenio) -> bool:
+        """Excepción HT-16: solo una asignación null -> aliado en esta versión."""
+        cambios = list(self.db.scalars(select(Auditoria).where(
+            Auditoria.entidad == "convenio",
+            Auditoria.registro_id == convenio.id,
+            Auditoria.campo == "aliado_id",
+            Auditoria.version == convenio.version_actual,
+            Auditoria.etapa == CODIGO_ETAPA_REVISION_CONTRAPARTE,
+        )))
+        identidad = self.db.scalar(select(Auditoria).where(
+            Auditoria.entidad == "convenio", Auditoria.registro_id == convenio.id,
+            Auditoria.campo == "aliado_identidad_sha256",
+            Auditoria.evento == "CONTRAPARTE_ASIGNADA",
+            Auditoria.version == convenio.version_actual,
+            Auditoria.etapa == CODIGO_ETAPA_REVISION_CONTRAPARTE,
+        ).order_by(Auditoria.id.desc()).limit(1))
+        return (
+            len(cambios) == 1
+            and cambios[0].evento == "CONTRAPARTE_ASIGNADA"
+            and cambios[0].valor_anterior is None
+            and cambios[0].valor_nuevo == str(convenio.aliado_id)
+            and identidad is not None
+            and identidad.valor_nuevo == _huella_identidad(_identidad_aliado(convenio))
         )
 
     def _validar_contraparte_manual(self, convenio: Convenio) -> str:
@@ -1284,6 +1387,7 @@ class ServicioConvenios:
         convenio = self.db.scalar(
             select(Convenio)
             .where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True)
             .with_for_update()
         )
         if convenio is None:
@@ -1337,22 +1441,35 @@ class ServicioConvenios:
                 "La ronda jurídica no cuenta con sus dos aprobaciones"
             )
         snapshot_actual = _snapshot_de(convenio)
-        excluidos_snapshot = (
-            {"aliado_id"}
-            if convenio.origen == OrigenConvenio.MANUAL_ORI.value
-            else set()
-        )
-        for congelado in (
+        congelados = (
             version.snapshot_metadata,
             primera.snapshot_datos,
             segunda.snapshot_datos,
-        ):
+        )
+        asignacion_inicial = (
+            convenio.origen == OrigenConvenio.MANUAL_ORI.value
+            and convenio.aliado_id is not None
+            and all(
+                dato and "aliado_id" in dato and dato["aliado_id"] is None
+                and "aliado_identidad" in dato and dato["aliado_identidad"] is None
+                for dato in congelados
+            )
+            and self._asignacion_inicial_auditada(convenio)
+        )
+        for congelado in congelados:
+            _exigir_identidad_congelada(snapshot_actual, congelado, asignacion_inicial=asignacion_inicial)
+            if convenio.origen == OrigenConvenio.MANUAL_ORI.value and (
+                not congelado or "aliado_id" not in congelado
+            ):
+                raise RevisionNoDisponible(
+                    "No se puede verificar la contraparte congelada: requiere reiniciar la revisión jurídica"
+                )
             if congelado and _datos_difieren(
                 snapshot_actual,
                 {
                     campo: valor
                     for campo, valor in congelado.items()
-                    if campo not in excluidos_snapshot
+                    if not (asignacion_inicial and campo in {"aliado_id", "aliado_identidad"})
                 },
             ):
                 raise RevisionNoDisponible(
@@ -1367,6 +1484,7 @@ class ServicioConvenios:
         correo_destino_manual: str | None = None
         if convenio.origen == OrigenConvenio.MANUAL_ORI.value:
             correo_destino_manual = self._validar_contraparte_manual(convenio)
+            self._exigir_correo_contraparte()
         elif solicitud is None or solicitud.solicitante_id is None:
             raise RevisionNoDisponible("El convenio no tiene un Solicitante asociado")
         responsable_externo_id = solicitud.solicitante_id if solicitud is not None else None
@@ -1429,7 +1547,6 @@ class ServicioConvenios:
             if (
                 convenio.origen == OrigenConvenio.MANUAL_ORI.value
                 and correo_destino_manual is not None
-                and self.enviador is not None
             ):
                 self.db.flush()
                 invitacion, token_plano = crear_invitacion_contraparte(
@@ -1744,7 +1861,8 @@ class ServicioConvenios:
         return revision
 
     def reenviar_invitacion_contraparte(
-        self, convenio_id: int, revision_id: int, usuario: Usuario
+        self, convenio_id: int, revision_id: int, usuario: Usuario,
+        expected_invitacion_id: int,
     ) -> InvitacionRevisionContraparte:
         convenio = self.db.scalar(
             select(Convenio)
@@ -1775,6 +1893,15 @@ class ServicioConvenios:
             raise RevisionNoDisponible(
                 "La revisión de contraparte ya no está disponible para reenvío"
             )
+        version = self._version_actual(convenio)
+        actual = _snapshot_de(convenio)
+        _exigir_identidad_congelada(
+            actual, version.snapshot_metadata if version else None,
+            asignacion_inicial=(
+                convenio.origen == OrigenConvenio.MANUAL_ORI.value
+                and self._asignacion_inicial_auditada(convenio)
+            ),
+        )
         solicitud = self.db.scalar(
             select(SolicitudConvenio)
             .options(joinedload(SolicitudConvenio.solicitante))
@@ -1787,6 +1914,14 @@ class ServicioConvenios:
             if solicitud is None:
                 raise RevisionNoDisponible("El convenio no tiene una solicitud asociada")
             correo_destino, correo_cc = self._destinatarios_contraparte(solicitud)
+        self._exigir_correo_contraparte()
+        ultima = self.db.scalar(select(InvitacionRevisionContraparte).where(
+            InvitacionRevisionContraparte.revision_convenio_id == revision.id,
+        ).order_by(InvitacionRevisionContraparte.id.desc()).limit(1))
+        if ultima is None or ultima.id != expected_invitacion_id:
+            raise RevisionNoDisponible(
+                "La invitación cambió. Recargue el historial antes de reenviar."
+            )
         ahora = datetime.now(UTC)
         self.db.execute(
             update(InvitacionRevisionContraparte)
@@ -1807,6 +1942,54 @@ class ServicioConvenios:
             self.db.rollback()
             raise
         return invitacion
+
+    def reabrir_por_identidad(
+        self, convenio_id: int, expected_version: int, usuario: Usuario,
+    ) -> Convenio:
+        if usuario.rol.codigo not in (CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value):
+            raise ConvenioNoEditable("Solo Gestor ORI o Administrador ORI pueden reabrir el convenio")
+        convenio = self.db.scalar(select(Convenio).where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True).with_for_update())
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
+        if convenio.version_actual != expected_version:
+            raise ConflictoVersionConvenio(expected_version, convenio.version_actual)
+        if convenio.etapa_actual is None or convenio.etapa_actual.codigo != CODIGO_ETAPA_REVISION_CONTRAPARTE:
+            raise RevisionNoDisponible("Solo se puede reabrir desde revisión de contraparte antes del envío")
+        if self.db.scalar(select(RevisionConvenio.id).where(
+            RevisionConvenio.convenio_id == convenio.id,
+            RevisionConvenio.tipo == TipoRevisionConvenio.CONTRAPARTE.value,
+            RevisionConvenio.estado == EstadoRevisionConvenio.PENDIENTE.value,
+        )) is not None:
+            raise RevisionNoDisponible("No se puede reabrir mientras exista una revisión de contraparte pendiente")
+        version = self._version_actual(convenio)
+        try:
+            _exigir_identidad_congelada(
+                _snapshot_de(convenio), version.snapshot_metadata if version else None,
+                asignacion_inicial=(convenio.origen == OrigenConvenio.MANUAL_ORI.value
+                                    and self._asignacion_inicial_auditada(convenio)),
+            )
+        except IdentidadAliadoIncompatible:
+            pass
+        else:
+            raise RevisionNoDisponible("La identidad coincide con el aval; no requiere reapertura por identidad")
+        elaboracion = self.db.scalar(select(Etapa).where(Etapa.codigo == CODIGO_ETAPA_ELABORACION))
+        if elaboracion is None:
+            raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+        describir_accion(self.db, usuario, "Reabrió Elaboración por cambio de identidad jurídica del aliado",
+                         evento="IDENTIDAD_ALIADO_REABRIR", **contexto_auditoria(convenio))
+        self.db.add(HistorialEtapa(
+            convenio_id=convenio.id, etapa_origen_id=convenio.etapa_actual_id,
+            etapa_destino_id=elaboracion.id, usuario_id=usuario.id, responsable_id=usuario.id,
+            observacion="Cambio de identidad jurídica del aliado: requiere nuevos avales RJ1 y RJ2",
+        ))
+        convenio.etapa_actual = elaboracion
+        try:
+            self.db.commit()
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
+        return self.obtener(convenio.id)
 
     def obtener_para_revision(
         self, convenio_id: int
@@ -2336,8 +2519,14 @@ class ServicioConvenios:
             raise ConvenioNoEditable(
                 "Solo Gestor ORI o Administrador ORI pueden modificar el convenio"
             )
-        convenio = self.obtener(convenio_id)
+        convenio = self.db.scalar(
+            select(Convenio).where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True).with_for_update()
+        )
+        if convenio is None:
+            raise ConvenioNoEncontrado("Convenio no encontrado")
         cambios = datos.model_dump(exclude_unset=True)
+        aliado_anterior_id = convenio.aliado_id
         etapa_codigo = convenio.etapa_actual.codigo if convenio.etapa_actual else None
         if etapa_codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE:
             if not cambios or set(cambios.keys()) != {"aliado_id"}:
@@ -2363,11 +2552,46 @@ class ServicioConvenios:
                 raise ReferenciaConvenioInvalida(
                     "Debe asignar una contraparte válida antes de enviar el convenio"
                 )
+            version_base = self._version_actual(convenio)
+            snapshot_base = version_base.snapshot_metadata if version_base else None
+            # Permite recuperar convenios rectificados por la implementación
+            # anterior: guardar el mismo aliado vuelve a Elaboración si no hay
+            # una identidad avalada ni una asignación inicial verificable.
+            identidad_avalada = (
+                snapshot_base is not None
+                and "aliado_id" in snapshot_base
+                and snapshot_base["aliado_id"] == convenio.aliado_id
+                and "aliado_identidad" in snapshot_base
+                and snapshot_base["aliado_identidad"] == _identidad_aliado(convenio)
+            )
+            requiere_nuevos_avales = (
+                convenio.aliado_id != cambios["aliado_id"] and convenio.aliado_id is not None
+            ) or (
+                not identidad_avalada
+                and not self._asignacion_inicial_auditada(convenio)
+            )
+            if requiere_nuevos_avales:
+                elaboracion = self.db.scalar(select(Etapa).where(
+                    Etapa.codigo == CODIGO_ETAPA_ELABORACION
+                ))
+                if elaboracion is None:
+                    raise ConfiguracionConvenioInvalida("No existe la etapa ELABORACION")
+                self.db.add(HistorialEtapa(
+                    convenio_id=convenio.id,
+                    etapa_origen_id=convenio.etapa_actual_id,
+                    etapa_destino_id=elaboracion.id,
+                    usuario_id=usuario.id,
+                    responsable_id=usuario.id,
+                    observacion="Rectificación de contraparte: requiere nuevos avales RJ1 y RJ2",
+                ))
+                # Se aplica al final para auditar el cambio con su etapa de origen.
+            else:
+                elaboracion = None
             describir_accion(
                 self.db,
                 usuario,
                 "Asignó o rectificó la contraparte del convenio antes del envío",
-                evento="CONTRAPARTE_ASIGNADA",
+                evento="CONTRAPARTE_RECTIFICADA" if elaboracion else "CONTRAPARTE_ASIGNADA",
                 **contexto_auditoria(convenio),
             )
         elif etapa_codigo == CODIGO_ETAPA_ELABORACION:
@@ -2382,12 +2606,31 @@ class ServicioConvenios:
             raise ConvenioNoEditable(
                 "Solo se puede editar un convenio en etapa de Elaboración"
             )
-        self._aplicar_cambios(convenio, cambios)
+        try:
+            self._aplicar_cambios(convenio, cambios)
+        except ErrorConvenio:
+            self.db.rollback()
+            raise
+        if etapa_codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE and elaboracion is not None:
+            convenio.etapa_actual = elaboracion
+        elif etapa_codigo == CODIGO_ETAPA_REVISION_CONTRAPARTE and aliado_anterior_id is None:
+            self.db.add(Auditoria(
+                usuario_id=usuario.id, rol=usuario.rol.codigo,
+                entidad="convenio", registro_id=convenio.id, accion="UPDATE",
+                campo="aliado_identidad_sha256", valor_anterior=None,
+                valor_nuevo=_huella_identidad(_identidad_aliado(convenio)),
+                contexto="Identidad de la asignación inicial desde Por definir",
+                evento="CONTRAPARTE_ASIGNADA", etapa=etapa_codigo,
+                version=convenio.version_actual, ejecucion="HUMANA",
+            ))
         try:
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
             raise ConvenioDuplicado("El código ya pertenece a otro convenio") from exc
+        except SQLAlchemyError:
+            self.db.rollback()
+            raise
         # El FK puede cambiar con la relación cargada y expire_on_commit=False.
         self.db.expire(convenio, ["aliado"])
         return self.obtener(convenio.id)
@@ -2453,8 +2696,9 @@ class ServicioConvenios:
             raise
         # Los datos guardados como avance ya están en el convenio: se comparan con
         # los que congeló la última versión para saber si es idéntica.
-        cambio_metadata = actual is not None and _datos_difieren(
-            _snapshot_de(convenio), actual.snapshot_metadata
+        cambio_metadata = actual is not None and (
+            "aliado_identidad" not in actual.snapshot_metadata
+            or _datos_difieren(_snapshot_de(convenio), actual.snapshot_metadata)
         )
         cambio_contenido = (
             contenido is not None
@@ -2668,7 +2912,8 @@ class ServicioConvenios:
     ) -> tuple[Convenio, RevisionConvenio]:
         # Todas las mutaciones jurídicas usan el mismo orden para evitar deadlocks.
         convenio = self.db.scalar(
-            select(Convenio).where(Convenio.id == convenio_id).with_for_update()
+            select(Convenio).where(Convenio.id == convenio_id)
+            .execution_options(populate_existing=True).with_for_update()
         )
         if convenio is None:
             raise ConvenioNoEncontrado("Convenio no encontrado")
@@ -2678,6 +2923,7 @@ class ServicioConvenios:
                 RevisionConvenio.id == revision_id,
                 RevisionConvenio.convenio_id == convenio_id,
             )
+            .execution_options(populate_existing=True)
             .with_for_update()
         )
         if revision is None:
@@ -2827,6 +3073,8 @@ class ServicioConvenios:
         if pendiente is not None:
             raise RevisionNoDisponible("Hay observaciones pendientes por atender")
         snapshot_actual = _snapshot_de(convenio)
+        _exigir_identidad_congelada(snapshot_actual, revision.snapshot_datos)
+        _exigir_identidad_congelada(snapshot_actual, version_actual.snapshot_metadata)
         if revision.snapshot_datos and _datos_difieren(
             snapshot_actual, revision.snapshot_datos
         ):
@@ -2853,6 +3101,7 @@ class ServicioConvenios:
                 raise RevisionNoDisponible(
                     "La segunda revisión debe ser aprobada por otro Revisor ORI"
                 )
+            _exigir_identidad_congelada(snapshot_actual, primera.snapshot_datos)
             if primera.version_resultado_id != version_actual.id or (
                 primera.snapshot_datos
                 and _datos_difieren(snapshot_actual, primera.snapshot_datos)

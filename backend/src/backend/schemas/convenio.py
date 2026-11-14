@@ -523,6 +523,12 @@ class EnviarRevisionContraparte(AprobarRevision):
     pass
 
 
+class ReenviarInvitacionContraparte(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_invitacion_id: int = Field(gt=0)
+
+
 class CrearObservacionRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

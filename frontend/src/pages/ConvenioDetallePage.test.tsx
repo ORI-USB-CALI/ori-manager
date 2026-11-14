@@ -8,7 +8,7 @@ import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { ConvenioDetallePage } from './ConvenioDetallePage'
 import { ConvenioHistorialPage } from './ConvenioHistorialPage'
-import type { Convenio, HistorialConvenio } from './epica02'
+import type { Aliado, Convenio, HistorialConvenio } from './epica02'
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -551,47 +551,57 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
       id: 10,
       nombre: 'Aliado Sin Correo',
       tipo: 'EMPRESA',
+      sector_economico: 'Educación',
       tipo_identificacion: 'NIT',
       identificacion: '800111222',
       digito_verificacion: '1',
       identificacion_completa: '800111222-1',
-      pais: 'Colombia',
+      pais_id: null,
       ciudad: 'Cali',
       direccion: null,
       telefono: null,
       correo: null,
       sitio_web: null,
       activo: true,
+      creado_en: '2026-10-20T14:00:00Z',
+      actualizado_en: '2026-10-20T14:00:00Z',
     },
     {
       id: 11,
       nombre: 'Universidad Contraparte Válida',
       tipo: 'UNIVERSIDAD',
+      sector_economico: null,
       tipo_identificacion: 'NIT',
       identificacion: '890333444',
       digito_verificacion: '5',
       identificacion_completa: '890333444-5',
-      pais: 'Colombia',
+      pais_id: null,
       ciudad: 'Cali',
       direccion: null,
       telefono: null,
       correo: 'juridica@universidad.edu.co',
       sitio_web: null,
       activo: true,
+      creado_en: '2026-10-20T14:00:00Z',
+      actualizado_en: '2026-10-20T14:00:00Z',
     },
-  ]
+  ] satisfies Array<Aliado & { digito_verificacion: string; identificacion_completa: string }>
 
-  function montarEscenarioContraparte(convenioInicial: Convenio, envioStatuses: number[] = [201]) {
-    let actual: Convenio = convenioInicial
+  function montarEscenarioContraparte(convenioInicial: Convenio, envioStatuses: number[] = [201],
+    catalogo: (url: string) => Promise<Response> = async () => respuesta(200, { items: aliadosCatalogo, total: aliadosCatalogo.length })) {
+    let actual: Convenio = { ...convenioInicial, etapa_actual_id: 3 }
     let revisionesActuales: HistorialConvenio['revisiones'] = []
     let intentoEnvio = 0
+    let etapa = 'REVISION_CONTRAPARTE'
     const notify = vi.fn()
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/convenios/41' && init?.method === 'PATCH') {
         const body = JSON.parse(String(init.body)) as { aliado_id: number }
         const encontrado = aliadosCatalogo.find((item) => item.id === body.aliado_id) ?? null
+        if (actual.aliado_id !== null && actual.aliado_id !== body.aliado_id) etapa = 'ELABORACION'
         actual = {
           ...actual,
+          etapa_actual_id: etapa === 'ELABORACION' ? 1 : 3,
           aliado_id: body.aliado_id,
           aliado: encontrado
             ? {
@@ -612,7 +622,7 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
       if (url === '/api/convenios/41/elaboracion') {
         return respuesta(200, {
           ...actual,
-          etapa_actual: { id: 3, orden: 3, codigo: 'REVISION_CONTRAPARTE', nombre: 'Revisión de contraparte' },
+          etapa_actual: { id: 3, orden: 3, codigo: etapa, nombre: etapa === 'ELABORACION' ? 'Elaboración' : 'Revisión de contraparte' },
         })
       }
       if (url === '/api/convenios/41/revisiones') {
@@ -625,14 +635,32 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
       ) {
         return respuesta(200, [])
       }
-      if (url === '/api/aliados?solo_activos=true') {
-        return respuesta(200, aliadosCatalogo)
+      if (url.startsWith('/api/aliados?limite=100&activo=true')) {
+        return catalogo(url)
+      }
+      if (url === '/api/convenios/41/revision-juridica/reabrir-por-identidad' && init?.method === 'POST') {
+        etapa = 'ELABORACION'
+        actual = { ...actual, etapa_actual_id: 1 }
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41/revision-contraparte/99/reenviar-invitacion' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { expected_invitacion_id: number }
+        const revision = revisionesActuales[0]
+        const invitacion = revision.invitaciones_contraparte.find((item) => item.id === body.expected_invitacion_id)
+        if (!invitacion || invitacion.revocado_en) return respuesta(409, { detail: 'La invitación cambió. Recargue el historial antes de reenviar.' })
+        const nueva = { ...invitacion, id: 502, enviado_en: '2026-10-20T14:10:00Z' }
+        revisionesActuales = [{ ...revision, invitaciones_contraparte: [
+          { ...invitacion, revocado_en: nueva.enviado_en }, nueva,
+        ] }]
+        return respuesta(200, { id: nueva.id, enviado_en: nueva.enviado_en })
       }
       if (url === '/api/convenios/41/revision-contraparte/enviar' && init?.method === 'POST') {
         const statusActual = envioStatuses[Math.min(intentoEnvio, envioStatuses.length - 1)]
         intentoEnvio += 1
         if (statusActual !== 201) {
-          return respuesta(statusActual, { detail: 'No fue posible enviar el correo de revisión a la contraparte' })
+          return respuesta(statusActual, { detail: statusActual === 409
+            ? { codigo: 'IDENTIDAD_ALIADO_CAMBIADA', message: 'La identidad jurídica cambió; requiere reiniciar la revisión jurídica desde Elaboración' }
+            : 'No fue posible enviar el correo de revisión a la contraparte' })
         }
         const creada = {
           id: 99,
@@ -691,7 +719,7 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
     return { fetch, notify, usuario: userEvent.setup() }
   }
 
-  it('CA-01, CA-02 y CA-03: bloquea el envío cuando está Por definir, permite asignar y rectificar la contraparte y habilita el envío con correo válido', async () => {
+  it('CA-01, CA-02 y CA-03: asigna desde Por definir y exige nuevos avales al rectificar la contraparte', async () => {
     const manualPorDefinir: Convenio = {
       ...convenio,
       origen: 'MANUAL_ORI',
@@ -742,29 +770,94 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
     await usuario.click(within(seccionContraparte).getByRole('button', { name: 'Guardar contraparte' }))
 
     await waitFor(() => {
-      expect(within(seccionContraparte).queryByRole('alert')).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Revisión de contraparte' })).toBeNull()
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success', message: 'Contraparte rectificada. Complete Elaboración y obtenga nuevamente RJ1 y RJ2.',
+      })
     })
-    const btnEnviarHabilitado = within(seccionContraparte).getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement
-    expect(btnEnviarHabilitado.disabled).toBe(false)
-
-    // No se creó revisión al guardar; solo se envía al confirmar el envío
+    expect(screen.getByRole('link', { name: /elaboración/i })).toBeTruthy()
     expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41/revision-contraparte/enviar')).toBe(false)
+  })
 
-    await usuario.click(btnEnviarHabilitado)
-    const modal = screen.getByRole('dialog')
-    expect(within(modal).getByText(/Universidad Contraparte Válida \(juridica@universidad\.edu\.co\)/)).toBeTruthy()
-    await usuario.click(within(modal).getByRole('button', { name: 'Enviar versión 3' }))
+  const manualPorDefinir: Convenio = {
+    ...convenio, origen: 'MANUAL_ORI', solicitud_id: null, aliado_id: null,
+    aliado: null, estado: 'EN_TRAMITE', fecha_firma: null,
+  }
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/convenios/41/revision-contraparte/enviar',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ expected_version: 3 }),
-        }),
-      )
-    })
+  it('consulta todas las páginas del contrato real y permite seleccionar un aliado posterior al primero', async () => {
+    const primera = Array.from({ length: 100 }, (_, i) => ({ ...aliadosCatalogo[0], id: i + 100, nombre: `Aliado ${i}` }))
+    const { fetch, usuario } = montarEscenarioContraparte(manualPorDefinir, [201], async (url) =>
+      respuesta(200, { items: url.includes('desplazamiento=100') ? [aliadosCatalogo[1]] : primera, total: 101 }))
+    const opcion = await screen.findByRole('option', { name: /Universidad Contraparte Válida/ })
+    expect(opcion).toBeTruthy()
+    expect(fetch).toHaveBeenCalledWith('/api/aliados?limite=100&activo=true&desplazamiento=100', expect.anything())
+    await usuario.selectOptions(screen.getByLabelText('Asignar contraparte'), '11')
+    await usuario.click(screen.getByRole('button', { name: 'Guardar contraparte' }))
+    const enviar = await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' })
+    await waitFor(() => expect((enviar as HTMLButtonElement).disabled).toBe(false))
+    await usuario.click(enviar)
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
     expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+  })
+
+  it('muestra la carga y deshabilita el selector hasta completar el catálogo', async () => {
+    let completar!: (r: Response) => void
+    montarEscenarioContraparte(manualPorDefinir, [201], () => new Promise((resolve) => { completar = resolve }))
+    expect(await screen.findByText('Cargando aliados activos…')).toBeTruthy()
+    expect((screen.getByLabelText('Asignar contraparte') as HTMLSelectElement).disabled).toBe(true)
+    completar(respuesta(200, { items: aliadosCatalogo, total: 2 }))
+    await waitFor(() => expect((screen.getByLabelText('Asignar contraparte') as HTMLSelectElement).disabled).toBe(false))
+  })
+
+  it('envía el ID vigente al reenviar una invitación y refresca su trazabilidad', async () => {
+    const { fetch, usuario } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] })
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Reenviar enlace al aliado' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/convenios/41/revision-contraparte/99/reenviar-invitacion',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_invitacion_id: 501 }) }),
+    ))
+    expect(await screen.findByText('Invitaciones registradas: 2.')).toBeTruthy()
+  })
+
+  it('permite volver a Elaboración cuando el servidor detecta una identidad incompatible', async () => {
+    const { fetch, usuario } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] }, [409])
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Volver a Elaboración para revisar la identidad' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/convenios/41/revision-juridica/reabrir-por-identidad',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_version: 3 }) }),
+    ))
+    expect(await screen.findByRole('link', { name: /elaboración/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
+  })
+
+  it('maneja catálogo vacío y conserva visible una contraparte actual inactiva', async () => {
+    montarEscenarioContraparte({ ...manualPorDefinir, aliado_id: 99,
+      aliado: { id: 99, nombre: 'Aliado histórico', identificacion: '123', activo: false, correo: null } },
+    [201], async () => respuesta(200, { items: [], total: 0 }))
+    expect(await screen.findByText('No hay aliados activos disponibles.')).toBeTruthy()
+    expect((screen.getByRole('option', { name: 'Aliado histórico (contraparte actual)' }) as HTMLOptionElement).selected).toBe(true)
+    expect((screen.getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('informa errores de catálogo y permite reintentar sin perder la contraparte actual', async () => {
+    let intentos = 0
+    const { usuario } = montarEscenarioContraparte({ ...manualPorDefinir, aliado_id: 99,
+      aliado: { id: 99, nombre: 'Aliado histórico', identificacion: '123', activo: false, correo: null } }, [201], async () => {
+      intentos += 1
+      return intentos === 1 ? respuesta(500, { detail: 'Catálogo no disponible' })
+        : respuesta(200, { items: aliadosCatalogo, total: 2 })
+    })
+    const reintentar = await screen.findByRole('button', { name: 'Reintentar catálogo' })
+    expect((screen.getByRole('option', { name: 'Aliado histórico (contraparte actual)' }) as HTMLOptionElement).selected).toBe(true)
+    await usuario.click(reintentar)
+    expect(await screen.findByRole('option', { name: /Universidad Contraparte Válida/ })).toBeTruthy()
+    expect(screen.queryByText(/No fue posible cargar los aliados/)).toBeNull()
   })
 
   it('CA-03 Escenario 2 y CA-05: informa un fallo durante el envío sin crear revisión y permite reintentar exitosamente', async () => {

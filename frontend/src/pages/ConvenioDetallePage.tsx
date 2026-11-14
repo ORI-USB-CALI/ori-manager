@@ -18,7 +18,7 @@ import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFina
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import { SoportesConvenio } from '../components/SoportesConvenio'
-import { type Aliado, type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio } from './epica02'
+import { type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio, useAliados } from './epica02'
 
 interface UsuarioResumen { id: number; nombre_completo: string }
 interface ObservacionRevision {
@@ -117,6 +117,7 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
+  const [identidadIncompatible, setIdentidadIncompatible] = useState(false)
   const [aliadoSeleccionadoId, setAliadoSeleccionadoId] = useState<string | null>(null)
   const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
 
@@ -162,12 +163,7 @@ export function ConvenioDetallePage() {
       && flujoContraparte.data?.etapa_actual?.codigo === 'REVISION_CONTRAPARTE'
       && !revisionContrapartePendiente,
   )
-  const aliadosActivos = useQuery({
-    queryKey: ['aliados', 'solo_activos=true'],
-    queryFn: () => apiFetch<Aliado[]>('/aliados?solo_activos=true'),
-    enabled: requiereCatalogoAliados,
-    retry: false,
-  })
+  const aliadosActivos = useAliados(true, requiereCatalogoAliados)
 
   async function refrescarRevision(limpiarBorrador = true) {
     if (limpiarBorrador) setBorrador(null)
@@ -256,11 +252,13 @@ export function ConvenioDetallePage() {
       ])
     },
     onError: async (error) => {
+      if (error instanceof ApiError && error.detail && typeof error.detail === 'object'
+        && 'codigo' in error.detail && error.detail.codigo === 'IDENTIDAD_ALIADO_CAMBIADA') setIdentidadIncompatible(true)
       notify({
         type: 'error',
         message: error instanceof Error ? error.message : 'No fue posible enviar la elaboración de convenio a la contraparte.',
       })
-      if (error instanceof ApiError && (error.status === 409 || error.status === 502)) {
+      if (error instanceof ApiError && (error.status === 409 || error.status === 502 || error.status === 503)) {
         setConfirmarEnvio(false)
         await Promise.all([
           cliente.invalidateQueries({ queryKey: ['convenio', id], exact: true }),
@@ -271,17 +269,33 @@ export function ConvenioDetallePage() {
     },
   })
   const reenviarInvitacionManual = useMutation({
-    mutationFn: (revisionId: number) => apiFetch(
-      `/convenios/${id}/revision-contraparte/${revisionId}/reenviar-invitacion`,
-      { method: 'POST' },
-    ),
+    mutationFn: (revisionId: number) => {
+      const ultimaInvitacionId = Math.max(0, ...(revisionContrapartePendiente?.invitaciones_contraparte.map((item) => item.id) ?? []))
+      if (!ultimaInvitacionId) throw new Error('No hay una invitación vigente. Recargue el historial antes de reenviar.')
+      return apiFetch(`/convenios/${id}/revision-contraparte/${revisionId}/reenviar-invitacion`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_invitacion_id: ultimaInvitacionId }),
+      })
+    },
     onSuccess: async () => {
       notify({ type: 'success', message: 'Invitación enviada al correo del aliado.' })
       await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] })
     },
-    onError: (error) => notify({
-      type: 'error', message: error instanceof Error ? error.message : 'No se pudo reenviar la invitación.',
+    onError: async (error) => {
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No se pudo reenviar la invitación.' })
+      await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] })
+    },
+  })
+  const reabrirPorIdentidad = useMutation({
+    mutationFn: () => apiFetch(`/convenios/${id}/revision-juridica/reabrir-por-identidad`, {
+      method: 'POST', body: JSON.stringify({ expected_version: convenio.data?.version_actual }),
     }),
+    onSuccess: async () => {
+      setIdentidadIncompatible(false)
+      notify({ type: 'success', message: 'El convenio volvió a Elaboración. Obtenga nuevos avales RJ1 y RJ2 para la identidad actual.' })
+      await refrescarRevision()
+    },
+    onError: (error) => notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible reabrir Elaboración.' }),
   })
   const guardarContraparte = useMutation({
     mutationFn: (nuevoAliadoId: number) => apiFetch<Convenio>(`/convenios/${id}`, {
@@ -291,17 +305,20 @@ export function ConvenioDetallePage() {
     onSuccess: async (actualizado) => {
       setAliadoSeleccionadoId(null)
       cliente.setQueryData(['convenio', id], actualizado)
-      notify({ type: 'success', message: 'Contraparte actualizada correctamente.' })
+      notify({ type: 'success', message: actualizado.etapa_actual_id !== convenio.data?.etapa_actual_id
+        || (convenio.data?.aliado_id !== null && convenio.data?.aliado_id !== actualizado.aliado_id)
+        ? 'Contraparte rectificada. Complete Elaboración y obtenga nuevamente RJ1 y RJ2.'
+        : 'Contraparte actualizada correctamente.' })
       await Promise.all([
         cliente.invalidateQueries({ queryKey: ['convenio', id] }),
         cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
         cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
       ])
     },
-    onError: (error) => notify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'No fue posible actualizar la contraparte.',
-    }),
+    onError: async (error) => {
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible actualizar la contraparte.' })
+      if (error instanceof ApiError && error.status === 409) await refrescarRevision()
+    },
   })
 
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
@@ -332,7 +349,7 @@ export function ConvenioDetallePage() {
   const esProyecto = datos.estado === 'EN_TRAMITE' || datos.estado === 'CANCELADO' || !datos.fecha_firma
   const aliadoActual = datos.aliado ?? flujoContraparte.data?.aliado ?? null
   const detalleAliadoActual = aliadoActual
-    ? (aliadosActivos.data?.find((item) => item.id === aliadoActual.id) ?? aliadoActual)
+    ? (aliadosActivos.data?.items.find((item) => item.id === aliadoActual.id) ?? aliadoActual)
     : null
   const correoAliadoActual = detalleAliadoActual?.correo?.trim() ?? ''
   const correoAliadoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correoAliadoActual)
@@ -448,15 +465,22 @@ export function ConvenioDetallePage() {
                   <label className="form-label" htmlFor="contraparte-revision-select">
                     {aliadoActual ? 'Corregir contraparte' : 'Asignar contraparte'}
                   </label>
+                  {aliadoActual && <p className="section-help">Cambiar la contraparte devuelve el convenio a Elaboración y requiere nuevamente RJ1 y RJ2.</p>}
+                  {aliadosActivos.isPending && <p role="status">Cargando aliados activos…</p>}
+                  {aliadosActivos.isError && <p role="alert">No fue posible cargar los aliados. <button type="button" onClick={() => void aliadosActivos.refetch()}>Reintentar catálogo</button></p>}
+                  {aliadosActivos.isSuccess && aliadosActivos.data.items.length === 0 && <p>No hay aliados activos disponibles.</p>}
                   <select
                     id="contraparte-revision-select"
                     className="form-control"
                     value={valorSelectorAliado}
                     onChange={(event) => setAliadoSeleccionadoId(event.target.value)}
-                    disabled={guardarContraparte.isPending}
+                    disabled={guardarContraparte.isPending || !aliadosActivos.isSuccess || aliadosActivos.isFetching}
                   >
                     <option value="">Por definir — seleccione un aliado</option>
-                    {(aliadosActivos.data ?? []).map((item) => (
+                    {aliadoActual && !aliadosActivos.data?.items.some((item) => item.id === aliadoActual.id) && (
+                      <option value={aliadoActual.id}>{aliadoActual.nombre} (contraparte actual)</option>
+                    )}
+                    {(aliadosActivos.data?.items ?? []).map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.nombre} ({item.identificacion}){item.correo ? ` · ${item.correo}` : ' · Sin correo'}
                       </option>
@@ -468,8 +492,9 @@ export function ConvenioDetallePage() {
                       type="button"
                       disabled={
                         guardarContraparte.isPending
+                        || !aliadosActivos.isSuccess
+                        || aliadosActivos.isFetching
                         || !valorSelectorAliado
-                        || Number(valorSelectorAliado) === (datos.aliado_id ?? 0)
                       }
                       onClick={() => guardarContraparte.mutate(Number(valorSelectorAliado))}
                     >
@@ -479,6 +504,12 @@ export function ConvenioDetallePage() {
                 </div>
               )}
               <div className="page-toolbar">
+                {identidadIncompatible && puede('convenios.editar') && (
+                  <button type="button" className="btn btn-outline" disabled={reabrirPorIdentidad.isPending}
+                    onClick={() => reabrirPorIdentidad.mutate()}>
+                    Volver a Elaboración para revisar la identidad
+                  </button>
+                )}
                 <button
                   className="btn btn-primary"
                   type="button"

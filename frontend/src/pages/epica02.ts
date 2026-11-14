@@ -104,13 +104,25 @@ export const ETIQUETA_TIPO: Record<TipoAliado, string> = {
   ENTIDAD_GUBERNAMENTAL: 'Entidad gubernamental',
 }
 
-export function useAliados(soloActivos = false) {
+export function useAliados(soloActivos = false, enabled = true) {
   return useQuery({
     queryKey: ['aliados', { soloActivos }],
-    queryFn: () =>
-      apiFetch<{ items: Aliado[]; total: number }>(
-        `/aliados?limite=100${soloActivos ? '&activo=true' : ''}`,
-      ),
+    queryFn: async () => {
+      const items: Aliado[] = []
+      let total: number
+      do {
+        const pagina = await apiFetch<{ items: Aliado[]; total: number }>(
+          `/aliados?limite=100${soloActivos ? '&activo=true' : ''}${items.length ? `&desplazamiento=${items.length}` : ''}`,
+        )
+        total = pagina.total
+        if (pagina.items.length === 0 && items.length < total) {
+          throw new Error('El catálogo de aliados cambió durante la carga. Vuelva a intentarlo.')
+        }
+        items.push(...pagina.items)
+      } while (items.length < total)
+      return { items, total }
+    },
+    enabled,
     retry: false,
   })
 }

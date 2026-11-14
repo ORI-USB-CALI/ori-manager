@@ -87,13 +87,13 @@ def crear_invitacion_contraparte(
 
 
 def enviar_invitacion_contraparte(
-    db: Session,
     enviador: EnviadorCorreo,
     frontend_url: str,
     invitacion: InvitacionRevisionContraparte,
     token_plano: str,
     convenio: Convenio,
 ) -> None:
+    """Entrega el correo; el llamador confirma o revierte toda la operación."""
     enlace = f"{frontend_url.rstrip('/')}/revision-contraparte#token={token_plano}"
     identificador = convenio.codigo or f"#{convenio.id}"
     enviador.enviar(
@@ -121,7 +121,6 @@ def enviar_invitacion_contraparte(
         )
     )
     invitacion.enviado_en = datetime.now(UTC)
-    db.commit()
 
 
 class ServicioContraparteExterna:
