@@ -1,10 +1,11 @@
 """HT-16 (#172): Desbloquear revisión de contraparte 'Por definir' (HU-10 / HU-14)."""
 
 import logging
+from copy import deepcopy
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.core.config import settings
@@ -16,6 +17,7 @@ from backend.models.convenio import Convenio
 from backend.models.invitacion_revision_contraparte import (
     InvitacionRevisionContraparte,
 )
+from backend.models.respuesta_revision_contraparte import RespuestaRevisionContraparte
 from backend.models.revision_convenio import RevisionConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.schemas.convenio import ConvenioElaboracionActualizar
@@ -1109,3 +1111,225 @@ def test_snapshot_sin_identidad_exige_nueva_version_sin_reescribir_el_historico(
     assert version.snapshot_metadata == historico
     assert client.post(f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
                        json={"expected_version": convenio.version_actual}).status_code == 201
+
+
+FIRMA_PUBLICA_HT16 = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+@pytest.fixture(params=[False, True], ids=["aliado_avalado", "asignacion_inicial"])
+def enlace_identidad_ht16(request, client, db, gestor, crear_usuario, entrar_como, correo_local):
+    aliado = _crear_aliado(db)
+    convenio = _crear_convenio_manual_en_contraparte(
+        client, db, gestor, crear_usuario, entrar_como,
+        aliado_id=None if request.param else aliado.id,
+    )
+    if request.param:
+        assert client.patch(f"/api/convenios/{convenio.id}", json={"aliado_id": aliado.id}).status_code == 200
+    envio = client.post(f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
+                        json={"expected_version": convenio.version_actual})
+    assert envio.status_code == 201, envio.text
+    revision = db.get(RevisionConvenio, envio.json()["id"])
+    invitacion = db.get(InvitacionRevisionContraparte, envio.json()["invitaciones_contraparte"][0]["id"])
+    token = correo_local.mensajes[-1].texto.split("#token=", 1)[1].splitlines()[0]
+    client.cookies.clear()
+    return convenio, aliado, revision, invitacion, token
+
+
+def _decidir_publicamente(client, accion, token):
+    datos = {"token": token}
+    if accion != "acceso":
+        datos.update(nombre_firmante="Representante", cargo_firmante="Director")
+    if accion == "aprobar":
+        datos["firma"] = FIRMA_PUBLICA_HT16
+    if accion == "devolver":
+        datos["observaciones"] = ["Ajustar el proyecto"]
+    return client.post(f"/api/public/revision-contraparte/{accion}", json=datos)
+
+
+@pytest.mark.parametrize("accion", ["acceso", "aprobar", "devolver"])
+@pytest.mark.parametrize(("campo", "valor"), CAMBIOS_IDENTIDAD)
+def test_enlace_publico_rechaza_identidad_modificada_despues_del_envio_sin_revelarla(
+    client, db, enlace_identidad_ht16, accion, campo, valor,
+):
+    convenio, aliado, revision, invitacion, token = enlace_identidad_ht16
+    assert _decidir_publicamente(client, "acceso", token).status_code == 200
+    if campo == "tipo_identificacion":
+        aliado.digito_verificacion = None
+    setattr(aliado, campo, valor)
+    db.commit()
+    respuesta = _decidir_publicamente(client, accion, token)
+    assert respuesta.status_code == 400
+    assert respuesta.json() == {"detail": {"codigo": "ENLACE_NO_DISPONIBLE"}}
+    db.refresh(revision)
+    db.refresh(invitacion)
+    assert revision.estado == "PENDIENTE"
+    assert revision.resultado is None
+    assert invitacion.utilizado_en is None
+    assert invitacion.revocado_en is None  # La recuperación requiere una acción interna explícita.
+    assert convenio.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+    assert db.scalar(select(RespuestaRevisionContraparte.id).where(
+        RespuestaRevisionContraparte.revision_convenio_id == revision.id,
+    )) is None
+
+
+@pytest.mark.parametrize("congelado", ["version", "RJ1", "RJ2"])
+def test_enlace_publico_compara_la_identidad_de_version_y_ambos_avales(
+    client, db, enlace_identidad_ht16, congelado,
+):
+    convenio, _, revision, _, token = enlace_identidad_ht16
+    if congelado == "version":
+        version = revision.version_convenio
+        version.snapshot_metadata = {**version.snapshot_metadata, "aliado_identidad": {"nombre": "Identidad ajena"}}
+    else:
+        juridica = db.scalar(select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio.id, RevisionConvenio.tipo == "JURIDICA",
+            RevisionConvenio.instancia_juridica == (1 if congelado == "RJ1" else 2),
+        ))
+        juridica.snapshot_datos = {**juridica.snapshot_datos, "aliado_identidad": {"nombre": "Identidad ajena"}}
+    db.commit()
+    respuesta = _decidir_publicamente(client, "acceso", token)
+    assert respuesta.status_code == 400
+    assert respuesta.json() == {"detail": {"codigo": "ENLACE_NO_DISPONIBLE"}}
+
+
+@pytest.mark.parametrize("accion", ["acceso", "aprobar", "devolver"])
+def test_contactos_editados_despues_del_envio_conservan_enlace_y_avales(
+    client, db, enlace_identidad_ht16, accion,
+):
+    _, aliado, _, invitacion, token = enlace_identidad_ht16
+    destinatario_original = invitacion.correo_destino
+    aliado.correo = "nuevo-contacto@example.com"
+    aliado.telefono = "+576023330000"
+    aliado.direccion = "Nueva dirección de contacto"
+    aliado.ciudad = "Bogotá"
+    db.commit()
+    respuesta = _decidir_publicamente(client, accion, token)
+    assert respuesta.status_code == 200, respuesta.text
+    if accion == "acceso":
+        assert respuesta.json()["correo_destino"] == destinatario_original
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.GESTOR_ORI, CodigoRol.ADMINISTRADOR_ORI])
+def test_recuperacion_revoca_resuelve_y_exige_nueva_ronda_sin_falsear_decision_externa(
+    client, db, gestor, crear_usuario, entrar_como, correo_local, enlace_identidad_ht16, rol,
+):
+    convenio, aliado, revision, invitacion, token = enlace_identidad_ht16
+    juridicas = list(db.scalars(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio.id, RevisionConvenio.tipo == "JURIDICA",
+    ).order_by(RevisionConvenio.id)))
+    historicos = [deepcopy(r.snapshot_datos) for r in juridicas]
+    actor = gestor if rol == CodigoRol.GESTOR_ORI else crear_usuario(rol)
+    entrar_como(actor)
+    # Conservar la trazabilidad de un reenvío anterior y revocar solo el activo.
+    reenvio = client.post(f"/api/convenios/{convenio.id}/revision-contraparte/{revision.id}/reenviar-invitacion",
+                         json={"expected_invitacion_id": invitacion.id})
+    assert reenvio.status_code == 200, reenvio.text
+    db.refresh(invitacion)
+    revocacion_previa = invitacion.revocado_en
+    vigente = db.get(InvitacionRevisionContraparte, reenvio.json()["id"])
+    aliado.nombre = "Razón social distinta después de invitar"
+    db.commit()
+    version_previa = convenio.version_actual
+    ruta = f"/api/convenios/{convenio.id}/revision-contraparte/{revision.id}/invalidar-por-identidad"
+    cuerpo = {"expected_version": version_previa, "expected_invitacion_id": vigente.id}
+    assert client.post(ruta, json=cuerpo).status_code == 200
+    assert client.post(ruta, json=cuerpo).status_code == 409
+    db.refresh(revision)
+    db.refresh(vigente)
+    assert convenio.etapa_actual.codigo == "ELABORACION"
+    assert revision.estado == "RESUELTA" and revision.resultado == "DEVUELTA"
+    assert revision.resuelta_por_id == actor.id and revision.resuelta_en is not None
+    assert revision.version_resultado_id == revision.version_convenio_id
+    assert vigente.revocado_en is not None and vigente.utilizado_en is None
+    assert invitacion.revocado_en == revocacion_previa
+    assert db.scalar(select(RespuestaRevisionContraparte.id).where(
+        RespuestaRevisionContraparte.revision_convenio_id == revision.id,
+    )) is None
+    assert revision.observaciones == []
+    auditorias = list(db.scalars(select(Auditoria).where(
+        Auditoria.evento == "CONTRAPARTE_INVALIDADA_IDENTIDAD",
+        Auditoria.entidad == "invitacion_revision_contraparte", Auditoria.registro_id == vigente.id,
+    )))
+    assert len(auditorias) == 1
+    assert auditorias[0].usuario_id == actor.id and auditorias[0].rol == rol.value
+    assert auditorias[0].ejecucion == "HUMANA"
+    for accion in ("acceso", "aprobar", "devolver"):
+        assert _decidir_publicamente(client, accion, token).status_code == 400
+    _avalar_identidad(db, convenio, actor, crear_usuario)
+    assert convenio.version_actual == version_previa + 1
+    assert [r.snapshot_datos for r in juridicas] == historicos
+    nuevo = client.post(f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
+                        json={"expected_version": convenio.version_actual})
+    assert nuevo.status_code == 201, nuevo.text
+    nuevo_token = correo_local.mensajes[-1].texto.split("#token=", 1)[1].splitlines()[0]
+    assert _decidir_publicamente(client, "acceso", nuevo_token).status_code == 200
+    assert _decidir_publicamente(client, "acceso", token).status_code == 400
+
+
+@pytest.mark.parametrize("caso", ["identidad_valida", "solo_contacto", "version_obsoleta", "invitacion_obsoleta", "sin_cuerpo"])
+def test_recuperacion_rechaza_operaciones_no_autorizadas_o_desactualizadas(
+    client, db, gestor, entrar_como, enlace_identidad_ht16, caso,
+):
+    convenio, aliado, revision, invitacion, _ = enlace_identidad_ht16
+    entrar_como(gestor)
+    if caso == "solo_contacto":
+        aliado.correo = "contacto-nuevo@example.com"
+    elif caso != "identidad_valida":
+        aliado.nombre = "Identidad distinta"
+    db.commit()
+    ruta = f"/api/convenios/{convenio.id}/revision-contraparte/{revision.id}/invalidar-por-identidad"
+    cuerpo = {
+        "expected_version": convenio.version_actual - (caso == "version_obsoleta"),
+        "expected_invitacion_id": invitacion.id + (caso == "invitacion_obsoleta"),
+    }
+    respuesta = client.post(ruta, **({} if caso == "sin_cuerpo" else {"json": cuerpo}))
+    assert respuesta.status_code == (422 if caso == "sin_cuerpo" else 409)
+    db.refresh(revision)
+    db.refresh(invitacion)
+    assert revision.estado == "PENDIENTE" and invitacion.revocado_en is None
+    assert convenio.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+
+
+@pytest.mark.parametrize("rol", [CodigoRol.REVISOR_ORI, CodigoRol.SOLICITANTE_INTERNO, CodigoRol.SOLICITANTE_EXTERNO])
+def test_recuperacion_administrativa_no_es_publica_ni_admite_roles_sin_permiso(
+    client, db, crear_usuario, entrar_como, enlace_identidad_ht16, rol,
+):
+    convenio, aliado, revision, invitacion, _ = enlace_identidad_ht16
+    aliado.nombre = "Identidad distinta"
+    db.commit()
+    ruta = f"/api/convenios/{convenio.id}/revision-contraparte/{revision.id}/invalidar-por-identidad"
+    cuerpo = {"expected_version": convenio.version_actual, "expected_invitacion_id": invitacion.id}
+    assert client.post(ruta, json=cuerpo).status_code == 401
+    entrar_como(crear_usuario(rol))
+    assert client.post(ruta, json=cuerpo).status_code == 403
+    assert revision.estado == "PENDIENTE" and invitacion.revocado_en is None
+
+
+def test_error_de_commit_revierte_toda_la_recuperacion_incluida_su_auditoria(
+    client, db, gestor, enlace_identidad_ht16, monkeypatch,
+):
+    convenio, aliado, revision, invitacion, _ = enlace_identidad_ht16
+    aliado.nombre = "Identidad distinta"
+    db.commit()
+    def fallar_commit():
+        raise SQLAlchemyError("Fallo simulado al confirmar la recuperación")
+    with monkeypatch.context() as cambio:
+        cambio.setattr(db, "commit", fallar_commit)
+        with pytest.raises(SQLAlchemyError):
+            ServicioConvenios(db).invalidar_revision_por_identidad(
+                convenio.id, revision.id, convenio.version_actual, invitacion.id, gestor,
+            )
+    db.refresh(convenio)
+    db.refresh(revision)
+    db.refresh(invitacion)
+    assert convenio.etapa_actual.codigo == "REVISION_CONTRAPARTE"
+    assert revision.estado == "PENDIENTE" and revision.resuelta_por_id is None
+    assert invitacion.revocado_en is None
+    assert db.scalar(select(func.count()).select_from(Auditoria).where(
+        Auditoria.evento == "CONTRAPARTE_INVALIDADA_IDENTIDAD",
+        Auditoria.entidad == "invitacion_revision_contraparte", Auditoria.registro_id == invitacion.id,
+    )) == 0

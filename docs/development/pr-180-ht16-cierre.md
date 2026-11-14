@@ -12,6 +12,8 @@ Rama: `feature/ht-16DesbloquearRevsDeContraprPorDefnr`; base: `develop`; [PR #18
 - Rectificar contraparte vuelve a Elaboración. Ante un cambio de identidad se ofrece reapertura explícita, también para convenios de solicitud: `POST /api/convenios/{id}/revision-juridica/reabrir-por-identidad`, con `expected_version`. Sin cambiar solicitud ni aliado, se obtiene una nueva versión y ronda RJ1/RJ2.
 - `expected_invitacion_id` es obligatorio en el cuerpo de reenvío y en el servicio. Sin cuerpo/campo o con valor inválido: 422. ID obsoleto o repetido: 409 sin correo ni invitación adicional. No se mantiene compatibilidad opcional: el proyecto no tiene clientes productivos.
 - Correo obligatorio en manuales, rollback ante rechazo del proveedor (502) y conciliación del historial ante commit no confirmado (503), con trazas sin tokens.
+- Corrección residual de `b46b4d9`: el enlace público vuelve a validar identidad contra versión/RJ1/RJ2 o la asignación inicial auditada antes de permitir acceso, aprobación o devolución. Comparte la lectura bloqueada y la huella existentes; las discrepancias devuelven únicamente el error público genérico `ENLACE_NO_DISPONIBLE`.
+- Recuperación administrativa explícita de invitaciones manuales ya enviadas: `POST /api/convenios/{id}/revision-contraparte/{revision_id}/invalidar-por-identidad`, con versión e invitación esperadas. Solo Gestor/Admin y solo si la identidad no está autorizada. Revoca enlaces y resuelve la revisión como devolución administrativa, con actor y auditoría, antes de volver a Elaboración para nuevos RJ1/RJ2. No crea una decisión externa ni altera avales históricos. La UI exige confirmación.
 
 ## Criterios de aceptación y seguridad
 
@@ -28,6 +30,8 @@ Se conserva la matriz central de permisos. 401 sin sesión; 403 sin permiso; 404
 
 Convenio y revisión usan bloqueo transaccional; la identidad se relee del aliado persistido y mantiene `FOR SHARE` hasta commit. La edición concurrente espera durante esa operación, sin prohibición global de editar aliados compartidos. Las aprobaciones históricas no se reescriben y una revisión de contraparte pendiente impide cambiar la contraparte o reabrir el convenio.
 
+La nueva recuperación es una acción separada de esa reapertura ordinaria: exige una revisión manual pendiente y una identidad incompatible, invalida/resuelve primero el ciclo y registra su autoría administrativa. El acceso público mantiene bloqueos compartidos; las decisiones y la recuperación toman los bloqueos exclusivos en el mismo orden. Cambiar solo contactos no invalida los avales ni cambia el destinatario de una invitación ya emitida.
+
 ## Validación local — 14/11/2026
 
 - **287 pruebas backend aprobadas** en 11 archivos de HT-16 y HU-10/12/13/14, incluidos **67 casos HT-16 y cinco de concurrencia PostgreSQL**.
@@ -41,6 +45,17 @@ La auditoría anterior ejecutó el backend completo: **2806 aprobadas y 47 error
 En el cierre se volvió a ejecutar HU-31: **49 aprobadas y los mismos 47 errores** (45,37 s). HT-16 se reverificó después de endurecer la condición inicial: **67 aprobadas** (23,96 s). La edición de la descripción remota volvió a recibir 403; este texto queda versionado para actualización manual, sin bloquear el commit/push autorizado.
 
 Comandos, archivos, resultados y recuperación: [documentación de HT-16](../hu/ht-16-contraparte-por-definir.md). Logs/JUnit locales en `backend/var/ht16-audit/`, excluidos del commit.
+
+Corrección residual posterior a `b46b4d9`, verificada localmente el 14/11/2026:
+**361 pruebas backend aprobadas** (once archivos de HT-16/HU-10/12/13/14), incluidas
+**141 de HT-16 y 15 de concurrencia PostgreSQL**, y **134 frontend aprobadas**
+(cinco archivos, incluidas 23 del detalle). Pasan Ruff, TypeScript, ESLint, build y
+`git diff --check`. Se prueban los cinco cambios de identidad tras invitar, ambos
+tipos de asignación, acceso/aprobación/devolución, cada snapshot, contactos
+permitidos, recuperación con permisos y precondiciones, rollback, trazabilidad y
+nuevos RJ1/RJ2. Las carreras cubren ambos órdenes de edición frente al uso público,
+dos recuperaciones y recuperación frente a las tres operaciones públicas.
+No se modifica HU-31 ni se atribuyen resultados nuevos a su suite global.
 
 ## Riesgos y recuperación
 

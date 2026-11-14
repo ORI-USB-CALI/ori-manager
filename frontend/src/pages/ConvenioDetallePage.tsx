@@ -40,6 +40,7 @@ interface Revision {
 }
 interface DocumentoAsociado { id: number; tipo: string; nombre_archivo: string; tipo_mime: string; tamano_bytes: number }
 interface VersionReferencia { id: number; numero: number }
+interface RecuperacionIdentidad { revisionId: number; invitacionId: number; version: number }
 interface RevisionPendiente {
   convenio: Convenio & { tipo_convenio: { id: number; nombre: string } | null }
   revision_pendiente: Revision
@@ -117,6 +118,7 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
+  const [recuperacionIdentidad, setRecuperacionIdentidad] = useState<RecuperacionIdentidad | null>(null)
   const [identidadIncompatible, setIdentidadIncompatible] = useState(false)
   const [aliadoSeleccionadoId, setAliadoSeleccionadoId] = useState<string | null>(null)
   const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
@@ -297,6 +299,24 @@ export function ConvenioDetallePage() {
     },
     onError: (error) => notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible reabrir Elaboración.' }),
   })
+  const invalidarPorIdentidad = useMutation({
+    mutationFn: (objetivo: RecuperacionIdentidad) => apiFetch(
+      `/convenios/${id}/revision-contraparte/${objetivo.revisionId}/invalidar-por-identidad`, {
+        method: 'POST', body: JSON.stringify({ expected_version: objetivo.version, expected_invitacion_id: objetivo.invitacionId }),
+      },
+    ),
+    onSuccess: async () => {
+      setRecuperacionIdentidad(null)
+      setIdentidadIncompatible(false)
+      notify({ type: 'success', message: 'Invitación invalidada administrativamente. Complete Elaboración y obtenga nuevos avales RJ1 y RJ2.' })
+      await refrescarRevision()
+    },
+    onError: async (error) => {
+      setRecuperacionIdentidad(null)
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible recuperar la revisión.' })
+      await refrescarRevision()
+    },
+  })
   const guardarContraparte = useMutation({
     mutationFn: (nuevoAliadoId: number) => apiFetch<Convenio>(`/convenios/${id}`, {
       method: 'PATCH',
@@ -346,6 +366,7 @@ export function ConvenioDetallePage() {
     && datos.version_actual > 0
   const puedeIrAElaboracion = puede('convenios.editar') && etapaActual === 'ELABORACION'
   const invitacionesRevision = revisionContrapartePendiente?.invitaciones_contraparte ?? []
+  const ultimaInvitacionId = Math.max(0, ...invitacionesRevision.map((item) => item.id))
   const esProyecto = datos.estado === 'EN_TRAMITE' || datos.estado === 'CANCELADO' || !datos.fecha_firma
   const aliadoActual = datos.aliado ?? flujoContraparte.data?.aliado ?? null
   const detalleAliadoActual = aliadoActual
@@ -534,10 +555,19 @@ export function ConvenioDetallePage() {
                 <span className="badge badge-pendiente">Pendiente</span>
               </div>
               {datos.origen === 'MANUAL_ORI' && (
-                <button type="button" className="btn btn-outline" disabled={reenviarInvitacionManual.isPending}
-                  onClick={() => reenviarInvitacionManual.mutate(revisionContrapartePendiente.id)}>
-                  {reenviarInvitacionManual.isPending ? 'Enviando…' : 'Reenviar enlace al aliado'}
-                </button>
+                <div className="page-toolbar">
+                  <button type="button" className="btn btn-outline" disabled={reenviarInvitacionManual.isPending || invalidarPorIdentidad.isPending}
+                    onClick={() => reenviarInvitacionManual.mutate(revisionContrapartePendiente.id)}>
+                    {reenviarInvitacionManual.isPending ? 'Enviando…' : 'Reenviar enlace al aliado'}
+                  </button>
+                  {puede('convenios.editar') && (
+                    <button type="button" className="btn btn-outline"
+                      disabled={!ultimaInvitacionId || historialContraparte.isFetching || reenviarInvitacionManual.isPending || invalidarPorIdentidad.isPending}
+                      onClick={() => setRecuperacionIdentidad({ revisionId: revisionContrapartePendiente.id, invitacionId: ultimaInvitacionId, version: datos.version_actual })}>
+                      Recuperar por cambio de identidad
+                    </button>
+                  )}
+                </div>
               )}
               <dl className="proyecto-datos revision-contraparte-datos">
                 <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
@@ -658,6 +688,20 @@ export function ConvenioDetallePage() {
           <p>Se enviará la versión {datos.version_actual}, aprobada jurídicamente.</p>
           <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${aliadoActual?.nombre ?? ''} (${correoAliadoActual}).` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
           <p className="texto-secundario">{datos.origen === 'MANUAL_ORI' ? 'La contraparte recibirá un enlace externo de revisión.' : 'La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.'}</p>
+        </ConfirmacionModal>
+      )}
+
+      {recuperacionIdentidad && (
+        <ConfirmacionModal
+          titulo="Invalidar invitación y volver a Elaboración"
+          confirmar="Confirmar recuperación"
+          procesando="Recuperando…"
+          pendiente={invalidarPorIdentidad.isPending}
+          onConfirmar={() => invalidarPorIdentidad.mutate(recuperacionIdentidad)}
+          onCerrar={() => setRecuperacionIdentidad(null)}
+        >
+          <p>Solo se realizará si la identidad jurídica actual es incompatible con la autorizada para la revisión.</p>
+          <p>Se revocarán los enlaces y se cerrará administrativamente la revisión pendiente de la versión {recuperacionIdentidad.version}. El convenio volverá a Elaboración y requerirá nuevos RJ1 y RJ2. Los avales históricos se conservan.</p>
         </ConfirmacionModal>
       )}
 

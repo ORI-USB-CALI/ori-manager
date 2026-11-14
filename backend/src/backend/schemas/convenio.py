@@ -529,6 +529,10 @@ class ReenviarInvitacionContraparte(BaseModel):
     expected_invitacion_id: int = Field(gt=0)
 
 
+class InvalidarRevisionPorIdentidad(AprobarRevision):
+    expected_invitacion_id: int = Field(gt=0)
+
+
 class CrearObservacionRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

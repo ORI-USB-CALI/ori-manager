@@ -34,6 +34,7 @@ from backend.services.firma_png import (
     FirmaPngInvalida,
     decodificar_firma_png,
 )
+from backend.services.identidad_aliado import identidad_autorizada_para_revision
 
 __all__ = ["MAX_FIRMA_PNG_BYTES", "ServicioContraparteExterna"]
 
@@ -160,16 +161,17 @@ class ServicioContraparteExterna:
             InvitacionRevisionContraparte.revision_convenio_id == revision_id,
             InvitacionRevisionContraparte.token_hash == token_hash,
         )
-        if bloquear:
-            consulta_convenio = consulta_convenio.execution_options(
-                populate_existing=True
-            ).with_for_update()
-            consulta_revision = consulta_revision.execution_options(
-                populate_existing=True
-            ).with_for_update()
-            consulta_invitacion = consulta_invitacion.execution_options(
-                populate_existing=True
-            ).with_for_update()
+        # Incluso el acceso retiene bloqueos compartidos hasta construir la
+        # respuesta. Las decisiones y la recuperación usan el mismo orden.
+        consulta_convenio = consulta_convenio.execution_options(
+            populate_existing=True
+        ).with_for_update(read=not bloquear)
+        consulta_revision = consulta_revision.execution_options(
+            populate_existing=True
+        ).with_for_update(read=not bloquear)
+        consulta_invitacion = consulta_invitacion.execution_options(
+            populate_existing=True
+        ).with_for_update(read=not bloquear)
         convenio = self.db.scalar(consulta_convenio)
         revision = self.db.scalar(consulta_revision)
         invitacion = self.db.scalar(consulta_invitacion)
@@ -198,6 +200,10 @@ class ServicioContraparteExterna:
             or version.convenio_id != convenio.id
             or version.numero != convenio.version_actual
         ):
+            raise EnlaceContraparteError("ENLACE_NO_DISPONIBLE")
+        if not identidad_autorizada_para_revision(self.db, convenio, version):
+            # Mismo error público que una invitación revocada: no exponer ni
+            # la identidad anterior/actual ni la causa administrativa.
             raise EnlaceContraparteError("ENLACE_NO_DISPONIBLE")
         return ContextoAccesoContraparte(
             convenio=convenio,

@@ -64,6 +64,7 @@ from backend.schemas.convenio import (
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     HitoLineaTiempoLeer,
+    InvalidarRevisionPorIdentidad,
     InvitacionFirmaConvenioLeer,
     ObservacionRevisionLeer,
     ProcesoFirmasConvenioLeer,
@@ -1309,6 +1310,19 @@ def reenviar_invitacion_manual(
             status.HTTP_502_BAD_GATEWAY,
             "No fue posible enviar el correo de revisión a la contraparte",
         ) from exc
+
+
+@router.post("/{convenio_id}/revision-contraparte/{revision_id}/invalidar-por-identidad", response_model=ConvenioLeer)
+def invalidar_revision_por_identidad(
+    convenio_id: int, revision_id: int, datos: InvalidarRevisionPorIdentidad,
+    db: DatabaseSession, usuario: PuedeGestionarContraparte,
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).invalidar_revision_por_identidad(
+            convenio_id, revision_id, datos.expected_version, datos.expected_invitacion_id, usuario,
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
 
 
 @router.post("/{convenio_id}/revision-juridica/reabrir-por-identidad", response_model=ConvenioLeer)

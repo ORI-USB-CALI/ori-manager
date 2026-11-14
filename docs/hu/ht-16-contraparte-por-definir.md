@@ -260,12 +260,111 @@ No se presenta la descripción remota como actualizada sin confirmar su publicac
 | `frontend/src/pages/ConvenioDetallePage.test.tsx` | Respuestas HTTP reales, segunda página, carga/error/vacío, rectificación y reenvío |
 | `backend/src/backend/services/convenios.py` | Identidad jurídica, excepción inicial auditada, bloqueo, rectificación, correo obligatorio, rollback y correlación de intentos |
 | `backend/src/backend/services/contraparte_externa.py` | Entrega de correo sin commit oculto; el servicio controla la transacción completa |
+| `backend/src/backend/services/identidad_aliado.py` | Comparte la lectura bloqueada de identidad, su huella y la excepción inicial con el enlace público y la recuperación |
 | `backend/src/backend/schemas/convenio.py` | Cuerpo estricto de reenvío con `expected_invitacion_id` obligatorio |
 | `backend/src/backend/api/routers/convenios.py` | Delegar validación bajo bloqueo, mapear errores 503 y propagar la precondición de reenvío |
 | `backend/tests/test_ht16_contraparte_por_definir.py` | Corregir expectativa de rectificación, retirar Ruff innecesario y agregar integridad, permisos, fallos y recuperación |
 | `backend/tests/test_ht16_concurrencia.py` | Comprobar carreras con dos sesiones reales y estado precargado, sin mocks de bloqueos |
 | `backend/tests/test_hu12_elaboracion.py`, `backend/tests/test_hu14_revision_contraparte_publica.py` | Verificar el nuevo campo del snapshot y el cuerpo obligatorio del reenvío; no se relajan expectativas ajenas |
 | `docs/README.md`, `docs/hu/hu-14-contraparte.md`, `docs/development/pr-180-ht16-cierre.md` y este documento | Índice, contrato, descripción del PR, límites, pruebas y recuperación según la política documental |
+
+## Corrección residual posterior a `b46b4d9`: identidad al utilizar el enlace público
+
+La revisión de GitHub detectó que, después de invitar, `_contexto()` solo verificaba
+token, etapa y versión. Una edición posterior del aliado podía dejar un enlace
+utilizable para una identidad distinta de la avalada. Se conserva el cierre anterior
+y se añade la comprobación de identidad antes de devolver contenido o aceptar una
+aprobación/devolución pública.
+
+La lectura de identidad y la comprobación de la asignación inicial se comparten en
+`services/identidad_aliado.py`, evitando dependencias circulares entre servicios.
+El enlace compara la identidad persistida con la versión efectivamente enviada y
+los dos avales de la misma ronda, resueltos y aprobados por revisores distintos.
+Para Por definir exige los tres snapshots expresamente nulos y la asignación/huella
+auditadas de esa versión. Una edición posterior incompatible invalida el uso del
+enlace; cambiar solo correo, teléfono, dirección o ciudad mantiene su validez.
+El destinatario de una invitación existente no se sustituye al editar el correo del
+catálogo: continúa siendo el registrado en la invitación.
+
+El acceso, la aprobación y la devolución rechazados devuelven exclusivamente
+**400 `{"detail":{"codigo":"ENLACE_NO_DISPONIBLE"}}`**, igual que un enlace revocado.
+No se revelan nombre, identificación, identidad anterior/actual ni motivo interno.
+El rechazo público no modifica revisiones, invitaciones, observaciones ni avales.
+
+Orden de bloqueo: convenio, revisión, invitación y aliado. Acceder utiliza bloqueos
+compartidos para mantener consistente el contenido hasta construir la respuesta;
+aprobar/devolver y recuperar usan `FOR UPDATE` en convenio/revisión/invitación.
+Todos mantienen `FOR SHARE` sobre el aliado hasta terminar la transacción y releen
+el estado con `populate_existing`. Una edición ganadora se relee antes de permitir
+el uso; una operación pública ganadora impide editar identidad durante su validación
+y decisión. Fuera de esas transacciones se conserva la edición normal del catálogo.
+
+### Recuperación administrativa de una invitación ya enviada
+
+`POST /api/convenios/{id}/revision-contraparte/{revision_id}/invalidar-por-identidad`
+exige `{expected_version: numero, expected_invitacion_id: ultimo_id}`. El esquema
+prohíbe campos adicionales. Solo Gestor ORI y Administrador ORI, con el permiso
+centralizado de gestionar contraparte, pueden operar sobre una revisión manual
+pendiente en etapa de contraparte cuya identidad ya no esté autorizada/verificable.
+El servicio también comprueba el rol para llamadas directas.
+
+La operación bloquea y relee los registros; valida versión, revisión e invitación
+esperadas antes de modificar nada. En un único commit:
+
+1. Revoca todas las invitaciones activas de esa revisión, sin consumirlas ni cambiar
+   las revocaciones/consumos históricos.
+2. Resuelve la revisión como `RESUELTA / DEVUELTA`, con `resuelta_por_id` del gestor o
+   administrador, fecha y versión enviada. Es una **devolución administrativa** por
+   identidad incompatible; no simula una decisión externa ni crea una respuesta,
+   firma u observaciones atribuidas a la contraparte.
+3. Registra una transición explícita a Elaboración y el evento humano
+   `CONTRAPARTE_INVALIDADA_IDENTIDAD` para revisión/convenio; cada revocación añade
+   su auditoría con actor, rol, etapa, versión e instante, sin token ni mensaje.
+
+Respuesta 200 con el convenio actualizado. 401 sin sesión; 403 sin permiso; 404 si
+no existe convenio/revisión; 422 por cuerpo inválido; 409 si cambió la versión o
+invitación, no hay revisión manual pendiente o la identidad sigue autorizada.
+Repetir/concurrir con la misma recuperación produce un solo cierre y luego 409.
+Un error de persistencia revierte también revocaciones, transición y auditoría.
+
+La UI ofrece **Recuperar por cambio de identidad** durante la revisión manual y
+exige confirmar las consecuencias. Envía los identificadores que el usuario vio,
+conservados al abrir la confirmación. Rechazos del servidor conservan el estado y
+recargan el historial. Después de recuperar, el usuario completa Elaboración y
+obtiene una nueva versión y ambos RJ1/RJ2 antes de generar otra invitación. Los
+avales anteriores y enlaces revocados permanecen como historial.
+
+Las pruebas nuevas cubren los cinco datos de identidad tras enviar, acceso,
+aprobación/devolución, ambos tipos de asignación, cada snapshot, datos de contacto,
+permisos, precondiciones, recuperación/reintentos/rollback y nuevas rondas. Las
+carreras PostgreSQL comprueban ambos órdenes entre editar y usar el enlace, dos
+recuperaciones simultáneas y recuperación frente a las tres operaciones públicas.
+HU-31 permanece fuera del cambio.
+
+Evidencia local de esta corrección residual (14/11/2026), sobre el cierre `b46b4d9`:
+
+| Validación | Resultado |
+|---|---|
+| HT-16 y regresiones de HU-10/12/13/14, mismos once archivos del cierre | **361 passed**, 101,46 s; incluye 141 casos HT-16, 15 de concurrencia PostgreSQL |
+| Detalle, contraparte pública/autenticada, rutas por rol y visor PDF | **134 passed**, 128,13 s; cinco archivos, 23 pruebas del detalle |
+| Ruff completo de backend | **All checks passed!** sobre copia Linux 100644, sin supresiones nuevas |
+| TypeScript, ESLint y build | Pasan; se conserva el aviso de tamaño del bundle |
+| `git diff --check` | Pasa |
+
+Comando backend: el mismo listado de once archivos documentado arriba, con JUnit
+en `/tmp/ori-ht16-publica-regresion.xml`. Comando frontend:
+
+```sh
+npm test -- --pool=threads --maxWorkers=2 src/pages/ConvenioDetallePage.test.tsx src/pages/RevisionContrapartePublicaPage.test.tsx src/pages/RevisionContrapartePage.test.tsx src/app/router.permisos.test.tsx src/components/DocumentoPreviewModal.test.tsx
+```
+
+Logs `ori-ht16-publica-*` y JUnit se conservan en `backend/var/ht16-audit/`, ignorado
+por Git. No se vuelve a atribuir la ejecución histórica global a este cambio ni se
+modifican los 47 errores conocidos de HU-31. Sin migraciones, dependencias nuevas,
+reescritura de avales ni modificaciones de producción. Como toda lectura web, una
+respuesta ya entregada no se puede retirar; cada uso posterior del enlace vuelve a
+verificar identidad, y una recuperación confirmada deja los enlaces revocados de
+forma permanente. La edición del aliado permanece disponible fuera de la operación.
 
 ## Compatibilidad, alcance y reversión
 

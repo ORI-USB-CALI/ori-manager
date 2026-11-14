@@ -588,7 +588,8 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
   ] satisfies Array<Aliado & { digito_verificacion: string; identificacion_completa: string }>
 
   function montarEscenarioContraparte(convenioInicial: Convenio, envioStatuses: number[] = [201],
-    catalogo: (url: string) => Promise<Response> = async () => respuesta(200, { items: aliadosCatalogo, total: aliadosCatalogo.length })) {
+    catalogo: (url: string) => Promise<Response> = async () => respuesta(200, { items: aliadosCatalogo, total: aliadosCatalogo.length }),
+    recuperacionStatus = 200) {
     let actual: Convenio = { ...convenioInicial, etapa_actual_id: 3 }
     let revisionesActuales: HistorialConvenio['revisiones'] = []
     let intentoEnvio = 0
@@ -641,6 +642,18 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
       if (url === '/api/convenios/41/revision-juridica/reabrir-por-identidad' && init?.method === 'POST') {
         etapa = 'ELABORACION'
         actual = { ...actual, etapa_actual_id: 1 }
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41/revision-contraparte/99/invalidar-por-identidad' && init?.method === 'POST') {
+        if (recuperacionStatus !== 200) return respuesta(recuperacionStatus, { detail: 'La identidad sigue autorizada; no se puede invalidar por identidad' })
+        etapa = 'ELABORACION'
+        actual = { ...actual, etapa_actual_id: 1 }
+        revisionesActuales = revisionesActuales.map((item) => ({
+          ...item, estado: 'RESUELTA', resultado: 'DEVUELTA',
+          resuelta_por: { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.com' },
+          resuelta_en: '2026-10-20T14:20:00Z',
+          invitaciones_contraparte: item.invitaciones_contraparte.map((invitacion) => ({ ...invitacion, revocado_en: '2026-10-20T14:20:00Z' })),
+        }))
         return respuesta(200, actual)
       }
       if (url === '/api/convenios/41/revision-contraparte/99/reenviar-invitacion' && init?.method === 'POST') {
@@ -820,6 +833,37 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_invitacion_id: 501 }) }),
     ))
     expect(await screen.findByText('Invitaciones registradas: 2.')).toBeTruthy()
+  })
+
+  it('confirma la recuperación administrativa con versión e invitación esperadas y regresa a Elaboración', async () => {
+    const { fetch, usuario, notify } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] })
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Recuperar por cambio de identidad' }))
+    const modal = screen.getByRole('dialog', { name: 'Invalidar invitación y volver a Elaboración' })
+    expect(within(modal).getByText(/Los avales históricos se conservan/)).toBeTruthy()
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/invalidar-por-identidad'))).toBe(false)
+    await usuario.click(within(modal).getByRole('button', { name: 'Confirmar recuperación' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/convenios/41/revision-contraparte/99/invalidar-por-identidad',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_version: 3, expected_invitacion_id: 501 }) }),
+    ))
+    expect(await screen.findByRole('link', { name: /elaboración/i })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeNull()
+    expect(notify).toHaveBeenCalledWith({ type: 'success', message: 'Invitación invalidada administrativamente. Complete Elaboración y obtenga nuevos avales RJ1 y RJ2.' })
+  })
+
+  it('conserva la revisión pendiente si el servidor rechaza una recuperación no justificada', async () => {
+    const { usuario, notify } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] }, [201], undefined, 409)
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Recuperar por cambio de identidad' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirmar recuperación' }))
+    await waitFor(() => expect(notify).toHaveBeenCalledWith({ type: 'error', message: 'La identidad sigue autorizada; no se puede invalidar por identidad' }))
+    expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /elaboración/i })).toBeNull()
   })
 
   it('permite volver a Elaboración cuando el servidor detecta una identidad incompatible', async () => {
