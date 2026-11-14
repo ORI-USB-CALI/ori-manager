@@ -55,7 +55,8 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
     autor = crear_usuario(CodigoRol.GESTOR_ORI)
     datos = {
         "objeto": "Convenio de origen para renovar",
-        "fecha_inicio": date(2025, 1, 1),
+        # HT-17: 24 meses desde el 06/11/2024 vencen el 06/11/2026 (mismo día del mes).
+        "fecha_inicio": date(2024, 11, 6),
         "fecha_vencimiento": FECHA_REFERENCIA + timedelta(days=30),
         "implicacion_financiera": "Recursos propios",
         "duracion_meses": 24,

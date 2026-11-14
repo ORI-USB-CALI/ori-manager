@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MENSAJE_DURACION_INCOHERENTE,
   MENSAJE_INICIO_POSTERIOR,
   MENSAJE_VENCIMIENTO_PASADO,
   fechaHoyLocal,
   mensajeVigenciaServidor,
+  sumarMeses,
   validarVigencia,
+  vencimientoEsperado,
 } from './vigencia'
 
 const HOY = '2030-06-15'
@@ -40,5 +43,66 @@ describe('HT-08 - validación de vigencia en formularios', () => {
     expect(fechaHoyLocal(new Date('2030-01-06T04:59:00.000Z'))).toBe('2030-01-05')
     // UTC 05:01 del día 6 corresponde a las 00:01 del día 6 en Bogotá.
     expect(fechaHoyLocal(new Date('2030-01-06T05:01:00.000Z'))).toBe('2030-01-06')
+  })
+})
+
+describe('HT-17 - coherencia entre duración y fechas de vigencia', () => {
+  it.each([
+    ['31 de enero + 1 mes en año no bisiesto', '2031-01-31', 1, '2031-02-28'],
+    ['31 de enero + 1 mes en año bisiesto', '2032-01-31', 1, '2032-02-29'],
+    ['29 de febrero + 12 meses', '2032-02-29', 12, '2033-02-28'],
+    ['cambio de año', '2031-11-15', 3, '2032-02-15'],
+    ['31 de marzo + 1 mes', '2031-03-31', 1, '2031-04-30'],
+  ])('suma meses: %s', (_, fecha, meses, esperado) => {
+    expect(sumarMeses(fecha, meses)).toBe(esperado)
+  })
+
+  it.each([
+    ['ejemplo de la regla (12 meses desde el 1 de enero)', '2031-01-01', 12, '2032-01-01'],
+    ['fin de mes (31 de enero, 1 mes)', '2031-01-31', 1, '2031-02-28'],
+    ['29 de febrero, 12 meses', '2032-02-29', 12, '2033-02-28'],
+    ['cambio de año (15 de noviembre, 3 meses)', '2031-11-15', 3, '2032-02-15'],
+    ['diciembre a enero', '2031-12-01', 1, '2032-01-01'],
+  ])('vencimiento el mismo día del mes: %s', (_, inicio, meses, esperado) => {
+    expect(vencimientoEsperado(inicio, meses)).toBe(esperado)
+  })
+
+  it('acepta un periodo coherente', () => {
+    expect(validarVigencia('2031-01-01', '2032-01-01', HOY, 12)).toEqual({})
+  })
+
+  it('rechaza un periodo incoherente sobre fecha_vencimiento e indica el día esperado', () => {
+    const errores = validarVigencia('2031-01-01', '2031-12-31', HOY, 12)
+    expect(errores.fecha_vencimiento).toContain(MENSAJE_DURACION_INCOHERENTE)
+    expect(errores.fecha_vencimiento).toContain('01/01/2032')
+  })
+
+  it.each([
+    ['sin duración', '2031-01-01', '2032-01-01', null],
+    ['duración cero', '2031-01-01', '2032-01-01', 0],
+    ['sin inicio', null, '2032-01-01', 12],
+    ['sin vencimiento', '2031-01-01', null, 12],
+  ])('no valida la coherencia %s', (_, inicio, vencimiento, duracion) => {
+    expect(validarVigencia(inicio, vencimiento, HOY, duracion)).toEqual({})
+  })
+
+  it('CA-03: no rechaza un inicio retroactivo ni un periodo corto si cuadran', () => {
+    expect(validarVigencia('2030-06-01', '2030-07-01', HOY, 1)).toEqual({})
+  })
+
+  it('un convenio coherente que vence hoy sigue siendo válido', () => {
+    expect(validarVigencia('2030-05-15', HOY, HOY, 1)).toEqual({})
+  })
+
+  it('prioriza el inicio posterior sobre la incoherencia', () => {
+    expect(validarVigencia('2031-02-01', '2031-01-01', HOY, 12)).toEqual({ fecha_vencimiento: MENSAJE_INICIO_POSTERIOR })
+  })
+
+  it('una duración fuera de rango se reporta como incoherente', () => {
+    expect(validarVigencia('2031-01-01', '2031-12-31', HOY, 10_000_000)).toEqual({ fecha_vencimiento: MENSAJE_DURACION_INCOHERENTE })
+  })
+
+  it('traduce el motivo del backend', () => {
+    expect(mensajeVigenciaServidor('No coincide con la fecha de inicio y la duración en meses')).toBe(MENSAJE_DURACION_INCOHERENTE)
   })
 })

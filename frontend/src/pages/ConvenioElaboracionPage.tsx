@@ -103,7 +103,8 @@ function metadataModificada(edicion: EdicionBorrador) {
 function erroresVigencia(metadata: Record<string, string | number | null>) {
   const inicio = typeof metadata.fecha_inicio === 'string' ? metadata.fecha_inicio : null
   const vencimiento = typeof metadata.fecha_vencimiento === 'string' ? metadata.fecha_vencimiento : null
-  return validarVigencia(inicio, vencimiento, fechaHoyLocal())
+  const duracion = typeof metadata.duracion_meses === 'number' ? metadata.duracion_meses : null
+  return validarVigencia(inicio, vencimiento, fechaHoyLocal(), duracion)
 }
 
 function erroresServidor(error: unknown): Record<string, string> {
@@ -291,9 +292,11 @@ export function ConvenioElaboracionPage() {
     event.preventDefault()
     if (!contenido) return
     const metadata = valoresMetadata(campos, datos.origen)
-    // Igual que el backend: al guardar solo se valida si cambió alguna fecha.
+    // Igual que el backend: al guardar solo se valida si cambió alguna fecha o
+    // la duración (HT-17).
     const cambioVigencia = metadata.fecha_inicio !== (fechaInput(edicion.base.fecha_inicio) || null)
       || metadata.fecha_vencimiento !== (fechaInput(edicion.base.fecha_vencimiento) || null)
+      || metadata.duracion_meses !== (edicion.base.duracion_meses ?? null)
     const invalidas = cambioVigencia ? erroresVigencia(metadata) : {}
     if (Object.keys(invalidas).length > 0) {
       setErrores(invalidas)

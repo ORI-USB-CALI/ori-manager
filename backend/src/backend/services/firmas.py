@@ -714,7 +714,13 @@ class ServicioFirmas:
         # HT-08: no se activa un convenio cuya vigencia ya terminó. Los CA hablan
         # de creación/elaboración; extenderlo a la formalización es una decisión
         # del desarrollador pendiente de revisión por el Líder Técnico (ver PR).
-        exigir_vigencia_valida(convenio.fecha_inicio, convenio.fecha_vencimiento)
+        # HT-17 (CA-04): también se exige la coherencia duración-fechas; no hay
+        # convenios previos a la regla en trámite. `fecha_firma` no se toca aquí.
+        exigir_vigencia_valida(
+            convenio.fecha_inicio,
+            convenio.fecha_vencimiento,
+            duracion_meses=convenio.duracion_meses,
+        )
 
         procesos = list(
             self.db.scalars(

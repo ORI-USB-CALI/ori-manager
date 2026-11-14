@@ -181,6 +181,7 @@ def validar_completitud(
             convenio.fecha_inicio,
             convenio.fecha_vencimiento,
             hoy or fecha_actual_dominio(),
+            duracion_meses=convenio.duracion_meses,
         )
     )
 
@@ -300,11 +301,19 @@ class VigenciaInvalida(ErrorConvenio):
 
 
 def exigir_vigencia_valida(
-    fecha_inicio: date | None, fecha_vencimiento: date | None
+    fecha_inicio: date | None,
+    fecha_vencimiento: date | None,
+    *,
+    duracion_meses: int | None,
 ) -> None:
-    """HT-08: punto único para rechazar una vigencia inválida al crear o editar."""
+    """HT-08/HT-17: punto único para rechazar una vigencia inválida al crear,
+    editar o formalizar. La duración es obligatoria como argumento para que
+    ningún punto de llamada se salte la coherencia de HT-17 por omisión."""
     faltantes = validar_vigencia(
-        fecha_inicio, fecha_vencimiento, fecha_actual_dominio()
+        fecha_inicio,
+        fecha_vencimiento,
+        fecha_actual_dominio(),
+        duracion_meses=duracion_meses,
     )
     if faltantes:
         raise VigenciaInvalida(faltantes)
@@ -530,7 +539,11 @@ class ServicioConvenios:
             raise ConfiguracionConvenioInvalida(
                 "No existe la etapa obligatoria ELABORACION"
             )
-        exigir_vigencia_valida(datos.fecha_inicio, datos.fecha_vencimiento)
+        exigir_vigencia_valida(
+            datos.fecha_inicio,
+            datos.fecha_vencimiento,
+            duracion_meses=datos.duracion_meses,
+        )
         valores = datos.model_dump()
         if renovacion is not None:
             valores.update(
@@ -605,7 +618,11 @@ class ServicioConvenios:
             CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value
         ):
             raise ReferenciaConvenioInvalida("Solo Gestor ORI o Administrador ORI pueden crear convenios manualmente")
-        exigir_vigencia_valida(datos.fecha_inicio, datos.fecha_vencimiento)
+        exigir_vigencia_valida(
+            datos.fecha_inicio,
+            datos.fecha_vencimiento,
+            duracion_meses=datos.duracion_meses,
+        )
         valores = datos.model_dump(exclude={"aliado_id"}, exclude_unset=True)
         if renovacion is not None:
             valores.update(
@@ -2160,17 +2177,19 @@ class ServicioConvenios:
             **cambios,
         }
         self._validar_referencias(combinados)
-        # HT-08: solo se valida cuando cambia el valor de alguna fecha, para no
-        # bloquear la edición de otros campos de convenios cargados antes de esta
-        # regla (el editor reenvía todas las fechas en cada guardado).
-        # Cubre actualizar y guardar_elaboracion (el CA-02 bloquea el guardado).
+        # HT-08/HT-17: solo se valida cuando cambia el valor de alguna fecha o de
+        # la duración, para no bloquear la edición de otros campos de convenios
+        # cargados antes de estas reglas (el editor reenvía todas las fechas en
+        # cada guardado). Cubre actualizar y guardar_elaboracion (el CA-02
+        # bloquea el guardado).
         if any(
             campo in cambios and cambios[campo] != getattr(convenio, campo)
-            for campo in ("fecha_inicio", "fecha_vencimiento")
+            for campo in ("fecha_inicio", "fecha_vencimiento", "duracion_meses")
         ):
             exigir_vigencia_valida(
                 cambios.get("fecha_inicio", convenio.fecha_inicio),
                 cambios.get("fecha_vencimiento", convenio.fecha_vencimiento),
+                duracion_meses=cambios.get("duracion_meses", convenio.duracion_meses),
             )
         if "aliado_id" in cambios:
             if convenio.origen != OrigenConvenio.MANUAL_ORI.value:
