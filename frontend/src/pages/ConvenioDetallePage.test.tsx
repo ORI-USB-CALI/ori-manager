@@ -581,9 +581,10 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
     },
   ]
 
-  function montarEscenarioContraparte(convenioInicial: Convenio, envioStatus = 201) {
+  function montarEscenarioContraparte(convenioInicial: Convenio, envioStatuses: number[] = [201]) {
     let actual: Convenio = convenioInicial
     let revisionesActuales: HistorialConvenio['revisiones'] = []
+    let intentoEnvio = 0
     const notify = vi.fn()
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/convenios/41' && init?.method === 'PATCH') {
@@ -628,8 +629,10 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
         return respuesta(200, aliadosCatalogo)
       }
       if (url === '/api/convenios/41/revision-contraparte/enviar' && init?.method === 'POST') {
-        if (envioStatus !== 201) {
-          return respuesta(envioStatus, { detail: 'No fue posible enviar el correo de revisión a la contraparte' })
+        const statusActual = envioStatuses[Math.min(intentoEnvio, envioStatuses.length - 1)]
+        intentoEnvio += 1
+        if (statusActual !== 201) {
+          return respuesta(statusActual, { detail: 'No fue posible enviar el correo de revisión a la contraparte' })
         }
         const creada = {
           id: 99,
@@ -764,7 +767,7 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
     expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
   })
 
-  it('CA-03 Escenario 2: informa un fallo durante el envío sin presentar la operación como revisión creada', async () => {
+  it('CA-03 Escenario 2 y CA-05: informa un fallo durante el envío sin crear revisión y permite reintentar exitosamente', async () => {
     const manualConContraparte: Convenio = {
       ...convenio,
       origen: 'MANUAL_ORI',
@@ -781,7 +784,7 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
       estado: 'EN_TRAMITE',
       fecha_firma: null,
     }
-    const { notify, usuario } = montarEscenarioContraparte(manualConContraparte, 502)
+    const { notify, usuario } = montarEscenarioContraparte(manualConContraparte, [502, 201])
 
     const btnEnviar = await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' })
     await usuario.click(btnEnviar)
@@ -795,5 +798,11 @@ describe('HT-16 (#172): validación y asignación de contraparte antes del enví
     })
     expect(screen.queryByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Revisión de contraparte' })).toBeTruthy()
+
+    // Reintento válido después del fallo recuperable (CA-05 Escenario 2)
+    await usuario.click(screen.getByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
   })
 })

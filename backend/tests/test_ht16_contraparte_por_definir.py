@@ -502,3 +502,171 @@ def test_ca04_ca06_protege_integridad_juridica_y_bloquea_cambios_no_permitidos(
             ConvenioElaboracionActualizar(aliado_id=aliado.id),
             gestor,
         )
+
+
+def test_ca03_ca05_reenvio_fallido_conserva_invitacion_activa_y_reintento_mantiene_trazabilidad(
+    client, db, gestor, crear_usuario, entrar_como, correo_local
+):
+    aliado = _crear_aliado(db, correo="reenvio@recuperable.org")
+    convenio = _crear_convenio_manual_en_contraparte(
+        client, db, gestor, crear_usuario, entrar_como, aliado_id=aliado.id
+    )
+    entrar_como(gestor)
+
+    envio = client.post(
+        f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
+        json={"expected_version": convenio.version_actual},
+    )
+    assert envio.status_code == 201, envio.text
+    revision_id = envio.json()["id"]
+    invitacion_inicial_id = envio.json()["invitaciones_contraparte"][0]["id"]
+    assert len(correo_local.mensajes) == 1
+
+    class CorreoConFallo:
+        def enviar(self, mensaje) -> None:
+            raise ErrorEnvioCorreo("Fallo recuperable al reenviar invitación")
+
+    app.dependency_overrides[get_enviador_correo] = CorreoConFallo
+    try:
+        fallo_reenvio = client.post(
+            f"/api/convenios/{convenio.id}/revision-contraparte/{revision_id}/reenviar-invitacion"
+        )
+    finally:
+        app.dependency_overrides[get_enviador_correo] = lambda: correo_local
+
+    assert fallo_reenvio.status_code == 502
+    assert "No fue posible enviar el correo" in fallo_reenvio.json()["detail"]
+
+    # La invitación inicial sigue activa (no quedó revocada sin reemplazo) y no hay duplicadas
+    db.expire_all()
+    invitaciones_tras_fallo = db.scalars(
+        select(InvitacionRevisionContraparte)
+        .where(InvitacionRevisionContraparte.revision_convenio_id == revision_id)
+        .order_by(InvitacionRevisionContraparte.id.asc())
+    ).all()
+    assert len(invitaciones_tras_fallo) == 1
+    assert invitaciones_tras_fallo[0].id == invitacion_inicial_id
+    assert invitaciones_tras_fallo[0].revocado_en is None
+    assert invitaciones_tras_fallo[0].utilizado_en is None
+
+    # Al reintentar tras recuperarse el servicio, se revoca la anterior y se crea la nueva con trazabilidad
+    reintento_reenvio = client.post(
+        f"/api/convenios/{convenio.id}/revision-contraparte/{revision_id}/reenviar-invitacion"
+    )
+    assert reintento_reenvio.status_code == 200, reintento_reenvio.text
+    assert len(correo_local.mensajes) == 2
+
+    db.expire_all()
+    invitaciones = db.scalars(
+        select(InvitacionRevisionContraparte)
+        .where(InvitacionRevisionContraparte.revision_convenio_id == revision_id)
+        .order_by(InvitacionRevisionContraparte.id.asc())
+    ).all()
+    assert len(invitaciones) == 2
+    assert invitaciones[0].id == invitacion_inicial_id
+    assert invitaciones[0].revocado_en is not None
+    assert invitaciones[0].generada_por_id == gestor.id
+    assert invitaciones[1].revocado_en is None
+    assert invitaciones[1].enviado_en is not None
+    assert invitaciones[1].generada_por_id == gestor.id
+
+
+def test_ca04_modificacion_de_contraparte_o_metadatos_congelados_exige_nueva_revision_juridica(
+    client, db, gestor, crear_usuario, entrar_como, correo_local
+):
+    aliado_inicial = _crear_aliado(
+        db, nombre="Aliado Inicial", correo="inicial@aliada.edu.co"
+    )
+    aliado_nuevo = _crear_aliado(
+        db, nombre="Aliado Nuevo", correo="nuevo@aliada.edu.co"
+    )
+    convenio = _crear_convenio_manual_en_contraparte(
+        client, db, gestor, crear_usuario, entrar_como, aliado_id=aliado_inicial.id
+    )
+    entrar_como(gestor)
+
+    # Si un dato congelado distinto al aliado cambia fuera del flujo normal, se bloquea el envío
+    convenio.objeto = "Objeto alterado sin aval jurídico"
+    db.commit()
+    bloqueado_divergencia = client.post(
+        f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
+        json={"expected_version": convenio.version_actual},
+    )
+    assert bloqueado_divergencia.status_code == 409
+    assert "requieren reiniciar la revisión jurídica" in bloqueado_divergencia.json()["detail"]
+
+    # Restauramos el objeto congelado y enviamos a contraparte
+    convenio.objeto = "Convenio manual para pruebas de HT-16"
+    db.commit()
+    envio = client.post(
+        f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
+        json={"expected_version": convenio.version_actual},
+    )
+    assert envio.status_code == 201, envio.text
+    token = (
+        correo_local.mensajes[-1]
+        .texto.split("/revision-contraparte#token=", 1)[1]
+        .splitlines()[0]
+    )
+
+    # La contraparte devuelve el convenio con observaciones -> regresa a ELABORACION
+    client.cookies.clear()
+    devolucion = client.post(
+        "/api/public/revision-contraparte/devolver",
+        json={
+            "token": token,
+            "nombre_firmante": "Representante Legal",
+            "cargo_firmante": "Rector",
+            "observaciones": ["Se requiere ajustar la contraparte del convenio"],
+        },
+    )
+    assert devolucion.status_code == 200, devolucion.text
+
+    entrar_como(gestor)
+    historial = client.get(f"/api/convenios/{convenio.id}/revisiones").json()
+    revision_devuelta = next(
+        r for r in historial["revisiones"] if r["tipo"] == "CONTRAPARTE"
+    )
+    observacion_id = revision_devuelta["observaciones"][0]["id"]
+    atender = client.patch(
+        f"/api/convenios/{convenio.id}/observaciones/{observacion_id}/atender",
+        json={"respuesta": "Se actualiza la contraparte y se reenvía a Jurídica"},
+    )
+    assert atender.status_code == 200, atender.text
+
+    # En ELABORACION se cambia la contraparte (metadato congelado en CAMPOS_SNAPSHOT)
+    version_anterior = convenio.version_actual
+    cambio_contraparte = client.patch(
+        f"/api/convenios/{convenio.id}",
+        json={"aliado_id": aliado_nuevo.id},
+    )
+    assert cambio_contraparte.status_code == 200, cambio_contraparte.text
+
+    # Al finalizar la elaboración, el cambio en aliado_id genera nueva versión e inicia nueva ronda jurídica
+    finalizado = client.post(
+        f"/api/convenios/{convenio.id}/elaboracion/finalizar"
+    )
+    assert finalizado.status_code == 200, finalizado.text
+    db.expire_all()
+    convenio = db.get(Convenio, convenio.id)
+    assert convenio.version_actual == version_anterior + 1
+    assert convenio.etapa_actual.codigo == "REVISION_AVAL_JURIDICO"
+
+    nueva_juridica = db.scalar(
+        select(RevisionConvenio).where(
+            RevisionConvenio.convenio_id == convenio.id,
+            RevisionConvenio.tipo == "JURIDICA",
+            RevisionConvenio.estado == "PENDIENTE",
+        )
+    )
+    assert nueva_juridica is not None
+    assert nueva_juridica.numero_ronda == 2
+    assert nueva_juridica.instancia_juridica == 1
+    assert nueva_juridica.snapshot_datos["aliado_id"] == aliado_nuevo.id
+
+    # Los avales jurídicos de la versión anterior no permiten enviar a contraparte sin aprobar la nueva ronda
+    intento_envio_sin_aval = client.post(
+        f"/api/convenios/{convenio.id}/revision-contraparte/enviar",
+        json={"expected_version": convenio.version_actual},
+    )
+    assert intento_envio_sin_aval.status_code == 409

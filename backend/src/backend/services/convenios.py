@@ -1320,7 +1320,7 @@ class ServicioConvenios:
                 "La versión actual no cuenta con la segunda aprobación jurídica"
             )
         primera = self.db.scalar(
-            select(RevisionConvenio.id).where(
+            select(RevisionConvenio).where(
                 RevisionConvenio.convenio_id == convenio.id,
                 RevisionConvenio.tipo == TipoRevisionConvenio.JURIDICA.value,
                 RevisionConvenio.numero_ronda == segunda.numero_ronda,
@@ -1336,6 +1336,29 @@ class ServicioConvenios:
             raise RevisionNoDisponible(
                 "La ronda jurídica no cuenta con sus dos aprobaciones"
             )
+        snapshot_actual = _snapshot_de(convenio)
+        excluidos_snapshot = (
+            {"aliado_id"}
+            if convenio.origen == OrigenConvenio.MANUAL_ORI.value
+            else set()
+        )
+        for congelado in (
+            version.snapshot_metadata,
+            primera.snapshot_datos,
+            segunda.snapshot_datos,
+        ):
+            if congelado and _datos_difieren(
+                snapshot_actual,
+                {
+                    campo: valor
+                    for campo, valor in congelado.items()
+                    if campo not in excluidos_snapshot
+                },
+            ):
+                raise RevisionNoDisponible(
+                    "Los datos congelados del convenio cambiaron respecto al aval "
+                    "jurídico y requieren reiniciar la revisión jurídica"
+                )
         solicitud = self.db.scalar(
             select(SolicitudConvenio)
             .options(joinedload(SolicitudConvenio.solicitante))
@@ -2803,6 +2826,14 @@ class ServicioConvenios:
         )
         if pendiente is not None:
             raise RevisionNoDisponible("Hay observaciones pendientes por atender")
+        snapshot_actual = _snapshot_de(convenio)
+        if revision.snapshot_datos and _datos_difieren(
+            snapshot_actual, revision.snapshot_datos
+        ):
+            raise RevisionNoDisponible(
+                "Los datos congelados del convenio cambiaron y requieren "
+                "reiniciar la revisión jurídica"
+            )
         if revision.instancia_juridica == 2:
             primera = self.db.scalar(
                 select(RevisionConvenio).where(
@@ -2822,7 +2853,10 @@ class ServicioConvenios:
                 raise RevisionNoDisponible(
                     "La segunda revisión debe ser aprobada por otro Revisor ORI"
                 )
-            if primera.version_resultado_id != version_actual.id:
+            if primera.version_resultado_id != version_actual.id or (
+                primera.snapshot_datos
+                and _datos_difieren(snapshot_actual, primera.snapshot_datos)
+            ):
                 raise RevisionNoDisponible(
                     "La versión actual fue modificada después del primer aval "
                     "jurídico y requiere reiniciar la revisión jurídica"
