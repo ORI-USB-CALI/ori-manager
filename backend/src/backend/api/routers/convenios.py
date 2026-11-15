@@ -1458,6 +1458,34 @@ def solicitar_cambio_sustancial_firmas(
         _lanzar_http(exc)
 
 
+@router.get("/{convenio_id}/firmas/{firma_id}/evidencia")
+def obtener_evidencia_firma(
+    convenio_id: int,
+    firma_id: int,
+    db: DatabaseSession,
+    usuario: PuedeGestionarFirmas,
+    disposicion: Literal["inline", "attachment"] = "inline",
+) -> Response:
+    try:
+        ServicioConvenios(db).verificar_alcance_operativo(convenio_id, usuario)
+        contenido = ServicioFirmas(db).obtener_evidencia_electronica(
+            convenio_id, firma_id
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    return Response(
+        content=contenido,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": (
+                f'{disposicion}; filename="convenio-{convenio_id}-firma-{firma_id}.png"'
+            ),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.patch("/{convenio_id}/firmas/{firma_id}", response_model=FirmaConvenioLeer)
 def configurar_firma(
     convenio_id: int,

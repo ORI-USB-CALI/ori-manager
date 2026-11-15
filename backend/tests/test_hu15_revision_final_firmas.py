@@ -2667,3 +2667,71 @@ def test_formalizaciones_concurrentes_producen_un_unico_cierre(db_engine):
             ) == 1
     finally:
         _limpiar_escenario_concurrente(db_engine, escenario)
+
+
+@pytest.fixture
+def evidencia_registrada(db, escenario_final):
+    # Registro historico persistido: la consulta no depende de repetir el flujo.
+    proceso = ProcesoFirmasConvenio(
+        convenio_id=escenario_final["convenio"].id,
+        version_convenio_id=escenario_final["version"].id,
+        revision_final_id=escenario_final["revision_final"].id,
+        creado_por_id=escenario_final["gestor"].id,
+        estado="COMPLETADO",
+    )
+    db.add(proceso)
+    db.flush()
+    contenido = base64.b64decode(FIRMA_PNG.split(",", 1)[1])
+    firma = FirmaConvenio(
+        proceso_firmas_id=proceso.id, orden=1, rol_firmante="ADMINISTRADOR_ORI",
+        parte="UNIVERSIDAD", modalidad="ELECTRONICA", estado="FIRMADA",
+        correo_firmante="firmante@example.com", fecha_firma=datetime.now(UTC),
+        firma_png=contenido, firma_sha256=sha256(contenido).hexdigest(),
+    )
+    db.add(firma)
+    db.commit()
+    return firma
+
+
+@pytest.mark.parametrize("disposicion", ["inline", "attachment"])
+def test_consulta_evidencia_electronica_no_modifica_base(
+    client, db, escenario_final, evidencia_registrada, disposicion
+):
+    firma = evidencia_registrada
+    convenio_id = escenario_final["convenio"].id
+
+    def snapshot():
+        tablas = (
+            FirmaConvenio, ProcesoFirmasConvenio, Convenio, VersionConvenio,
+            RevisionConvenio, Documento, InvitacionFirmaConvenio,
+            HistorialEtapa, Auditoria,
+        )
+        return {modelo.__tablename__: list(db.execute(select(modelo.__table__).order_by(*modelo.__table__.primary_key)).all())
+                for modelo in tablas}
+
+    antes = snapshot()
+    respuesta = client.get(
+        f"/api/convenios/{convenio_id}/firmas/{firma.id}/evidencia?disposicion={disposicion}"
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.content == firma.firma_png
+    assert snapshot() == antes
+    seguimiento = client.get(f"/api/convenios/{convenio_id}/firmas").json()
+    assert seguimiento["firmas"][0]["evidencia_electronica_disponible"] is True
+    assert "firma_png" not in seguimiento["firmas"][0]
+    assert "firma_sha256" not in seguimiento["firmas"][0]
+
+
+def test_consulta_evidencia_rechaza_convenio_ajeno_y_cancelacion(
+    client, db, escenario_final, crear_convenio, evidencia_registrada
+):
+    firma = evidencia_registrada
+    ajeno = crear_convenio(escenario_final["gestor"])
+    assert client.get(
+        f"/api/convenios/{ajeno.id}/firmas/{firma.id}/evidencia"
+    ).status_code == 404
+    db.get(ProcesoFirmasConvenio, firma.proceso_firmas_id).estado = "CANCELADO"
+    db.commit()
+    assert client.get(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/{firma.id}/evidencia"
+    ).status_code == 404
