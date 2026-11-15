@@ -179,6 +179,8 @@ class ConvenioExportValidator:
     def _faltantes_oficial(self, convenio: Convenio) -> list[str]:
         faltantes: list[str] = []
         version = version_contractual(convenio)
+        # La fuente aprobada no suple campos estructurales actuales desaparecidos.
+        # Se valida la integridad de ambos; el DTO sigue usando el snapshot.
         datos = datos_definitivos(convenio, version)
         if _vacio(convenio.codigo):
             faltantes.append("codigo_convenio")
@@ -187,13 +189,13 @@ class ConvenioExportValidator:
         identidad = (version.snapshot_metadata or {}).get("aliado_identidad") if version else None
         if convenio.aliado is None and not identidad:
             faltantes.append("entidad_participante")
-        if datos["fecha_inicio"] is None:
+        if convenio.fecha_inicio is None or datos["fecha_inicio"] is None:
             faltantes.append("fecha_inicio_vigencia")
-        if datos["fecha_vencimiento"] is None:
+        if convenio.fecha_vencimiento is None or datos["fecha_vencimiento"] is None:
             faltantes.append("fecha_fin_vigencia")
-        if _vacio(datos["objeto"]):
+        if _vacio(convenio.objeto) or _vacio(datos["objeto"]):
             faltantes.append("objeto")
-        if datos["tipo_convenio_id"] is None:
+        if convenio.tipo_convenio_id is None or datos["tipo_convenio_id"] is None:
             faltantes.append("tipo_convenio")
 
         version = version_contractual(convenio)

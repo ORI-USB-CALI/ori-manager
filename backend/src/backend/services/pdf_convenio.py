@@ -293,7 +293,8 @@ class ServicioPdfConvenio:
             objeto=_o_no_disponible(definitivo("objeto")),
             justificacion=(
                 (_o_no_disponible(solicitud.justificacion) if solicitud else sin_antecedente)
-                if modo is ModoEmision.BORRADOR else INFORMACION_NO_DISPONIBLE
+                if modo is ModoEmision.BORRADOR
+                else (INFORMACION_NO_DISPONIBLE if solicitud else sin_antecedente)
             ),
             implicacion_financiera=_o_no_disponible(definitivo("implicacion_financiera")),
             fecha_inicio=definitivo("fecha_inicio"),

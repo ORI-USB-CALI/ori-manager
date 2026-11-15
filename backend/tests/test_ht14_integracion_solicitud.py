@@ -1,5 +1,9 @@
 """HT-14 BE02. Reglas de formato integradas en crear, actualizar y radicar."""
 
+import re
+import zlib
+from base64 import a85decode
+from copy import deepcopy
 from io import BytesIO
 
 import pytest
@@ -13,10 +17,12 @@ from backend.models.enums import EstadoConvenio, EstadoSolicitud, TipoIdentifica
 from backend.models.pais import Pais
 from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
+from backend.models.version_convenio import VersionConvenio
 from backend.schemas.aliado import AliadoLeer
 from backend.schemas.convenio import AliadoResumen, SolicitudAntecedenteLeer
 from backend.services.aliados import resolver_aliado_para_convenio
 from backend.services.contenido_convenio import expandir_plantilla
+from backend.services.convenios import ServicioConvenios
 from backend.services.pdf_convenio import ServicioPdfConvenio
 from backend.services.renovaciones import CAMPOS_SOLICITUD_RENOVACION
 
@@ -425,14 +431,65 @@ def test_contenido_del_convenio_muestra_el_nit_con_dv():
     assert "900123456-8" in resultado["content"][0]["content"][0]["text"]
 
 
-def test_pdf_muestra_el_nit_del_aliado_con_dv(db, convenio_exportable):
-    aliado = convenio_exportable.aliado
-    aliado.digito_verificacion = str(calcular_digito_verificacion_nit(aliado.identificacion))
+@pytest.fixture
+def exportable_con_dv_congelado(db, request, monkeypatch):
+    crear_version = ServicioConvenios._crear_version
+
+    def crear_con_dv(self, convenio, *args, **kwargs):
+        # Preparar la identidad ANTES de que la fixture cree la version aprobada.
+        aliado = db.get(Aliado, convenio.aliado_id)
+        aliado.identificacion = next(
+            str(n) for n in range(900123450, 900123470)
+            if calcular_digito_verificacion_nit(str(n)) == 0
+        )
+        aliado.digito_verificacion = "0"
+        db.flush()
+        return crear_version(self, convenio, *args, **kwargs)
+
+    monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_con_dv)
+    return request.getfixturevalue("convenio_exportable")
+
+
+def _streams_pdf(dto):
+    pdf = ServicioPdfConvenio().renderizar_dto_a_pdf(dto)
+    assert pdf.startswith(b"%PDF-")
+    # NIT y DV solo contienen ASCII: comprobarlos en los streams de ReportLab.
+    return b" ".join(
+        zlib.decompress(a85decode(b"<~" + stream.strip(), adobe=True))
+        for stream in re.findall(rb"stream\r?\n(.*?)endstream", pdf, re.DOTALL)
+    )
+
+
+def test_pdf_muestra_el_nit_del_aliado_con_dv(db, exportable_con_dv_congelado):
+    convenio = exportable_con_dv_congelado
+    v = db.scalar(select(VersionConvenio).where(
+        VersionConvenio.convenio_id == convenio.id,
+        VersionConvenio.numero == convenio.version_actual,
+    ))
+    assert v.snapshot_metadata["aliado_identidad"]["digito_verificacion"] == "0"
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio.id, db)
+    assert dto.aliado_identificacion == f"{convenio.aliado.identificacion}-0"
+    assert dto.aliado_identificacion.encode("ascii") in _streams_pdf(dto)
+
+
+def test_pdf_conserva_dv_aprobado_tras_cambio_posterior(db, exportable_con_dv_congelado):
+    convenio = exportable_con_dv_congelado
+    v = db.scalar(select(VersionConvenio).where(
+        VersionConvenio.convenio_id == convenio.id,
+        VersionConvenio.numero == convenio.version_actual,
+    ))
+    aprobado = deepcopy(v.snapshot_metadata)
+    convenio.aliado.digito_verificacion = "1"
     db.commit()
-
-    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio_exportable.id, db)
-
-    assert dto.aliado_identificacion == f"{aliado.identificacion}-{aliado.digito_verificacion}"
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio.id, db)
+    assert dto.aliado_identificacion == f"{convenio.aliado.identificacion}-0"
+    assert dto.aliado_identificacion != f"{convenio.aliado.identificacion}-1"
+    streams = _streams_pdf(dto)
+    assert dto.aliado_identificacion.encode("ascii") in streams
+    assert f"{convenio.aliado.identificacion}-1".encode("ascii") not in streams
+    db.expire_all()
+    assert v.snapshot_metadata == aprobado
+    assert convenio.aliado.digito_verificacion == "1"
 
 
 def test_respuestas_del_aliado_incluyen_la_identificacion_completa(db):
