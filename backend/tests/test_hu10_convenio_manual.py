@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 import pytest
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -191,7 +192,7 @@ def test_guardado_versiones_y_finalizacion_mantiene_doble_revision(
         "tipo_convenio_id": tipo_convenio_id,
         "alcance": "INSTITUCIONAL",
         "implicacion_financiera": "Sin erogación",
-        "duracion_meses": 12,
+        **vigencia_json(),
     }
     guardado = client.patch(ruta, json=payload)
     assert guardado.status_code == 200, guardado.text
@@ -254,7 +255,7 @@ def test_aliado_opcional_hasta_envio_contraparte(client, db, gestor):
         "tipo_convenio_id": tipo_id,
         "alcance": "INSTITUCIONAL",
         "implicacion_financiera": "Sin compromiso financiero",
-        "duracion_meses": 12,
+        **vigencia_json(),
     })
     assert guardar.status_code == 200, guardar.text
     final = client.post(f"{ruta}/finalizar", json={

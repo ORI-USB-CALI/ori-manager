@@ -2,11 +2,12 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from threading import Barrier
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
@@ -126,9 +127,7 @@ def _crear_escenario_concurrente(db_engine) -> dict[str, int]:
                 alcance=AlcanceConvenio.INSTITUCIONAL,
                 tipo_convenio_id=tipo.id,
                 implicacion_financiera="Sin costo",
-                duracion_meses=24,
-                fecha_inicio=date(2026, 1, 1),
-                fecha_vencimiento=date(2028, 1, 1),
+                **vigencia_nueva(duracion_meses=24),
             ),
             gestor,
         )

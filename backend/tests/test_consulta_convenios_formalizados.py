@@ -75,13 +75,16 @@ def test_criterio_sql_coincide_con_formalizacion_para_todos_los_estados(
 
 @pytest.mark.parametrize("tipo_fecha", ["FORMALIZACION", "VIGENCIA"])
 def test_busqueda_filtros_conteo_y_paginacion_solo_incluyen_formalizados(
-    client, db, crear_por_origen, tipo_fecha,
+    client, db, crear_por_origen, tipo_fecha, monkeypatch,
 ):
+    from backend.services import convenios
+    monkeypatch.setattr(convenios, "fecha_actual_dominio", lambda: date(2026, 1, 1))
     termino = f"formalizados-{uuid4().hex}"
     tipo_id = db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO"))
     datos = {
         "objeto": termino, "tipo_convenio_id": tipo_id,
         "fecha_inicio": "2026-01-01", "fecha_vencimiento": "2026-12-31",
+        "duracion_meses": 12,
         "alcance": "INSTITUCIONAL",
     }
     esperados = []

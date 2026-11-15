@@ -69,7 +69,7 @@ def crear_seguimiento(
         codigo: str | None = None,
     ) -> Convenio:
         convenio = crear_convenio(
-            autor_convenios,
+            autor_convenios, historico=True,
             codigo=codigo,
             objeto="Convenio para seguimiento HU-31",
             tipo_convenio_id=tipo.id,

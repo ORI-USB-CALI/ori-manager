@@ -33,7 +33,7 @@ def crear_convenio_renovable(
         estado: EstadoConvenio = EstadoConvenio.VIGENTE,
     ) -> Convenio:
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             fecha_vencimiento=(
                 FECHA_REFERENCIA + timedelta(days=dias) if dias is not None else None
             ),

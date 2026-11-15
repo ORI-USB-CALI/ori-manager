@@ -1,5 +1,6 @@
 from io import BytesIO
 
+from helpers_vigencia import vigencia_json
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -219,7 +220,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
             "objeto": "Objeto integrado listo para Jurídica",
             "alcance": "INSTITUCIONAL",
             "implicacion_financiera": "Sin erogación presupuestal",
-            "duracion_meses": 24,
+            **vigencia_json(duracion_meses=24),
         },
     )
     assert finalizada.status_code == 200, finalizada.text

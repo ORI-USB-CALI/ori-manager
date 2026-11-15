@@ -199,7 +199,7 @@ def test_ca02_crear_manual_rechaza_inicio_posterior(client, gestor) -> None:
     "fechas",
     [
         pytest.param({}, id="sin-fechas"),
-        pytest.param({"fecha_inicio": AYER, "fecha_vencimiento": HOY}, id="vence-hoy"),
+        pytest.param({"fecha_inicio": HOY, "fecha_vencimiento": HOY}, id="vence-hoy"),
     ],
 )
 def test_ca03_crear_manual_acepta_vigencia_valida_u_omitida(
@@ -249,7 +249,7 @@ def test_editar_otro_campo_no_revalida_vigencia_heredada(
     client, db, gestor, crear_convenio
 ) -> None:
     # Dato cargado antes de HT-08: la regla solo aplica cuando se tocan las fechas.
-    convenio = crear_convenio(gestor, fecha_vencimiento=AYER)
+    convenio = crear_convenio(gestor, historico=True, fecha_vencimiento=AYER)
 
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}", json={"objeto": "Objeto ajustado"}
@@ -261,7 +261,7 @@ def test_editar_otro_campo_no_revalida_vigencia_heredada(
 def test_reenviar_la_misma_vigencia_heredada_no_bloquea_el_guardado(
     client, db, gestor, crear_convenio
 ) -> None:
-    convenio = crear_convenio(gestor, fecha_vencimiento=AYER)
+    convenio = crear_convenio(gestor, historico=True, fecha_vencimiento=AYER)
 
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}",
@@ -327,7 +327,7 @@ def test_ca01_finalizar_elaboracion_bloquea_vencimiento_que_ya_paso(
 
 @pytest.fixture
 def convenio_en_firmas(db, gestor, crear_convenio) -> Convenio:
-    convenio = crear_convenio(gestor, fecha_inicio=AYER, fecha_vencimiento=MANANA)
+    convenio = crear_convenio(gestor, historico=True, fecha_inicio=AYER, fecha_vencimiento=MANANA)
     convenio.etapa_actual = db.scalar(
         select(Etapa).where(Etapa.codigo == "APROBACION_FIRMAS")
     )

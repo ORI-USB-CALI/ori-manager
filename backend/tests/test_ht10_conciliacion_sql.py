@@ -30,7 +30,7 @@ def _hoy_bogota(db):
 
 def _crear(db, crear_convenio, gestor, *, dias, estado=EstadoConvenio.VIGENTE):
     convenio = crear_convenio(
-        gestor,
+        gestor, historico=True,
         fecha_vencimiento=_hoy_bogota(db) + timedelta(days=dias),
     )
     convenio.estado = estado.value
