@@ -308,11 +308,21 @@ def test_ca02_guardar_elaboracion_incoherente_no_deja_borrador(
     client, db, convenio_coherente
 ) -> None:
     version_antes = convenio_coherente.version_actual
+    fechas_antes = (
+        convenio_coherente.fecha_inicio,
+        convenio_coherente.fecha_vencimiento,
+        convenio_coherente.duracion_meses,
+    )
+    borrador_inicial = convenio_coherente.borrador
+    assert borrador_inicial is not None
+    borrador_id = borrador_inicial.id
+    revision_antes = borrador_inicial.revision
+    contenido_antes = deepcopy(borrador_inicial.contenido)
 
     respuesta = client.patch(
         f"/api/convenios/{convenio_coherente.id}/elaboracion",
         json={
-            "expected_revision": 0,
+            "expected_revision": revision_antes,
             "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "text", "text": "Cláusula nueva"},
             ]}]},
@@ -328,7 +338,15 @@ def test_ca02_guardar_elaboracion_incoherente_no_deja_borrador(
     guardado = db.get(Convenio, convenio_coherente.id)
     assert guardado.version_actual == version_antes
     assert guardado.fecha_vencimiento == VENCIMIENTO_12_MESES
-    assert guardado.borrador is None
+    assert (
+        guardado.fecha_inicio,
+        guardado.fecha_vencimiento,
+        guardado.duracion_meses,
+    ) == fechas_antes
+    assert guardado.borrador is not None
+    assert guardado.borrador.id == borrador_id
+    assert guardado.borrador.contenido == contenido_antes
+    assert guardado.borrador.revision == revision_antes
 
 
 def test_ca06_historico_incoherente_se_edita_sin_tocar_vigencia(
