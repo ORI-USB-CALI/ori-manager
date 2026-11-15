@@ -621,6 +621,7 @@ class FirmaConvenioLeer(BaseModel):
     fecha_firma: datetime | None
     documento_id: int | None
     documento: DocumentoConvenioLeer | None
+    evidencia_electronica_disponible: bool = False
     creado_en: datetime
     invitaciones: list[InvitacionFirmaConvenioLeer] = Field(default_factory=list)
 

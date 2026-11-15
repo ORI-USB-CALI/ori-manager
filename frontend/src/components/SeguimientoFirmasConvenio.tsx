@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
+import { DocumentoPreviewModal } from './DocumentoPreviewModal'
 import { ConfirmacionModal } from './ConfirmacionModal'
 import { volverA } from './retornoVolver'
 
@@ -38,6 +39,7 @@ interface FirmaConvenio {
   fecha_firma: string | null
   documento_id: number | null
   documento: DocumentoFirma | null
+  evidencia_electronica_disponible: boolean
   configurada: boolean
   invitaciones: InvitacionFirma[]
 }
@@ -227,6 +229,7 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
   const cliente = useQueryClient()
   const notify = useNotifications()
   const navigate = useNavigate()
+  const [evidenciaSeleccionada, setEvidenciaSeleccionada] = useState<FirmaConvenio | null>(null)
   const [firmaFisicaSeleccionada, setFirmaFisicaSeleccionada] = useState<number | null>(null)
   const [confirmarFormalizacion, setConfirmarFormalizacion] = useState(false)
   const [confirmarCambioSustancial, setConfirmarCambioSustancial] = useState(false)
@@ -336,6 +339,9 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
                   )}
                 </dl>
               )}
+              {firma.modalidad === 'ELECTRONICA' && firma.estado === 'FIRMADA' && firma.evidencia_electronica_disponible && (
+                <button className="btn btn-outline btn-small" type="button" onClick={() => setEvidenciaSeleccionada(firma)}>Ver evidencia</button>
+              )}
               {datos.estado === 'EN_CURSO' && firma.modalidad === 'ELECTRONICA' && firma.estado === 'PENDIENTE' && invitacion && (
                 <button className="btn btn-outline btn-small" type="button" disabled={reenviar.isPending} onClick={() => reenviar.mutate(firma.id)}>Reenviar enlace</button>
               )}
@@ -377,6 +383,22 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
           firmaInicial={fisicasPendientes.find((firma) => firma.id === firmaFisicaSeleccionada)!}
           firmasDisponibles={fisicasPendientes}
           onCerrar={() => setFirmaFisicaSeleccionada(null)}
+        />
+      )}
+      {evidenciaSeleccionada && (
+        <DocumentoPreviewModal
+          nombreArchivo={`convenio-${convenioId}-firma-${evidenciaSeleccionada.id}.png`}
+          tipoMime="image/png"
+          permitirPng
+          urlContenido={`/api/convenios/${convenioId}/firmas/${evidenciaSeleccionada.id}/evidencia?disposicion=inline`}
+          etiquetaDescarga="Descargar PNG"
+          resumen={<dl className="proyecto-datos">
+            <dt>Firmante</dt><dd>{evidenciaSeleccionada.nombre_firmante}</dd>
+            <dt>Rol</dt><dd>{etiqueta(evidenciaSeleccionada.rol_firmante)}</dd>
+            <dt>Modalidad</dt><dd>Electrónica</dd>
+            <dt>Fecha registrada</dt><dd>{fecha(evidenciaSeleccionada.fecha_firma)}</dd>
+          </dl>}
+          onCerrar={() => setEvidenciaSeleccionada(null)}
         />
       )}
       {confirmarFormalizacion && (

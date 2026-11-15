@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
+from hashlib import sha256
+from hmac import compare_digest
 from pathlib import Path
 from secrets import token_hex
 
@@ -523,6 +525,23 @@ class ServicioFirmas:
         if proceso is None:
             raise RevisionNoDisponible("No existe un proceso de firmas disponible")
         return proceso
+
+    def obtener_evidencia_electronica(self, convenio_id: int, firma_id: int) -> bytes:
+        # Reutilizar el proceso consultable del seguimiento; no habilitar cancelados.
+        try:
+            proceso = self.obtener_proceso_seguimiento(convenio_id)
+        except RevisionNoDisponible as exc:
+            raise ConvenioNoEncontrado("Evidencia no encontrada") from exc
+        firma = next((item for item in proceso.firmas if item.id == firma_id), None)
+        if firma is None or not firma.evidencia_electronica_disponible:
+            raise ConvenioNoEncontrado("Evidencia no encontrada")
+        contenido = bytes(firma.firma_png)
+        if not compare_digest(
+            sha256(contenido).hexdigest().encode("ascii"),
+            firma.firma_sha256.encode("utf-8"),
+        ):
+            raise RevisionNoDisponible("No fue posible verificar la evidencia solicitada")
+        return contenido
 
     def obtener_documento_aprobado_para_firma(
         self, convenio_id: int
