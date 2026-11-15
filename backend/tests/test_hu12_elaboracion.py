@@ -12,6 +12,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -53,7 +54,7 @@ def gestor(client, crear_usuario, entrar_como) -> Usuario:
 def crear_convenio(db: Session) -> Callable[..., Convenio]:
     """Crea el convenio mediante el contrato canónico de HU-06."""
 
-    def _crear(autor: Usuario, **cambios) -> Convenio:
+    def _crear(autor: Usuario, *, historico=False, **cambios) -> Convenio:
         aliado_id = cambios.pop("aliado_id", None)
         solicitud = SolicitudConvenio(
             consecutivo=f"SOL-{uuid4().hex}",
@@ -82,11 +83,15 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        # Escenario historico previo a HT-17, incluido su snapshot inicial.
-        with patch.object(servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])):
+        if not historico and datos.get("duracion_meses") is not None and "fecha_inicio" not in cambios and "fecha_vencimiento" not in cambios:
+            datos.update(vigencia_nueva(duracion_meses=datos["duracion_meses"]))
+        if historico:
+            with patch.object(servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])):
+                convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+            convenio.vigencia_ht17 = False
+            db.commit()
+        else:
             convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
-        convenio.vigencia_ht17 = False
-        db.commit()
         return convenio
 
     return _crear
@@ -453,6 +458,7 @@ def test_ca06_reporta_los_campos_requeridos_que_faltan(
         "tipo_convenio_id",
         "implicacion_financiera",
         "duracion_meses",
+        "fecha_inicio", "fecha_vencimiento",
     }
 
 
@@ -475,13 +481,13 @@ def test_ca06_convenio_completo_no_reporta_faltantes(
     assert cuerpo["faltantes"] == []
 
 
-def test_ca06_codigo_y_fechas_no_son_obligatorios(
+def test_ca06_historico_sin_codigo_y_fechas_puede_continuar(
     client, db, gestor, crear_convenio
 ) -> None:
-    """codigo puede entrar en NULL a Jurídica y las fechas son opcionales en esta etapa."""
+    """CA-06: un historico en tramite conserva la completitud anterior a HT-17."""
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
     convenio = crear_convenio(
-        gestor,
+        gestor, historico=True,
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Aporte en especie",
         duracion_meses=12,
@@ -583,9 +589,7 @@ def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
         gestor,
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo para la Universidad",
-        duracion_meses=24,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2028, 1, 1),
+        **vigencia_nueva(duracion_meses=24),
     )
 
 
@@ -613,6 +617,7 @@ def test_ca06_finalizar_incompleto_no_cambia_nada(
         "tipo_convenio_id",
         "implicacion_financiera",
         "duracion_meses",
+        "fecha_inicio", "fecha_vencimiento",
     }
 
     db.refresh(convenio)
@@ -760,7 +765,7 @@ def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, conven
     assert snapshot["objeto"] == convenio_listo.objeto
     assert snapshot["origen"] == "SOLICITUD"
     assert snapshot["duracion_meses"] == 24
-    assert snapshot["fecha_inicio"] == "2026-01-01"
+    assert snapshot["fecha_inicio"] == convenio_listo.fecha_inicio.isoformat()
     # Los nulos se conservan como nulos, no se omiten ni se rellenan.
     assert snapshot["codigo"] is None
     assert snapshot["aliado_id"] is None

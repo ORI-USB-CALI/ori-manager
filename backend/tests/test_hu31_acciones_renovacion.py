@@ -73,7 +73,7 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
         # fija sobre el modelo porque estas pruebas distinguen origen de hijo.
         convenio.codigo = f"ORIGEN-{autor.id}"
     else:
-        convenio = crear_convenio(autor, codigo=f"ORIGEN-{autor.id}", **datos)
+        convenio = crear_convenio(autor, historico=True, codigo=f"ORIGEN-{autor.id}", **datos)
         convenio.solicitud.solicitante_id = solicitante.id
         convenio.solicitud.contacto_contraparte_nombre = "Contacto vigente"
         convenio.solicitud.observaciones = "Observación histórica que no debe copiarse"

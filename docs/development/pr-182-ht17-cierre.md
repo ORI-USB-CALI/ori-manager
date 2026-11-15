@@ -20,3 +20,18 @@ Una ejecucion anterior fue interrumpida al detenerse los contenedores locales; n
 Migracion aditiva c17a20261115: vigencia_ht17=false para filas existentes, sin reescritura de fechas. Nuevos registros/cambios activan la marca transaccionalmente. No se modifica fecha_firma, logica de alertas, umbrales ni workflows.
 
 La aceptacion institucional PO/ORI debe quedar trazada en issue #175; estas son decisiones del lider tecnico para el cierre tecnico, sin afirmar aprobacion del PO. Pendientes Actions y revision del lider tecnico. Sin merge a develop ni despliegue manual.
+
+
+## Seguimiento: regresiones backend del CI 43678850410
+
+El CI de 291b50c registro 2832 aprobadas, 101 fallidas y 137 errores.
+Causas comunes y correccion limitada a pruebas:
+
+- Preparaciones nuevas de HT-16, revision publica, exportacion, HU-20 y E2E avanzaban sin vigencia o utilizaban fechas retroactivas. helpers_vigencia.py proporciona inicio del dominio, duracion valida y vencimiento calculado; los servicios conservan todas sus validaciones.
+- crear_convenio y la fixture propia de HU-12 ya no marcan todos los convenios como historicos ni anulan la validacion de los nuevos. historico=True es una carga explicita de datos previos a la migracion. Los datasets antiguos de alertas, reportes, filtros, actividades y renovaciones declaran esa condicion. Los borradores nuevos siguen siendo parciales cuando corresponde.
+- Los errores en la preparacion concurrente anterior al yield dejaban registros confirmados, produciendo conteos adicionales en HU-36. Corregir la vigencia permite ejecutar el escenario y su limpieza; no se cambiaron los conteos esperados ni las aserciones de integridad.
+- Las pruebas nuevas de consulta usan una referencia temporal controlada o el intervalo real del convenio, conservando las comprobaciones de acceso y paginacion. Se agrega una regresion para impedir volver a tratar convenios nuevos como historicos en la factory compartida.
+
+Validacion focal: 494 pruebas de los 12 archivos fallidos aprobadas; 389 del bloque de fixtures y compatibilidad temporal aprobadas. Ruff completo y git diff --check aprobados. Sin cambios en codigo funcional, migraciones, frontend ni workflows. Sin skip, xfail o desactivaciones nuevas.
+
+Validacion completa local unica, en base nueva migrada desde cero: 3036 aprobadas y 35 fallidas, sin errores de preparacion. Los 35 fallos se concentraron exclusivamente en tres callers historicos adicionales de HU-30 API y consultas/reglas HU-31 que aun no declaraban historico=True. Tras corregir esas fixtures se reejecutaron sus tres archivos: 56 aprobadas. Quedan verificados los 3071 casos unicos (3070 anteriores y una regresion nueva de la factory); no se presenta este resultado como una segunda suite completa verde. La ejecucion completa final corresponde al nuevo CI tras publicar. No se repitio frontend local ni una segunda suite backend completa.

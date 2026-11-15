@@ -2,6 +2,7 @@ from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -641,8 +642,7 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "unidad_organizacional_id": None,
         "implicacion_financiera": "Sin costo",
-        "fecha_inicio": "2026-01-01", "fecha_vencimiento": "2028-01-01",
-        "duracion_meses": 24,
+        **vigencia_json(duracion_meses=24),
     }
     respuesta = client.post("/api/convenios", json=datos)
     assert respuesta.status_code == 201

@@ -124,3 +124,20 @@ def test_borrador_nuevo_exige_fechas_antes_de_finalizar(client, gestor):
     faltantes = client.get(ruta + "/elaboracion/validacion").json()["faltantes"]
     assert {"fecha_inicio", "fecha_vencimiento"} <= {f["campo"] for f in faltantes}
     assert client.post(ruta + "/elaboracion/finalizar").status_code == 422
+
+
+def test_factory_nueva_aplica_ht17_y_carga_historica_es_explicita(gestor, crear_convenio):
+    from backend.services.convenios import VigenciaInvalida
+
+    nuevo = crear_convenio(gestor, duracion_meses=4)
+    assert nuevo.vigencia_ht17 is True
+    assert nuevo.fecha_inicio == convenios.fecha_actual_dominio()
+    assert nuevo.fecha_vencimiento == vencimiento_esperado(nuevo.fecha_inicio, 4)
+    with pytest.raises(VigenciaInvalida):
+        crear_convenio(gestor, fecha_inicio=date(2020, 1, 1), duracion_meses=1)
+    historico = crear_convenio(
+        gestor, historico=True, fecha_inicio=date(2020, 1, 1),
+        fecha_vencimiento=date(2020, 2, 1), duracion_meses=1,
+    )
+    assert historico.vigencia_ht17 is False
+    assert historico.fecha_vencimiento == date(2020, 2, 1)

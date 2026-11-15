@@ -61,7 +61,7 @@ def crear_convenio_en_estado(
         fecha_vencimiento: date | None = VENCIMIENTO,
     ) -> Convenio:
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             codigo=f"HU35-{uuid4().hex[:12]}",
             fecha_inicio=fecha_inicio,
             fecha_vencimiento=fecha_vencimiento,

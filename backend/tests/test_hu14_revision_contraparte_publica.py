@@ -5,6 +5,7 @@ from hashlib import sha256
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol
@@ -65,7 +66,7 @@ def enlace_manual(client, db, gestor, crear_usuario, correo_local):
         "aliado_id": aliado.id,
         "objeto": "Contenido reservado del convenio manual",
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
-        "alcance": "INSTITUCIONAL", "duracion_meses": 12,
+        "alcance": "INSTITUCIONAL", **vigencia_json(),
         "implicacion_financiera": "Sin costo",
     })
     assert respuesta.status_code == 201, respuesta.text

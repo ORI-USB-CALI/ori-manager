@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -191,9 +192,9 @@ def solicitante(crear_usuario) -> Usuario:
 
 @pytest.fixture
 def crear_convenio(db: Session) -> Callable[..., Convenio]:
-    """Crea el convenio mediante el contrato canónico de HU-06."""
+    """Crea borradores nuevos por HU-06; historico=True carga datos anteriores a HT-17."""
 
-    def _crear(autor: Usuario, **cambios) -> Convenio:
+    def _crear(autor: Usuario, *, historico: bool = False, **cambios) -> Convenio:
         # HT-06, CA-05: el contrato de creación ya no acepta `codigo`; lo genera
         # el backend al formalizar. Las pruebas que necesitan un código concreto
         # (búsqueda por código, tablero) lo fijan sobre el modelo ya creado.
@@ -218,18 +219,17 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        # Fabrica escenarios historicos anteriores a HT-17, incluidos sus
-        # snapshots, sin presentarlos como registros nuevos. Las validaciones
-        # reales se prueban por API en las suites HT-08 y HT-17.
-        with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min), patch.object(
-            servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])
-        ):
-            convenio = ServicioConvenios(db).crear(
-                ConvenioCrear.model_validate(datos),
-                autor,
-            )
-        convenio.vigencia_ht17 = False
-        db.commit()
+        if not historico and datos.get("duracion_meses") is not None and "fecha_inicio" not in cambios and "fecha_vencimiento" not in cambios:
+            datos.update(vigencia_nueva(duracion_meses=datos["duracion_meses"]))
+        if historico:
+            # Carga explicita de datos anteriores a la migracion HT-17, con su
+            # snapshot original. No usar para registrar convenios nuevos.
+            with patch.object(servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])):
+                convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+            convenio.vigencia_ht17 = False
+            db.commit()
+        else:
+            convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
         if codigo is not None:
             convenio.codigo = codigo
             db.commit()
@@ -247,8 +247,6 @@ def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo para la Universidad",
         duracion_meses=24,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2028, 1, 1),
     )
 
 

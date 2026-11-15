@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -249,7 +250,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
             "objeto": "Convenio canónico completo del Sprint 2",
             "alcance": "INSTITUCIONAL",
             "implicacion_financiera": "Sin erogación presupuestal",
-            "duracion_meses": 24,
+            **vigencia_json(duracion_meses=24),
         },
     )
     assert guardada.status_code == 200, guardada.text

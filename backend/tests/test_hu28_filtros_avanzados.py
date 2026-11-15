@@ -325,7 +325,7 @@ def crear_filtrable(db, crear_convenio, autor):
     def crear(*, estado=EstadoConvenio.VIGENTE, tipo=TipoAliado.EMPRESA,
               firma=date(2026, 6, 15), **datos):
         convenio = crear_convenio(
-            autor, fecha_inicio=date(2026, 1, 1),
+            autor, historico=True, fecha_inicio=date(2026, 1, 1),
             fecha_vencimiento=date(2026, 12, 31), **datos,
         )
         convenio.estado = estado.value

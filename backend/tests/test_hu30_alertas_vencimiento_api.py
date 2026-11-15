@@ -44,7 +44,7 @@ def crear_alerta(
         objeto: str = "Convenio de cooperación HU-30",
     ) -> Convenio:
         convenio = crear_convenio(
-            autor_convenios,
+            autor_convenios, historico=True,
             codigo=codigo,
             objeto=objeto,
             fecha_vencimiento=FECHA_REFERENCIA + timedelta(days=dias),

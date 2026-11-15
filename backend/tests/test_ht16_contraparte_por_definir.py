@@ -5,6 +5,7 @@ from copy import deepcopy
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -82,7 +83,7 @@ def _crear_convenio_manual_en_contraparte(
             "objeto": "Convenio manual para pruebas de HT-16",
             "tipo_convenio_id": tipo_id,
             "alcance": "INSTITUCIONAL",
-            "duracion_meses": 12,
+            **vigencia_json(),
             "implicacion_financiera": "Sin costo",
         },
     )

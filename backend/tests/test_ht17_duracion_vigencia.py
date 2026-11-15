@@ -334,6 +334,7 @@ def test_ca06_historico_incoherente_se_edita_sin_tocar_vigencia(
     client, db, convenio_coherente
 ) -> None:
     # Simula un dato cargado antes de HT-17: no se reescribe ni bloquea.
+    convenio_coherente.vigencia_ht17 = False
     convenio_coherente.fecha_vencimiento = VENCIMIENTO_INCOHERENTE
     db.commit()
 

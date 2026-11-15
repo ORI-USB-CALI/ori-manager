@@ -88,7 +88,7 @@ def test_combinaciones_de_entorno_fecha_y_simulacion(
 def test_rechazo_no_abre_sesion_ni_modifica_registros(
     db, crear_usuario, crear_convenio, monkeypatch, app_env
 ):
-    convenio = crear_convenio(crear_usuario(), fecha_vencimiento=date(2026, 10, 7))
+    convenio = crear_convenio(crear_usuario(), historico=True, fecha_vencimiento=date(2026, 10, 7))
     convenio.estado = "VIGENTE"
     db.commit()
     antes = {
