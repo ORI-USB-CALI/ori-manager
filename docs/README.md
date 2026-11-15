@@ -9,6 +9,7 @@
 | Arquitectura, entornos y acceso | [Arquitectura](architecture/overview.md) |
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Formatos y normalización de solicitudes | [HT-14 — Validación de formatos](hu/ht-14-validacion-formatos-solicitud.md), identificaciones/DV, teléfonos idempotentes, direcciones y rollback conservador |
+| Vigencia contractual | [HT-17](hu/ht-17-duracion-vigencia.md), calculo automatico y compatibilidad historica CA-06 |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
 | Navegación de retorno en convenios | [HT-12 — Acción Volver](hu/ht-12-accion-volver.md), contexto encadenado, accesibilidad y alternativos por rol |
 | Introducción para solicitantes | [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md), roles, recorrido reutilizable, estados individuales y errores recuperables |

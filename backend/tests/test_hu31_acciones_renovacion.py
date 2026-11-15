@@ -63,7 +63,12 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
         "duracion_meses": 24,
     }
     if request.param == "MANUAL_ORI":
+        historicas = {campo: datos.pop(campo) for campo in ("fecha_inicio", "fecha_vencimiento", "duracion_meses")}
         convenio = ServicioConvenios(db).crear_manual(ConvenioCrearManual(**datos), autor)
+        for campo, valor in historicas.items():
+            setattr(convenio, campo, valor)
+        convenio.vigencia_ht17 = False
+        db.commit()
         # HT-06, CA-05: el código ya no entra por el contrato de creación; se
         # fija sobre el modelo porque estas pruebas distinguen origen de hijo.
         convenio.codigo = f"ORIGEN-{autor.id}"
@@ -336,6 +341,7 @@ def test_renovacion_se_edita_y_requiere_sus_dos_avales_propios(
         "expected_revision": 0, "contenido": contenido,
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
+        "fecha_inicio": "2031-01-01",
     })
     assert guardado.status_code == 200, guardado.text
     assert guardado.json()["version_actual"] == 1

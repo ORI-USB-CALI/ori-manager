@@ -711,15 +711,12 @@ class ServicioFirmas:
             raise RevisionNoDisponible(
                 "El convenio no está en aprobación de firmas"
             )
-        # HT-08: no se activa un convenio cuya vigencia ya terminó. Los CA hablan
-        # de creación/elaboración; extenderlo a la formalización es una decisión
-        # del desarrollador pendiente de revisión por el Líder Técnico (ver PR).
-        # HT-17 (CA-04): también se exige la coherencia duración-fechas; no hay
-        # convenios previos a la regla en trámite. `fecha_firma` no se toca aquí.
+        # HT-08: no formalizar vencidos. CA-06: los historicos en tramite
+        # conservan su duracion y convencion; fecha_firma no se toca aqui.
         exigir_vigencia_valida(
             convenio.fecha_inicio,
             convenio.fecha_vencimiento,
-            duracion_meses=convenio.duracion_meses,
+            duracion_meses=convenio.duracion_meses if convenio.vigencia_ht17 else None,
         )
 
         procesos = list(

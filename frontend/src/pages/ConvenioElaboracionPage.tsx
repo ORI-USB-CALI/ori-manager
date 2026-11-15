@@ -10,7 +10,7 @@ import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
-import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia } from './vigencia'
+import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia, vencimientoEsperado } from './vigencia'
 
 const ETAPA_ELABORACION = 'ELABORACION'
 const CAMPOS = [
@@ -288,6 +288,13 @@ export function ConvenioElaboracionPage() {
     || contrapartePendientes.length > 0
     || revisionFinalPendientes.length > 0
 
+  function cambiarVigencia(campo: 'fecha_inicio' | 'duracion_meses', valor: string) {
+    const siguiente = { ...campos, [campo]: valor }
+    siguiente.fecha_vencimiento = siguiente.fecha_inicio && Number(siguiente.duracion_meses) >= 4
+      ? vencimientoEsperado(siguiente.fecha_inicio, Number(siguiente.duracion_meses)) : ''
+    actualizarEdicion({ metadata: siguiente })
+  }
+
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!contenido) return
@@ -312,7 +319,9 @@ export function ConvenioElaboracionPage() {
   function prepararFinalizacion() {
     if (!contenido) return
     const metadata = valoresMetadata(campos, datos.origen)
-    const invalidas = erroresVigencia(metadata)
+    const cambioVigencia = metadata.fecha_inicio !== (fechaInput(edicion.base.fecha_inicio) || null)
+      || metadata.duracion_meses !== (edicion.base.duracion_meses ?? null)
+    const invalidas = cambioVigencia ? erroresVigencia(metadata) : {}
     setErrores(invalidas)
     if (Object.keys(invalidas).length > 0) {
       notify({ type: 'error', message: 'Revisa las fechas de vigencia antes de finalizar.' })
@@ -537,15 +546,15 @@ export function ConvenioElaboracionPage() {
                   {errores.implicacion_financiera && <span className="form-error">{errores.implicacion_financiera}</span>}
                 </label>
                 <label className="form-group">Duración (meses)
-                  <input className="form-control" name="duracion_meses" type="number" min="0" value={campos.duracion_meses} onChange={(event) => actualizarEdicion({ metadata: { ...campos, duracion_meses: event.target.value } })} disabled={!editable} />
+                  <input className="form-control" name="duracion_meses" type="number" min={Number(campos.duracion_meses) === edicion.base.duracion_meses && Number(campos.duracion_meses) < 4 ? undefined : 4} value={campos.duracion_meses} onChange={(event) => cambiarVigencia('duracion_meses', event.target.value)} disabled={!editable} />
                   {errores.duracion_meses && <span className="form-error">{errores.duracion_meses}</span>}
                 </label>
                 <label className="form-group">Fecha de inicio
-                  <input className="form-control" name="fecha_inicio" type="date" value={campos.fecha_inicio} onChange={(event) => actualizarEdicion({ metadata: { ...campos, fecha_inicio: event.target.value } })} disabled={!editable} />
+                  <input className="form-control" name="fecha_inicio" type="date" value={campos.fecha_inicio} onChange={(event) => cambiarVigencia('fecha_inicio', event.target.value)} disabled={!editable} />
                   {errores.fecha_inicio && <span className="form-error">{errores.fecha_inicio}</span>}
                 </label>
                 <label className="form-group">Fecha de vencimiento
-                  <input className="form-control" name="fecha_vencimiento" type="date" value={campos.fecha_vencimiento} onChange={(event) => actualizarEdicion({ metadata: { ...campos, fecha_vencimiento: event.target.value } })} disabled={!editable} />
+                  <input className="form-control" name="fecha_vencimiento" type="date" value={campos.fecha_vencimiento} readOnly disabled={!editable} />
                   {errores.fecha_vencimiento && <span className="form-error">{errores.fecha_vencimiento}</span>}
                 </label>
               </div>

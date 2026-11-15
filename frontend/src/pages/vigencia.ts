@@ -4,7 +4,7 @@
 
 export const MENSAJE_VENCIMIENTO_PASADO = 'La fecha de vencimiento no puede ser anterior a hoy.'
 export const MENSAJE_INICIO_POSTERIOR = 'La fecha de vencimiento debe ser igual o posterior a la fecha de inicio.'
-export const MENSAJE_DURACION_INCOHERENTE = 'La fecha de vencimiento no coincide con la fecha de inicio y la duración: debe ser el mismo día del mes de inicio, sumando los meses indicados.'
+export const MENSAJE_DURACION_INCOHERENTE = 'La fecha de vencimiento no coincide con la fecha de inicio y la duración: se suman los meses y se resta un día; si inicia a fin de mes conserva fin de mes.'
 
 // Motivos que devuelve el backend en `faltantes` para `fecha_vencimiento`.
 const MENSAJES_SERVIDOR: Record<string, string> = {
@@ -43,9 +43,15 @@ export function sumarMeses(fecha: string, meses: number): string {
   return `${anio}-${dosDigitos(mes)}-${dosDigitos(Math.min(dia, ultimoDia))}`
 }
 
-/** HT-17: convención "mismo día del mes": 2027-01-01 con 12 meses vence el 2028-01-01. */
+/** Extremos inclusivos, conservando fin de mes cuando el inicio lo es. */
 export function vencimientoEsperado(fechaInicio: string, duracionMeses: number): string {
-  return sumarMeses(fechaInicio, duracionMeses)
+  const destino = sumarMeses(fechaInicio, duracionMeses)
+  const [anio, mes, dia] = fechaInicio.split('-').map(Number)
+  const [a, m, d] = destino.split('-').map(Number)
+  if (!Number.isInteger(duracionMeses) || a < 1 || a > 9999) return ''
+  const finMes = dia === new Date(Date.UTC(anio, mes, 0)).getUTCDate()
+  const resultado = finMes ? new Date(Date.UTC(a, m, 0)) : new Date(Date.UTC(a, m - 1, d - 1))
+  return Number.isNaN(resultado.getTime()) ? '' : resultado.toISOString().slice(0, 10)
 }
 
 function formatoDia(fecha: string): string {
@@ -63,6 +69,9 @@ export function validarVigencia(
   hoy: string,
   duracionMeses: number | null = null,
 ): Record<string, string> {
+  if (duracionMeses !== null && (!Number.isInteger(duracionMeses) || duracionMeses < 4)) return { duracion_meses: 'La duraci\u00f3n m\u00ednima es de 4 meses.' }
+  if (fechaInicio && fechaInicio < hoy) return { fecha_inicio: 'La fecha de inicio no puede ser anterior a hoy.' }
+  if (fechaInicio && duracionMeses !== null && !vencimientoEsperado(fechaInicio, duracionMeses)) return { duracion_meses: 'La duracion excede el rango de fechas permitido.' }
   if (!fechaVencimiento) return {}
   // CA-01: vencer hoy es válido.
   if (fechaVencimiento < hoy) return { fecha_vencimiento: MENSAJE_VENCIMIENTO_PASADO }

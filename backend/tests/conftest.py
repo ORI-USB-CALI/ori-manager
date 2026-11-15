@@ -218,15 +218,18 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        # HT-08: el fixture fabrica convenios con vigencias históricas (vigentes,
-        # vencidos) para otras HU. Se congela "hoy" en date.min para que no aplique
-        # el CA-01 (vencimiento pasado); el CA-02 (inicio <= vencimiento) sí aplica.
-        # Las reglas de HT-08 se prueban en test_ht08_validacion_vigencia.py.
-        with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min):
+        # Fabrica escenarios historicos anteriores a HT-17, incluidos sus
+        # snapshots, sin presentarlos como registros nuevos. Las validaciones
+        # reales se prueban por API en las suites HT-08 y HT-17.
+        with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min), patch.object(
+            servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])
+        ):
             convenio = ServicioConvenios(db).crear(
                 ConvenioCrear.model_validate(datos),
                 autor,
             )
+        convenio.vigencia_ht17 = False
+        db.commit()
         if codigo is not None:
             convenio.codigo = codigo
             db.commit()

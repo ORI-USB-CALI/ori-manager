@@ -199,7 +199,7 @@ def test_ca02_crear_manual_rechaza_inicio_posterior(client, gestor) -> None:
     "fechas",
     [
         pytest.param({}, id="sin-fechas"),
-        pytest.param({"fecha_inicio": AYER, "fecha_vencimiento": HOY}, id="vence-hoy"),
+        pytest.param({"fecha_inicio": HOY, "fecha_vencimiento": HOY}, id="vence-hoy"),
     ],
 )
 def test_ca03_crear_manual_acepta_vigencia_valida_u_omitida(

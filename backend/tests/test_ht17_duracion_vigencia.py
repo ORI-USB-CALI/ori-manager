@@ -1,14 +1,4 @@
-"""HT-17 — Coherencia entre duración y fechas de vigencia.
-
-Regla (propuesta del Paso 0, pendiente de aprobación del PO en el issue #175):
-`duracion_meses` es referencial y se valida; si vienen inicio, vencimiento y una
-duración positiva, `fecha_vencimiento = fecha_inicio + duracion_meses` (convención
-"mismo día del mes"; el vencimiento sigue siendo inclusivo para la vigencia, HT-10).
-Si el día no existe en el mes de llegada se usa el último día del mes. Si falta
-alguno de los tres valores no se valida.
-
-"Hoy" se fija con monkeypatch para no depender del reloj real.
-"""
+"""HT-17: cierre tecnico; aceptacion institucional pendiente de traza en #175."""
 
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
@@ -49,8 +39,8 @@ from backend.services.vigencia import (
 
 HOY = date(2030, 6, 15)
 INICIO = date(2031, 1, 1)
-VENCIMIENTO_12_MESES = date(2032, 1, 1)
-VENCIMIENTO_INCOHERENTE = date(2031, 12, 31)
+VENCIMIENTO_12_MESES = date(2031, 12, 31)
+VENCIMIENTO_INCOHERENTE = date(2032, 1, 1)
 
 
 @pytest.fixture
@@ -91,11 +81,11 @@ def test_sumar_meses_usa_el_ultimo_dia_si_el_dia_no_existe(fecha, meses, esperad
 @pytest.mark.parametrize(
     ("inicio", "meses", "esperado"),
     [
-        pytest.param(date(2027, 1, 1), 12, date(2028, 1, 1), id="ejemplo-de-la-regla"),
+        pytest.param(date(2027, 1, 1), 12, date(2027, 12, 31), id="ejemplo-de-la-regla"),
         pytest.param(date(2031, 1, 31), 1, date(2031, 2, 28), id="fin-de-mes"),
         pytest.param(date(2032, 2, 29), 12, date(2033, 2, 28), id="29-de-febrero"),
-        pytest.param(date(2031, 11, 15), 3, date(2032, 2, 15), id="cambio-de-anio"),
-        pytest.param(date(2031, 12, 1), 1, date(2032, 1, 1), id="diciembre-a-enero"),
+        pytest.param(date(2031, 11, 15), 3, date(2032, 2, 14), id="cambio-de-anio"),
+        pytest.param(date(2031, 12, 1), 1, date(2031, 12, 31), id="diciembre-a-enero"),
     ],
 )
 def test_vencimiento_esperado_es_el_mismo_dia_del_mes(inicio, meses, esperado) -> None:
@@ -130,12 +120,12 @@ def test_si_falta_un_valor_no_se_valida_la_coherencia(inicio, vencimiento, durac
 
 def test_ca03_inicio_retroactivo_y_periodo_corto_coherentes_se_aceptan() -> None:
     assert validar_vigencia(
-        date(2030, 6, 1), date(2030, 7, 1), HOY, duracion_meses=1
+        date(2030, 6, 1), date(2030, 6, 30), HOY, duracion_meses=1
     ) == []
 
 
 def test_ca05_convenio_coherente_que_vence_hoy_sigue_vigente() -> None:
-    assert validar_vigencia(date(2030, 5, 15), HOY, HOY, duracion_meses=1) == []
+    assert validar_vigencia(date(2030, 5, 16), HOY, HOY, duracion_meses=1) == []
 
 
 def test_inicio_posterior_no_se_duplica_con_la_incoherencia() -> None:
@@ -178,7 +168,7 @@ def test_ca05_medianoche_usa_el_dia_de_bogota(monkeypatch, instante_utc, valido)
         lambda: instante_utc.astimezone(ZONA_HORARIA_DOMINIO),
     )
     # Coherente: 1 mes desde el 30 de mayo vence el 30 de junio.
-    argumentos = (date(2030, 5, 30), date(2030, 6, 30))
+    argumentos = (date(2030, 5, 31), date(2030, 6, 30))
 
     if valido:
         exigir_vigencia_valida(*argumentos, duracion_meses=1)
@@ -192,7 +182,7 @@ def test_ca05_medianoche_usa_el_dia_de_bogota(monkeypatch, instante_utc, valido)
 
 def test_completitud_revisa_la_coherencia() -> None:
     convenio = Convenio(
-        fecha_inicio=INICIO, fecha_vencimiento=VENCIMIENTO_INCOHERENTE, duracion_meses=12
+        vigencia_ht17=True, fecha_inicio=INICIO, fecha_vencimiento=VENCIMIENTO_INCOHERENTE, duracion_meses=12
     )
 
     assert ("fecha_vencimiento", MOTIVO_DURACION_INCOHERENTE) in _motivos(
@@ -288,17 +278,17 @@ def convenio_coherente(db, gestor, hoy_fijo, crear_convenio) -> Convenio:
     )
 
 
-def test_ca02_cambiar_solo_la_duracion_revalida_y_no_persiste(
+def test_ca02_cambiar_solo_la_duracion_calcula_y_persiste(
     client, db, convenio_coherente
 ) -> None:
     respuesta = client.patch(
         f"/api/convenios/{convenio_coherente.id}", json={"duracion_meses": 24}
     )
 
-    assert respuesta.status_code == 422
-    assert _motivos_api(respuesta) == INCOHERENTE
+    assert respuesta.status_code == 200
     db.expire_all()
-    assert db.get(Convenio, convenio_coherente.id).duracion_meses == 12
+    assert db.get(Convenio, convenio_coherente.id).duracion_meses == 24
+    assert db.get(Convenio, convenio_coherente.id).fecha_vencimiento == date(2032, 12, 31)
 
 
 def test_ca02_cambiar_duracion_y_vencimiento_coherentes_se_acepta(
@@ -306,7 +296,7 @@ def test_ca02_cambiar_duracion_y_vencimiento_coherentes_se_acepta(
 ) -> None:
     respuesta = client.patch(
         f"/api/convenios/{convenio_coherente.id}",
-        json={"duracion_meses": 24, "fecha_vencimiento": "2033-01-01"},
+        json={"duracion_meses": 24, "fecha_vencimiento": "2032-12-31"},
     )
 
     assert respuesta.status_code == 200, respuesta.text
@@ -371,6 +361,7 @@ def test_ca06_historico_incoherente_se_edita_sin_tocar_vigencia(
 def test_finalizar_elaboracion_bloquea_periodo_incoherente(
     client, db, hoy_fijo, convenio_listo
 ) -> None:
+    convenio_listo.vigencia_ht17 = True
     convenio_listo.fecha_inicio = INICIO
     convenio_listo.fecha_vencimiento = VENCIMIENTO_INCOHERENTE
     convenio_listo.duracion_meses = 12
@@ -399,6 +390,7 @@ def convenio_en_firmas(db, convenio_coherente) -> Convenio:
 def test_ca04_formalizar_rechaza_incoherencia_sin_tocar_fecha_firma(
     client, db, convenio_en_firmas
 ) -> None:
+    convenio_en_firmas.vigencia_ht17 = True
     convenio_en_firmas.fecha_vencimiento = VENCIMIENTO_INCOHERENTE
     db.commit()
 
@@ -432,14 +424,15 @@ def convenio_vigente_renovable(db, crear_usuario, hoy_fijo) -> Convenio:
     convenio = servicio.crear_manual(
         ConvenioCrearManual(
             objeto="Convenio de origen para renovar",
-            # 12 meses desde el 15/07/2029 vencen el 15/07/2030 (HOY + 30 días).
-            fecha_inicio=date(2029, 7, 15),
-            fecha_vencimiento=HOY + timedelta(days=30),
+            # Las fechas historicas se cargan despues de crear el borrador.
             implicacion_financiera="Recursos propios",
             duracion_meses=12,
         ),
         autor,
     )
+    convenio.fecha_inicio = date(2029, 7, 15)
+    convenio.fecha_vencimiento = HOY + timedelta(days=30)
+    convenio.vigencia_ht17 = False
     convenio.codigo = f"ORIGEN-{autor.id}"
     convenio.fecha_firma = date(2029, 7, 15)
     convenio.porcentaje_avance = 100
@@ -488,3 +481,15 @@ def test_ca04_renovacion_valida_fechas_nuevas_contra_la_duracion_heredada(
     assert incoherente.status_code == 422
     assert _motivos_api(incoherente) == INCOHERENTE
     assert coherente.status_code == 200, coherente.text
+
+
+def test_historico_en_firmas_no_bloquea_por_convencion_antigua(client, db, convenio_en_firmas):
+    convenio_en_firmas.vigencia_ht17 = False
+    convenio_en_firmas.duracion_meses = 1
+    convenio_en_firmas.fecha_inicio = date(2020, 1, 1)
+    convenio_en_firmas.fecha_vencimiento = VENCIMIENTO_INCOHERENTE
+    db.commit()
+    respuesta = client.post(f"/api/convenios/{convenio_en_firmas.id}/firmas/formalizar")
+    assert respuesta.status_code == 409
+    assert "proceso de firmas" in respuesta.json()["detail"]
+    assert convenio_en_firmas.fecha_firma is None

@@ -133,4 +133,4 @@ def test_h03_upgrade_downgrade_reaplicar_preserva_catalogo_e_historia(
     columnas = {columna["name"] for columna in inspect(motor).get_columns("solicitud_convenio")}
     assert "pais_aliado_propuesto_id" in columnas
     with motor.connect() as conexion:
-        assert conexion.scalar(text("SELECT version_num FROM alembic_version")) == "0b2fb1bed5b2"
+        assert conexion.scalar(text("SELECT version_num FROM alembic_version")) == "c17a20261115"

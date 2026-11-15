@@ -8,6 +8,7 @@ BE-4: la validación indica qué falta para poder entregar el proyecto a Jurídi
 
 from collections.abc import Callable
 from datetime import date
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -81,10 +82,12 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        return ServicioConvenios(db).crear(
-            ConvenioCrear.model_validate(datos),
-            autor,
-        )
+        # Escenario historico previo a HT-17, incluido su snapshot inicial.
+        with patch.object(servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])):
+            convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+        convenio.vigencia_ht17 = False
+        db.commit()
+        return convenio
 
     return _crear
 
@@ -637,8 +640,8 @@ def test_finalizar_aplica_el_formulario_actual_sin_patch_previo(
         "unidad_organizacional_id": None,
         "implicacion_financiera": "Sin erogación presupuestal",
         "duracion_meses": 18,
-        "fecha_inicio": "2026-10-01",
-        "fecha_vencimiento": "2028-04-01",
+        "fecha_inicio": "2031-01-01",
+        "fecha_vencimiento": "2032-06-30",
     }
 
     respuesta = client.post(
