@@ -333,6 +333,10 @@ def convenio_exportable(
     convenio_listo.codigo = f"CONV-{uuid4().hex[:8].upper()}"
 
     version = formalizar_version(convenio_listo, gestor)
+    # Escenario exportable: cl?usulas elaboradas, no la precarga de solicitud.
+    version.contenido = {"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "Las partes acuerdan cooperar en movilidad academica."}
+    ]}]}
     revision_final = RevisionConvenio(
         convenio_id=convenio_listo.id,
         tipo=TipoRevisionConvenio.FINAL.value,

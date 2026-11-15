@@ -4,6 +4,7 @@ import io
 from datetime import UTC, datetime
 from functools import partial
 from html import escape
+from types import SimpleNamespace
 from typing import Any
 
 from reportlab.lib import colors
@@ -24,10 +25,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.core.validaciones import identificacion_completa
+from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.enums import OrigenConvenio, RolFirmanteConvenio
 from backend.models.proceso_firmas_convenio import ProcesoFirmasConvenio
 from backend.models.solicitud_convenio import SolicitudConvenio
+from backend.models.tipo_convenio import TipoConvenio
+from backend.models.unidad_organizacional import UnidadOrganizacional
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.exportacion import (
     INFORMACION_NO_DISPONIBLE,
@@ -39,6 +43,11 @@ from backend.schemas.exportacion import (
     SeccionContenidoDTO,
 )
 from backend.services.convenios import ConvenioNoEncontrado
+from backend.services.integridad_exportacion import (
+    ERROR_PRECARGA,
+    datos_definitivos,
+    precarga_hu12_reconocible,
+)
 from backend.services.validador_exportacion_convenio import (
     modo_emision,
     proceso_firmas_de_version,
@@ -188,6 +197,38 @@ class ServicioPdfConvenio:
         # Un borrador no está formalizado: nunca muestra firmas, ni siquiera
         # las de un proceso configurado, para no presentarlas como completadas.
         modo = modo_emision(convenio)
+        datos = datos_definitivos(convenio, version) if modo is ModoEmision.OFICIAL else {}
+
+        def definitivo(campo: str) -> Any:
+            return datos[campo] if campo in datos else getattr(convenio, campo)
+
+        if modo is ModoEmision.OFICIAL:
+            if version and precarga_hu12_reconocible(version.contenido):
+                from backend.services.exportacion_convenio import (
+                    ErrorValidacionExportacion,
+                )
+                raise ErrorValidacionExportacion([ERROR_PRECARGA])
+            snapshot = (version.snapshot_metadata or {}) if version else {}
+            # La asignacion inicial del aliado puede ocurrir en formalizacion.
+            aliado_id = snapshot.get("aliado_id") or convenio.aliado_id
+            aliado = db.get(Aliado, aliado_id) if aliado_id else None
+            identidad = snapshot.get("aliado_identidad")
+            if identidad:
+                # Objeto transitorio, nunca se agrega a la sesion ni se escribe.
+                base = aliado
+                aliado = SimpleNamespace(**identidad)
+                aliado.pais = base.pais if base else None
+                aliado.ciudad = base.ciudad if base else None
+                aliado.correo = base.correo if base else None
+
+        tipo = (
+            db.get(TipoConvenio, definitivo("tipo_convenio_id"))
+            if definitivo("tipo_convenio_id") else None
+        )
+        unidad = (
+            db.get(UnidadOrganizacional, definitivo("unidad_organizacional_id"))
+            if definitivo("unidad_organizacional_id") else None
+        )
         firmantes_dto: list[FirmantePdfDTO] = []
         proceso = proceso_firmas_de_version(convenio, version)
         if proceso is not None and modo is ModoEmision.OFICIAL:
@@ -204,8 +245,8 @@ class ServicioPdfConvenio:
                     )
                 )
 
-        # Con aliado registrado se usan sus datos; si no, los propuestos en la
-        # solicitud. Nunca se mezclan ni se completan con valores supuestos.
+        # Solo el borrador admite la contraparte propuesta de la solicitud.
+        # El oficial usa identidad congelada o la consolidacion del aliado.
         if aliado is not None:
             aliado_datos = {
                 "aliado_nombre": aliado.nombre,
@@ -218,7 +259,7 @@ class ServicioPdfConvenio:
                 "aliado_pais": aliado.pais.nombre if aliado.pais else None,
                 "aliado_ciudad": aliado.ciudad,
             }
-        else:
+        elif modo is ModoEmision.BORRADOR:
             aliado_datos = {
                 "aliado_nombre": solicitud.nombre_aliado_propuesto if solicitud else None,
                 "aliado_tipo": solicitud.tipo_aliado_propuesto if solicitud else None,
@@ -231,25 +272,33 @@ class ServicioPdfConvenio:
                 "aliado_ciudad": solicitud.ciudad_aliado_propuesto if solicitud else None,
             }
 
+        else:
+            aliado_datos = dict.fromkeys((
+                "aliado_nombre", "aliado_tipo", "aliado_identificacion", "aliado_pais", "aliado_ciudad"
+            ))
+
         return ConvenioPdfDTO(
             convenio_id=convenio.id,
             modo_emision=modo,
             codigo=convenio.codigo,
             solicitud_consecutivo=solicitud.consecutivo if solicitud else sin_antecedente,
             tipo_convenio=_o_no_disponible(
-                convenio.tipo_convenio.nombre if convenio.tipo_convenio else None
+                tipo.nombre if tipo else None
             ),
             estado=convenio.estado,
             etapa=_o_no_disponible(
                 convenio.etapa_actual.nombre if convenio.etapa_actual else None
             ),
-            alcance=_o_no_disponible(convenio.alcance),
-            objeto=_o_no_disponible(convenio.objeto),
-            justificacion=_o_no_disponible(solicitud.justificacion) if solicitud else sin_antecedente,
-            implicacion_financiera=_o_no_disponible(convenio.implicacion_financiera),
-            fecha_inicio=convenio.fecha_inicio,
-            fecha_vencimiento=convenio.fecha_vencimiento,
-            duracion_meses=convenio.duracion_meses,
+            alcance=_o_no_disponible(definitivo("alcance")),
+            objeto=_o_no_disponible(definitivo("objeto")),
+            justificacion=(
+                (_o_no_disponible(solicitud.justificacion) if solicitud else sin_antecedente)
+                if modo is ModoEmision.BORRADOR else INFORMACION_NO_DISPONIBLE
+            ),
+            implicacion_financiera=_o_no_disponible(definitivo("implicacion_financiera")),
+            fecha_inicio=definitivo("fecha_inicio"),
+            fecha_vencimiento=definitivo("fecha_vencimiento"),
+            duracion_meses=definitivo("duracion_meses"),
             porcentaje_avance=convenio.porcentaje_avance,
             version_actual=convenio.version_actual,
             fecha_emision=datetime.now(UTC),
@@ -260,18 +309,18 @@ class ServicioPdfConvenio:
                 solicitante.correo if solicitante else sin_antecedente
             ),
             solicitante_unidad=_o_no_disponible(
-                convenio.unidad_organizacional.nombre
-                if convenio.unidad_organizacional
+                unidad.nombre
+                if unidad
                 else None
             ),
             solicitante_tipo=solicitud.tipo_solicitante if solicitud else sin_antecedente,
             **{campo: _o_no_disponible(valor) for campo, valor in aliado_datos.items()},
             aliado_contacto_nombre=_o_no_disponible(
-                solicitud.contacto_contraparte_nombre if solicitud else None
+                solicitud.contacto_contraparte_nombre if solicitud and modo is ModoEmision.BORRADOR else None
             ),
             aliado_contacto_correo=_o_no_disponible(
                 solicitud.contacto_contraparte_correo
-                if solicitud else (aliado.correo if aliado else None)
+                if solicitud and modo is ModoEmision.BORRADOR else (aliado.correo if aliado else None)
             ),
             secciones_contenido=secciones,
             firmantes=firmantes_dto,

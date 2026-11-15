@@ -105,12 +105,12 @@ def test_cada_campo_obligatorio_se_reporta_solo(cambios, campo):
     assert _faltantes(_convenio_completo(**cambios)) == [campo]
 
 
-def test_aliado_propuesto_en_la_solicitud_cuenta_como_entidad():
+def test_aliado_solo_propuesto_no_cuenta_como_entidad_oficial():
     convenio = _convenio_completo(
         aliado=None,
         solicitud=SolicitudConvenio(nombre_aliado_propuesto="Empresa propuesta"),
     )
-    assert _faltantes(convenio) == []
+    assert _faltantes(convenio) == ["entidad_participante"]
 
 
 # ---- Versión contractual -------------------------------------------------------

@@ -30,6 +30,11 @@ from backend.services.contenido_convenio import (
     documento_tiene_texto,
 )
 from backend.services.convenios import convenio_esta_formalizado
+from backend.services.integridad_exportacion import (
+    ERROR_PRECARGA,
+    datos_definitivos,
+    precarga_hu12_reconocible,
+)
 
 # Un proceso cancelado (por ejemplo, tras un cambio sustancial) ya no vale.
 _ESTADOS_PROCESO_VIGENTE = frozenset(
@@ -173,19 +178,22 @@ class ConvenioExportValidator:
 
     def _faltantes_oficial(self, convenio: Convenio) -> list[str]:
         faltantes: list[str] = []
+        version = version_contractual(convenio)
+        datos = datos_definitivos(convenio, version)
         if _vacio(convenio.codigo):
             faltantes.append("codigo_convenio")
         if _falta_solicitud(convenio):
             faltantes.append("solicitud_origen")
-        if _falta_entidad(convenio):
+        identidad = (version.snapshot_metadata or {}).get("aliado_identidad") if version else None
+        if convenio.aliado is None and not identidad:
             faltantes.append("entidad_participante")
-        if convenio.fecha_inicio is None:
+        if datos["fecha_inicio"] is None:
             faltantes.append("fecha_inicio_vigencia")
-        if convenio.fecha_vencimiento is None:
+        if datos["fecha_vencimiento"] is None:
             faltantes.append("fecha_fin_vigencia")
-        if _vacio(convenio.objeto):
+        if _vacio(datos["objeto"]):
             faltantes.append("objeto")
-        if convenio.tipo_convenio_id is None and convenio.tipo_convenio is None:
+        if datos["tipo_convenio_id"] is None:
             faltantes.append("tipo_convenio")
 
         version = version_contractual(convenio)
@@ -193,6 +201,9 @@ class ConvenioExportValidator:
             faltantes.append("version_contractual")
         elif not self._tiene_texto(version):
             faltantes.append("clausulas")
+
+        if version is not None and precarga_hu12_reconocible(version.contenido):
+            faltantes.append(ERROR_PRECARGA)
 
         # Solo cuentan los firmantes del proceso de la versión actual. Los
         # procesos de otras versiones (por ejemplo, uno COMPLETADO de la v1) no
