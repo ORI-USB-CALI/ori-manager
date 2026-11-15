@@ -2598,6 +2598,7 @@ class ServicioConvenios:
             self.db.add(
                 BorradorConvenio(
                     convenio_id=convenio.id,
+                    convenio=convenio,
                     contenido=datos.contenido,
                     revision=1,
                     actualizado_por_id=usuario.id,

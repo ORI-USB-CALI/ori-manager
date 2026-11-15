@@ -1,12 +1,14 @@
 """HU-14: revisión autenticada por el Solicitante dentro de ORI Manager."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from copy import deepcopy
 from datetime import UTC, datetime
 from threading import Barrier
 from uuid import uuid4
 
 import pytest
+from helpers_contenido import preparar_documento_contractual
 from helpers_vigencia import vigencia_nueva
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -47,6 +49,7 @@ def _habilitar(db, convenio, gestor, solicitante, revisor, crear_usuario):
     solicitud = db.get(SolicitudConvenio, convenio.solicitud_id)
     solicitud.solicitante_id = solicitante.id
     db.commit()
+    preparar_documento_contractual(db, convenio)
     ServicioConvenios(db).finalizar_elaboracion(convenio.id, gestor)
     primera = db.scalar(select(RevisionConvenio).where(
         RevisionConvenio.convenio_id == convenio.id,
@@ -83,111 +86,130 @@ def _enviar(client, entrar_como, gestor, convenio) -> dict:
 def _crear_escenario_concurrente(db_engine) -> dict[str, int]:
     fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
     identificador = uuid4().hex
-    with fabrica() as sesion:
-        def crear_usuario(
-            codigo_rol: CodigoRol,
-            tipo_usuario: TipoUsuario = TipoUsuario.INTERNO,
-        ) -> Usuario:
-            rol = sesion.scalar(select(Rol).where(Rol.codigo == codigo_rol.value))
-            usuario = Usuario(
-                correo=f"hu14-concurrencia-{uuid4().hex}@example.com",
-                hash_contrasena=hash_contrasena("ClaveSegura123!"),
-                nombre_completo="Usuario concurrencia HU-14",
-                rol=rol,
-                tipo_usuario=tipo_usuario.value,
-                activo=True,
-                correo_verificado_en=datetime.now(UTC),
-            )
-            sesion.add(usuario)
-            sesion.commit()
-            return usuario
+    escenario = {"convenio_id": None, "solicitud_id": None, "usuario_ids": []}
+    with ExitStack() as limpieza:
+        limpieza.callback(_limpiar_escenario_concurrente, db_engine, escenario)
+        with fabrica() as sesion:
+            def crear_usuario(
+                codigo_rol: CodigoRol,
+                tipo_usuario: TipoUsuario = TipoUsuario.INTERNO,
+            ) -> Usuario:
+                rol = sesion.scalar(select(Rol).where(Rol.codigo == codigo_rol.value))
+                usuario = Usuario(
+                    correo=f"hu14-concurrencia-{uuid4().hex}@example.com",
+                    hash_contrasena=hash_contrasena("ClaveSegura123!"),
+                    nombre_completo="Usuario concurrencia HU-14",
+                    rol=rol,
+                    tipo_usuario=tipo_usuario.value,
+                    activo=True,
+                    correo_verificado_en=datetime.now(UTC),
+                )
+                sesion.add(usuario)
+                sesion.flush()
+                escenario["usuario_ids"].append(usuario.id)
+                sesion.commit()
+                return usuario
 
-        gestor = crear_usuario(CodigoRol.GESTOR_ORI)
-        solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
-        revisor = crear_usuario(CodigoRol.REVISOR_ORI)
-        solicitud = SolicitudConvenio(
-            consecutivo=f"H14C-{identificador}",
-            tipo_solicitante=TipoSolicitante.INTERNO.value,
-            solicitante_id=solicitante.id,
-            objeto="Solicitud para concurrencia HU-14",
-            justificacion="Validar decisiones autenticadas concurrentes",
-            vigencia_estimada="24 meses",
-            estado=EstadoSolicitud.APROBADA.value,
-            nombre_aliado_propuesto="Universidad Contraparte",
-            correo_aliado_propuesto="convenios@contraparte.example",
-        )
-        sesion.add(solicitud)
-        sesion.commit()
-        tipo = sesion.scalar(
-            select(TipoConvenio).where(TipoConvenio.codigo == "MARCO")
-        )
-        convenio = ServicioConvenios(sesion).crear(
-            ConvenioCrear(
-                solicitud_id=solicitud.id,
-                objeto="Convenio para concurrencia HU-14",
-                alcance=AlcanceConvenio.INSTITUCIONAL,
-                tipo_convenio_id=tipo.id,
-                implicacion_financiera="Sin costo",
-                **vigencia_nueva(duracion_meses=24),
-            ),
-            gestor,
-        )
-        version = _habilitar(
-            sesion, convenio, gestor, solicitante, revisor, crear_usuario
-        )
-        revision = ServicioConvenios(sesion).enviar_a_contraparte(
-            convenio.id, convenio.version_actual, gestor
-        )
-        usuarios = list(sesion.scalars(select(Usuario.id).where(
-            Usuario.correo.like("hu14-concurrencia-%@example.com")
-        )))
-        return {
-            "convenio_id": convenio.id,
-            "solicitud_id": solicitud.id,
-            "revision_id": revision.id,
-            "solicitante_id": solicitante.id,
-            "version_numero": version.numero,
-            "usuario_ids": usuarios,
-        }
+            gestor = crear_usuario(CodigoRol.GESTOR_ORI)
+            solicitante = crear_usuario(CodigoRol.SOLICITANTE_INTERNO)
+            revisor = crear_usuario(CodigoRol.REVISOR_ORI)
+            solicitud = SolicitudConvenio(
+                consecutivo=f"H14C-{identificador}",
+                tipo_solicitante=TipoSolicitante.INTERNO.value,
+                solicitante_id=solicitante.id,
+                objeto="Solicitud para concurrencia HU-14",
+                justificacion="Validar decisiones autenticadas concurrentes",
+                vigencia_estimada="24 meses",
+                estado=EstadoSolicitud.APROBADA.value,
+                nombre_aliado_propuesto="Universidad Contraparte",
+                correo_aliado_propuesto="convenios@contraparte.example",
+            )
+            sesion.add(solicitud)
+            sesion.flush()
+            escenario["solicitud_id"] = solicitud.id
+            sesion.commit()
+            tipo = sesion.scalar(
+                select(TipoConvenio).where(TipoConvenio.codigo == "MARCO")
+            )
+            convenio = ServicioConvenios(sesion).crear(
+                ConvenioCrear(
+                    solicitud_id=solicitud.id,
+                    objeto="Convenio para concurrencia HU-14",
+                    alcance=AlcanceConvenio.INSTITUCIONAL,
+                    tipo_convenio_id=tipo.id,
+                    implicacion_financiera="Sin costo",
+                    **vigencia_nueva(duracion_meses=24),
+                ),
+                gestor,
+            )
+            escenario["convenio_id"] = convenio.id
+            version = _habilitar(
+                sesion, convenio, gestor, solicitante, revisor, crear_usuario
+            )
+            revision = ServicioConvenios(sesion).enviar_a_contraparte(
+                convenio.id, convenio.version_actual, gestor
+            )
+            resultado = {
+                "convenio_id": convenio.id,
+                "solicitud_id": solicitud.id,
+                "revision_id": revision.id,
+                "solicitante_id": solicitante.id,
+                "version_numero": version.numero,
+                "usuario_ids": escenario["usuario_ids"],
+            }
+            limpieza.pop_all()
+            return resultado
 
 
 def _limpiar_escenario_concurrente(db_engine, escenario: dict) -> None:
     fabrica = sessionmaker(bind=db_engine)
     with fabrica() as sesion:
         convenio_id = escenario["convenio_id"]
-        sesion.execute(delete(ObservacionRevision).where(
-            ObservacionRevision.convenio_id == convenio_id
-        ))
-        sesion.execute(delete(RevisionConvenio).where(
-            RevisionConvenio.convenio_id == convenio_id
-        ))
-        sesion.execute(delete(HistorialEtapa).where(
-            HistorialEtapa.convenio_id == convenio_id
-        ))
-        sesion.execute(delete(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_id
-        ))
-        sesion.execute(delete(Documento).where(
-            (Documento.convenio_id == convenio_id)
-            | (Documento.solicitud_id == escenario["solicitud_id"])
-        ))
-        sesion.execute(delete(Auditoria).where(
-            Auditoria.usuario_id.in_(escenario["usuario_ids"])
-        ))
-        sesion.execute(delete(Notificacion).where(
-            Notificacion.usuario_id.in_(escenario["usuario_ids"])
-        ))
-        sesion.execute(delete(BorradorConvenio).where(
-            BorradorConvenio.convenio_id == convenio_id
-        ))
-        sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
-        sesion.execute(delete(SolicitudConvenio).where(
-            SolicitudConvenio.id == escenario["solicitud_id"]
-        ))
-        sesion.execute(delete(Usuario).where(
-            Usuario.id.in_(escenario["usuario_ids"])
-        ))
+        if convenio_id is not None:
+            sesion.execute(delete(Notificacion).where(
+                Notificacion.entidad_tipo == "CONVENIO", Notificacion.entidad_id == convenio_id
+            ))
+            for modelo in (ObservacionRevision, RevisionConvenio, HistorialEtapa, VersionConvenio):
+                sesion.execute(delete(modelo).where(modelo.convenio_id == convenio_id))
+            sesion.execute(delete(Documento).where(Documento.convenio_id == convenio_id))
+            sesion.execute(delete(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio_id))
+        solicitud_id = escenario["solicitud_id"]
+        if solicitud_id is not None:
+            sesion.execute(delete(Notificacion).where(
+                Notificacion.entidad_tipo == "SOLICITUD", Notificacion.entidad_id == solicitud_id
+            ))
+            sesion.execute(delete(Documento).where(Documento.solicitud_id == solicitud_id))
+        for modelo in (Auditoria, Notificacion):
+            sesion.execute(delete(modelo).where(modelo.usuario_id.in_(escenario["usuario_ids"])))
+        if convenio_id is not None:
+            sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
+        if solicitud_id is not None:
+            sesion.execute(delete(SolicitudConvenio).where(SolicitudConvenio.id == solicitud_id))
+        sesion.execute(delete(Usuario).where(Usuario.id.in_(escenario["usuario_ids"])))
         sesion.commit()
+
+
+def _ids_persistidos(db_engine):
+    fabrica = sessionmaker(bind=db_engine)
+    with fabrica() as sesion:
+        return {m.__tablename__: set(sesion.scalars(select(m.id)))
+                for m in (Convenio, SolicitudConvenio, Usuario, BorradorConvenio,
+                          RevisionConvenio, VersionConvenio, Auditoria, Notificacion,
+                          Documento, HistorialEtapa)}
+
+
+@pytest.mark.parametrize("paso", ["crear", "habilitar"])
+def test_preparacion_concurrente_fallida_limpia_sus_registros(db_engine, monkeypatch, paso):
+    antes = _ids_persistidos(db_engine)
+    def fallar(*args, **kwargs):
+        raise RuntimeError("Fallo de preparacion simulado")
+    if paso == "crear":
+        monkeypatch.setattr(ServicioConvenios, "crear", fallar)
+    else:
+        monkeypatch.setitem(globals(), "_habilitar", fallar)
+    with pytest.raises(RuntimeError, match="Fallo de preparacion simulado"):
+        _crear_escenario_concurrente(db_engine)
+    assert _ids_persistidos(db_engine) == antes
 
 
 def test_envio_asigna_solicitante_y_no_crea_registros_legacy(
@@ -495,6 +517,7 @@ def test_fallo_commit_revierte_aprobacion_autenticada(
 def test_decisiones_autenticadas_concurrentes_solo_permiten_un_resultado(
     db_engine,
 ) -> None:
+    antes = _ids_persistidos(db_engine)
     escenario = _crear_escenario_concurrente(db_engine)
     fabrica = sessionmaker(bind=db_engine, expire_on_commit=False)
     barrera = Barrier(2)
@@ -563,3 +586,4 @@ def test_decisiones_autenticadas_concurrentes_solo_permiten_un_resultado(
                 assert (finales, observaciones) == (0, 1)
     finally:
         _limpiar_escenario_concurrente(db_engine, escenario)
+        assert _ids_persistidos(db_engine) == antes

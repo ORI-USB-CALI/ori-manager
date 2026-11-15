@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from helpers_contenido import documento_contractual
 from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 
@@ -238,9 +239,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
 
     elaboracion = client.get(f"/api/convenios/{convenio_id}/elaboracion")
     assert elaboracion.status_code == 200, elaboracion.text
-    contenido_editado = _anadir_parrafo(
-        elaboracion.json()["contenido"], "Edición inicial reconocible del E2E"
-    )
+    contenido_editado = documento_contractual("Edición inicial reconocible del E2E")
     guardada = client.patch(
         f"/api/convenios/{convenio_id}/elaboracion",
         json={

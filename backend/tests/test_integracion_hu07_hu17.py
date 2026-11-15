@@ -1,5 +1,6 @@
 from io import BytesIO
 
+from helpers_contenido import documento_contractual
 from helpers_revision import revision_actual
 from helpers_vigencia import vigencia_json
 from sqlalchemy import select
@@ -217,6 +218,7 @@ def test_flujo_integrado_devolucion_hasta_doble_revision_y_tablero(
     finalizada = client.post(
         f"/api/convenios/{convenio_id}/elaboracion/finalizar",
         json={
+            "contenido": documento_contractual(),
             "tipo_convenio_id": tipo.id,
             "objeto": "Objeto integrado listo para Jurídica",
             "alcance": "INSTITUCIONAL",

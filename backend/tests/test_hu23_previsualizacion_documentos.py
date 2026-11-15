@@ -11,6 +11,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 import pytest
+from helpers_contenido import preparar_documento_contractual
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -217,6 +218,8 @@ def test_revisor_ori_accede_a_documentos_en_convenio_en_etapa_juridica(
         duracion_meses=12,
     )
     doc = _crear_documento_convenio(db, convenio, tmp_path)
+
+    preparar_documento_contractual(db, convenio)
 
     # El gestor entrega a Jurídica
     ServicioConvenios(db).finalizar_elaboracion(convenio.id, gestor)
