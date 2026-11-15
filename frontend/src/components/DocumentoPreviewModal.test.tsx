@@ -715,6 +715,132 @@ describe('DocumentoPreviewModal (HU-23: CA-01, CA-02, CA-03, CA-04, CA-06, CA-07
     }
   })
 
+  it('HT-18: devuelve el foco al activador sin provocar desplazamiento', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const contenedor = document.createElement('div')
+    const activador = document.createElement('button')
+    contenedor.appendChild(activador)
+    document.body.appendChild(contenedor)
+    contenedor.scrollTop = 180
+    contenedor.scrollLeft = 35
+    activador.focus()
+    const focoEspia = vi.spyOn(activador, 'focus')
+    try {
+      render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+      // Simula un desplazamiento accidental mientras el visor está abierto.
+      contenedor.scrollTop = 0
+      contenedor.scrollLeft = 0
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+      expect(onCerrar).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(activador)
+      expect(focoEspia).toHaveBeenCalledWith({ preventScroll: true })
+      expect(contenedor.scrollTop).toBe(180)
+      expect(contenedor.scrollLeft).toBe(35)
+    } finally {
+      focoEspia.mockRestore()
+      contenedor.remove()
+    }
+  })
+
+  it('HT-18: conserva la posición de la página al cerrar con Escape', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const activador = document.createElement('button')
+    document.body.appendChild(activador)
+    activador.focus()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+      vi.stubGlobal('scrollX', x)
+      vi.stubGlobal('scrollY', y)
+    })
+    vi.stubGlobal('scrollX', 25)
+    vi.stubGlobal('scrollY', 670)
+    try {
+      render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/pdf" onCerrar={onCerrar} />)
+      vi.stubGlobal('scrollX', 0)
+      vi.stubGlobal('scrollY', 0)
+      const dialogo = screen.getByRole('dialog')
+      fireEvent(dialogo, new Event('cancel', { cancelable: true }))
+      expect(onCerrar).toHaveBeenCalledTimes(1)
+      expect(scrollTo).toHaveBeenCalledWith(25, 670)
+      expect(document.activeElement).toBe(activador)
+    } finally {
+      scrollTo.mockRestore()
+      activador.remove()
+    }
+  })
+
+  it('HT-18 CA-05: muestra el PDF dentro del visor sin iniciar una descarga', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(respuestaPdf())
+    vi.stubGlobal('fetch', fetchMock)
+    const clicEnlace = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+    const abrirVentana = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      render(
+        <DocumentoPreviewModal
+          nombreArchivo="convenio.pdf"
+          urlContenido="/convenios/10/documentos/1/contenido?disposicion=inline"
+          onCerrar={onCerrar}
+        />,
+      )
+
+      const iframe = await screen.findByTestId('preview-iframe')
+      expect(screen.getByRole('dialog').contains(iframe)).toBe(true)
+      expect(iframe.getAttribute('src')).toBe('blob:http://localhost/mock-preview-uuid')
+      expect(screen.queryByTestId('preview-error')).toBeNull()
+      // Una sola petición, en línea: nunca se pide el archivo como adjunto.
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledWith('/api/convenios/10/documentos/1/contenido?disposicion=inline', {
+        credentials: 'include', signal: expect.any(AbortSignal),
+      })
+      expect(clicEnlace).not.toHaveBeenCalled()
+      expect(abrirVentana).not.toHaveBeenCalled()
+    } finally {
+      clicEnlace.mockRestore()
+      abrirVentana.mockRestore()
+    }
+  })
+
+  it.each([
+    [403, 'No tiene permiso para consultar este documento.', false],
+    [404, 'El documento solicitado no fue encontrado o no está vigente.', true],
+  ])('HT-18 CA-05: tras un %i informa el error y al cerrar devuelve al punto de partida', async (status, mensaje, recuperable) => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false, status, statusText: 'Error',
+      text: async () => JSON.stringify({ detail: 'detalle interno del servidor' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const activador = document.createElement('button')
+    document.body.appendChild(activador)
+    activador.focus()
+    const focoEspia = vi.spyOn(activador, 'focus')
+    const clicEnlace = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+    try {
+      render(<DocumentoPreviewModal nombreArchivo="archivo.pdf" urlContenido="/documento?disposicion=inline" onCerrar={onCerrar} />)
+
+      await screen.findByTestId('preview-error')
+      expect(screen.getByText(mensaje)).toBeTruthy()
+      expect(screen.queryByText(/detalle interno/)).toBeNull()
+      expect(screen.queryByTestId('preview-iframe')).toBeNull()
+      expect(screen.queryAllByRole('button', { name: 'Reintentar' })).toHaveLength(recuperable ? 1 : 0)
+      expect(screen.queryAllByRole('link').length > 0).toBe(recuperable)
+      // El foco está dentro del visor mientras se muestra el error.
+      expect(document.activeElement).not.toBe(activador)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+
+      expect(onCerrar).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('dialog', { hidden: true }).hasAttribute('open')).toBe(false)
+      expect(document.activeElement).toBe(activador)
+      expect(focoEspia).toHaveBeenCalledWith({ preventScroll: true })
+      // Ni el error ni el cierre provocan otra petición o una descarga.
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(clicEnlace).not.toHaveBeenCalled()
+    } finally {
+      focoEspia.mockRestore()
+      clicEnlace.mockRestore()
+      activador.remove()
+    }
+  })
+
   it('permite cerrar cuando el activador ya no existe', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
     const activador = document.createElement('button')
