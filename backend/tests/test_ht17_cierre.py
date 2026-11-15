@@ -3,6 +3,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from helpers_revision import revision_actual
 
 from backend.models.enums import EstadoConvenio
 from backend.services import convenios, vigencia
@@ -93,7 +94,7 @@ def test_historico_corto_finaliza_y_llega_a_firmas_sin_recalculo(
     db.commit()
     ruta = f"/api/convenios/{convenio_listo.id}"
     assert client.get(ruta + "/elaboracion/validacion").json()["completo"] is True
-    respuesta = client.post(ruta + "/elaboracion/finalizar")
+    respuesta = client.post(ruta + "/elaboracion/finalizar", json={"expected_revision": revision_actual(client, ruta + "/elaboracion/finalizar")})
     assert respuesta.status_code == 200, respuesta.text
     assert client.get(ruta).json()["fecha_vencimiento"] == "2099-01-01"
 
@@ -123,7 +124,7 @@ def test_borrador_nuevo_exige_fechas_antes_de_finalizar(client, gestor):
     assert respuesta.json()["fecha_vencimiento"] is None
     faltantes = client.get(ruta + "/elaboracion/validacion").json()["faltantes"]
     assert {"fecha_inicio", "fecha_vencimiento"} <= {f["campo"] for f in faltantes}
-    assert client.post(ruta + "/elaboracion/finalizar").status_code == 422
+    assert client.post(ruta + "/elaboracion/finalizar", json={"expected_revision": revision_actual(client, ruta + "/elaboracion/finalizar")}).status_code == 422
 
 
 def test_factory_nueva_aplica_ht17_y_carga_historica_es_explicita(gestor, crear_convenio):

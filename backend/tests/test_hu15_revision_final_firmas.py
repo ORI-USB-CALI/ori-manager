@@ -18,6 +18,7 @@ from backend.core.security import hash_contrasena
 from backend.main import app
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
@@ -282,6 +283,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
         sesion.execute(
             delete(VersionConvenio).where(VersionConvenio.convenio_id == convenio_id)
         )
+        sesion.execute(
+            delete(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio_id)
+        )
         sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
         sesion.execute(
             delete(SolicitudConvenio).where(
@@ -301,16 +305,10 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
 
 
 @pytest.fixture
-def escenario_final(db, convenio_listo, gestor, revisor):
+def escenario_final(db, convenio_listo, gestor, revisor, formalizar_version):
     etapa_final = db.scalar(select(Etapa).where(Etapa.codigo == "REVISION_FINAL"))
     assert etapa_final is not None
-    version = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == convenio_listo.version_actual,
-        )
-    )
-    assert version is not None
+    version = formalizar_version(convenio_listo, gestor)
     historial = HistorialEtapa(
         convenio_id=convenio_listo.id,
         etapa_origen_id=convenio_listo.etapa_actual_id,
@@ -531,10 +529,11 @@ def test_documento_aprobado_rechaza_convenio_sin_proceso(
 
 
 def test_documento_aprobado_rechaza_version_ajena_sin_fallback(
-    client, db, escenario_final, crear_convenio
+    client, db, escenario_final, crear_convenio, formalizar_version
 ):
     proceso = _aprobar(client, escenario_final).json()
     otro_convenio = crear_convenio(escenario_final["gestor"])
+    formalizar_version(otro_convenio, escenario_final["gestor"])
     version_ajena = db.scalar(
         select(VersionConvenio).where(
             VersionConvenio.convenio_id == otro_convenio.id

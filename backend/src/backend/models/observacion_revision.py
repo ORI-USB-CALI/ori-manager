@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -64,6 +66,11 @@ class ObservacionRevision(Base):
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True
     )
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
+    # HT-15: si obliga a corregir el documento antes de reenviarlo. Las anteriores
+    # a esta regla y las que no marca el Revisor ORI cuentan como obligatorias.
+    requiere_correccion: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
     respuesta: Mapped[str | None] = mapped_column(Text, nullable=True)
     atendida_por_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=True

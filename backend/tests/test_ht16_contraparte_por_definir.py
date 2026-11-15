@@ -5,6 +5,7 @@ from copy import deepcopy
 from uuid import uuid4
 
 import pytest
+from helpers_revision import revision_actual
 from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -92,7 +93,9 @@ def _crear_convenio_manual_en_contraparte(
     guardado = client.patch(
         f"/api/convenios/{convenio.id}/elaboracion",
         json={
-            "expected_revision": 0,
+            # HT-15: el borrador nace en la revisión 1 al crear el convenio
+            # (RN-01/RN-02), no en 0.
+            "expected_revision": 1,
             "contenido": {
                 "type": "doc",
                 "content": [
@@ -693,7 +696,7 @@ def test_ca04_modificacion_de_contraparte_o_metadatos_congelados_exige_nueva_rev
 
     # Al finalizar la elaboración, el cambio en aliado_id genera nueva versión e inicia nueva ronda jurídica
     finalizado = client.post(
-        f"/api/convenios/{convenio.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}
     )
     assert finalizado.status_code == 200, finalizado.text
     db.expire_all()

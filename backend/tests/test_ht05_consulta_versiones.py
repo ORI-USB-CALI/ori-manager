@@ -32,6 +32,15 @@ def _con_parrafo(contenido: dict, texto: str) -> dict:
     return nuevo
 
 
+@pytest.fixture
+def convenio_listo(convenio_listo, gestor, formalizar_version):
+    """Convenio con una V1 inicial, como los anteriores a HT-15 (CA-08)."""
+    formalizar_version(
+        convenio_listo, gestor, ContextoVersionConvenio.INICIALIZACION
+    )
+    return convenio_listo
+
+
 def _guardar_avance(client, convenio_id: int, texto: str) -> dict:
     actual = client.get(f"{_ruta(convenio_id)}/elaboracion").json()
     respuesta = client.patch(
@@ -270,7 +279,7 @@ def test_ca07_convenio_inexistente_responde_404_controlado(client, gestor) -> No
 
 
 def test_ca07_una_version_de_otro_convenio_no_se_expone(
-    client, gestor, crear_convenio, convenio_listo
+    client, gestor, crear_convenio, convenio_listo, formalizar_version
 ) -> None:
     otro = crear_convenio(
         gestor,
@@ -280,6 +289,7 @@ def test_ca07_una_version_de_otro_convenio_no_se_expone(
         fecha_inicio=convenio_listo.fecha_inicio,
         fecha_vencimiento=convenio_listo.fecha_vencimiento,
     )
+    formalizar_version(otro, gestor, ContextoVersionConvenio.INICIALIZACION)
     texto_exclusivo = "Contenido exclusivo del segundo convenio"
     avance = _guardar_avance(client, otro.id, texto_exclusivo)
     _finalizar(client, otro.id, avance["revision_borrador"])

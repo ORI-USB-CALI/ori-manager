@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+from helpers_revision import revision_actual
 from sqlalchemy import select
 
 from backend.models.revision_convenio import RevisionConvenio
@@ -25,7 +26,7 @@ def test_convenio_en_elaboracion_no_tiene_revisiones_pero_si_ingreso_a_etapa(
 def test_finalizar_elaboracion_deja_una_revision_juridica_pendiente(
     client, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
 
     cuerpo = client.get(f"/api/convenios/{convenio_listo.id}/revisiones").json()
 
@@ -54,7 +55,7 @@ def test_finalizar_elaboracion_deja_una_revision_juridica_pendiente(
 def test_trazabilidad_registra_usuario_y_fecha_del_cambio_de_etapa(
     client, gestor, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
 
     cuerpo = client.get(f"/api/convenios/{convenio_listo.id}/revisiones").json()
 
@@ -66,7 +67,7 @@ def test_trazabilidad_registra_usuario_y_fecha_del_cambio_de_etapa(
 def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
     client, db, gestor, revisor, entrar_como, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     primera = db.scalar(
         select(RevisionConvenio).where(
             RevisionConvenio.convenio_id == convenio_listo.id
@@ -100,7 +101,7 @@ def test_ca06_historial_conserva_ciclos_de_revision_anteriores(
         json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     ).status_code == 200
     segunda = client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     )
     assert segunda.status_code == 200
 

@@ -15,6 +15,7 @@
 | Introducción para solicitantes | [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md), roles, recorrido reutilizable, estados individuales y errores recuperables |
 | Guía contextual de solicitudes | [HU-39 — Crear y radicar](hu/hu-39-guia-radicacion.md), contenido del formulario actual, caché individual, sincronización y regresión de HU-38 |
 | Borradores, versiones formales y concurrencia | [HT-13 — Borrador y versionamiento](hu/ht-13-borrador-versionamiento.md), contrato y dependencia con HT-09 |
+| Numeración de versiones formales y reenvíos | [HT-15 — Versionamiento formal](hu/ht-15-versionamiento-formal.md), decisiones del PO sobre la versión inicial y el reenvío sin cambios |
 | Consulta del contenido histórico de convenios | [HT-05 — Versiones históricas](hu/HT-05-consulta-versiones-historicas.md), ocho CA, permisos, compatibilidad y reversión |
 | Autoría y ejecución de la auditoría | [HT-09 — Auditoría ampliada](hu/ht-09-auditoria-ampliada.md), responsables, contratos y rollback conservador |
 | Código institucional y modo de emisión del documento | [HT-06 — Código del convenio](hu/ht-06-codigo-convenio.md), generación al formalizar, contador anual y exportación en trámite u oficial |
@@ -68,3 +69,5 @@
 - [Drive — Quality Assurance](https://drive.google.com/drive/folders/12aOj3os-8IVkqfuDmK2E85NWJABSQg8j)
 
 Las pruebas integrales de todo el sistema están previstas al finalizar **Sprint 5**; no deben confundirse con las pruebas de cada HU durante los sprints. Tampoco debe considerarse desplegado algo solo porque esté integrado en `develop`.
+
+- [Cierre de integración HT-15 — PR #183](development/pr-183-ht15-cierre.md).

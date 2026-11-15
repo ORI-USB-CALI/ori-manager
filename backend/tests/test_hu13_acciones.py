@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 import pytest
+from helpers_revision import revision_actual
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -339,7 +340,7 @@ def test_rj2_editada_devuelta_reenvia_v2_y_nueva_ronda_avala_la_misma_version(
         json={"respuesta": "La corrección V2 fue verificada"},
     ).status_code == 200
     reenvio = client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     )
     assert reenvio.status_code == 200
     db.refresh(convenio_listo)
@@ -520,7 +521,7 @@ def test_devolucion_exige_nueva_version_y_reinicia_desde_rj1_ronda_siguiente(
         json={"respuesta": "Atendida"},
     ).status_code == 200
     assert client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     ).status_code == 409
 
     elaboracion = client.get(
@@ -532,7 +533,7 @@ def test_devolucion_exige_nueva_version_y_reinicia_desde_rj1_ronda_siguiente(
         json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     ).status_code == 200
     assert client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     ).status_code == 200
 
     nueva = db.scalar(

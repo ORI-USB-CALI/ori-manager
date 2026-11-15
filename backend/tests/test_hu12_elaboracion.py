@@ -12,6 +12,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from helpers_revision import revision_actual
 from helpers_vigencia import vigencia_nueva
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -539,7 +540,7 @@ def test_ca06_finalizar_programa_sin_unidad_es_rechazado(
     )
     assert guardado.status_code == 200
 
-    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")})
 
     assert respuesta.status_code == 422
     assert [
@@ -609,7 +610,7 @@ def test_ca06_finalizar_incompleto_no_cambia_nada(
     convenio = crear_convenio(gestor)  # sin tipo, implicación ni duración
     etapa_antes = convenio.etapa_actual_id
 
-    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")})
 
     assert respuesta.status_code == 422
     detalle = respuesta.json()["detail"]
@@ -650,7 +651,7 @@ def test_finalizar_aplica_el_formulario_actual_sin_patch_previo(
     }
 
     respuesta = client.post(
-        f"/api/convenios/{convenio.id}/elaboracion/finalizar", json=datos
+        f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={**datos, "expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}
     )
 
     assert respuesta.status_code == 200
@@ -671,7 +672,7 @@ def test_finalizar_invalido_no_persiste_cambios_del_body(
 
     respuesta = client.post(
         f"/api/convenios/{convenio.id}/elaboracion/finalizar",
-        json={"objeto": "Cambio que debe revertirse"},
+        json={"objeto": "Cambio que debe revertirse", "expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")},
     )
 
     assert respuesta.status_code == 422
@@ -693,7 +694,7 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     client, db, gestor, convenio_listo
 ) -> None:
     respuesta = client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     )
     assert respuesta.status_code == 200
 
@@ -740,7 +741,7 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
 
 
 def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, convenio_listo) -> None:
-    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     assert respuesta.status_code == 200, respuesta.text
 
     snapshot = _revisiones_de(db, convenio_listo.id)[0].snapshot_datos
@@ -778,7 +779,7 @@ def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, conven
 def test_ca08_el_snapshot_no_cambia_si_el_convenio_cambia_despues(
     client, db, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     snapshot_original = dict(_revisiones_de(db, convenio_listo.id)[0].snapshot_datos)
 
     # Se fuerza un cambio posterior en el convenio, saltando el guard de etapa.
@@ -792,13 +793,13 @@ def test_ca08_el_snapshot_no_cambia_si_el_convenio_cambia_despues(
 def test_ca08_no_se_puede_finalizar_dos_veces(client, db, convenio_listo) -> None:
     assert (
         client.post(
-            f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+            f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
         ).status_code
         == 200
     )
 
     segunda = client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     )
 
     assert segunda.status_code == 409
@@ -828,7 +829,7 @@ def test_revisor_fuera_de_etapa_juridica_no_consulta_edita_ni_finaliza(
         == 403
     )
     assert (
-        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar").status_code
+        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}).status_code
         == 403
     )
 
@@ -850,6 +851,6 @@ def test_usuario_sin_permisos_no_puede_consultar_editar_ni_finalizar(
         == 403
     )
     assert (
-        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar").status_code
+        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}).status_code
         == 403
     )

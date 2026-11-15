@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.actividad_convenio import ActividadConvenio
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     EstadoActividadConvenio,
@@ -459,6 +460,11 @@ def test_registro_recarga_estado_confirmado_por_otra_conexion(
             limpieza.execute(
                 delete(ActividadConvenio).where(
                     ActividadConvenio.convenio_id == convenio_id
+                )
+            )
+            limpieza.execute(
+                delete(BorradorConvenio).where(
+                    BorradorConvenio.convenio_id == convenio_id
                 )
             )
             limpieza.execute(delete(Convenio).where(Convenio.id == convenio_id))

@@ -274,9 +274,11 @@ export interface VersionConvenioDetalle extends VersionConvenioResumen {
 }
 
 const CONTEXTOS_VERSION: Record<string, string> = {
-  INICIALIZACION: 'Creación del proyecto',
+  // HT-15: desde que existe el borrador (RN-01 a RN-03), ya no se crean
+  // versiones nuevas con este contexto; solo aparece en convenios anteriores.
+  INICIALIZACION: 'Versión inicial (convenio anterior a HT-15)',
   GUARDADO: 'Avance guardado',
-  FINALIZACION: 'Elaboración finalizada',
+  FINALIZACION: 'Envío a revisión jurídica',
   CORRECCION_REVISION: 'Ajustes de revisión',
 }
 
@@ -294,6 +296,7 @@ export interface ObservacionRevision {
   id: number
   origen: 'REVISOR_ORI' | 'CONTRAPARTE'
   descripcion: string
+  requiere_correccion: boolean
   respuesta: string | null
   estado: 'PENDIENTE' | 'ATENDIDA'
   registrada_por: UsuarioResumen | null
@@ -359,11 +362,11 @@ export interface HistorialConvenio {
   }>
 }
 
-export function useVersionesConvenio(convenioId: number) {
+export function useVersionesConvenio(convenioId: number, habilitado = true) {
   return useQuery({
     queryKey: ['convenios', convenioId, 'versiones'],
     queryFn: () => apiFetch<VersionConvenioResumen[]>(`/convenios/${convenioId}/versiones`),
-    enabled: Number.isInteger(convenioId),
+    enabled: habilitado && Number.isInteger(convenioId) && convenioId > 0,
     retry: false,
   })
 }
