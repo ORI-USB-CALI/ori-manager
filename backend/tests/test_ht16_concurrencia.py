@@ -66,7 +66,8 @@ def escenario(db_engine):
         ), gestor)
         convenio_id = convenio.id
         servicio.guardar_elaboracion(convenio_id, ConvenioElaboracionGuardar(
-            expected_revision=0, contenido={"type": "doc", "content": [{
+            # HT-15: el borrador nace en la revisión 1 al crear el convenio.
+            expected_revision=1, contenido={"type": "doc", "content": [{
                 "type": "paragraph", "content": [{"type": "text", "text": "Texto HT-16"}],
             }]},
         ), gestor)

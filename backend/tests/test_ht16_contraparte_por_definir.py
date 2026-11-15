@@ -91,7 +91,9 @@ def _crear_convenio_manual_en_contraparte(
     guardado = client.patch(
         f"/api/convenios/{convenio.id}/elaboracion",
         json={
-            "expected_revision": 0,
+            # HT-15: el borrador nace en la revisión 1 al crear el convenio
+            # (RN-01/RN-02), no en 0.
+            "expected_revision": 1,
             "contenido": {
                 "type": "doc",
                 "content": [
