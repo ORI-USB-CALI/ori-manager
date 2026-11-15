@@ -333,13 +333,13 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
                   <dt>Correo</dt><dd>{firma.correo_firmante ?? '—'}</dd><dt>Modalidad</dt><dd>{etiqueta(firma.modalidad)}</dd>
                   <dt>Fecha de firma</dt><dd>{firma.modalidad === 'FISICA' ? fechaFisica(firma.fecha_firma) : fecha(firma.fecha_firma)}</dd>
                   {firma.modalidad === 'FISICA' ? (
-                    <><dt>Evidencia</dt><dd>{firma.documento ? <a href={`/api/convenios/${convenioId}/documentos/${firma.documento.id}/contenido`} target="_blank" rel="noreferrer">Ver/descargar {firma.documento.nombre_archivo}</a> : 'Pendiente de registro'}</dd></>
+                    <><dt>Evidencia</dt><dd>{firma.documento?.nombre_archivo ?? 'Pendiente de registro'}</dd></>
                   ) : (
                     <><dt>Invitación</dt><dd><span className={`badge ${claseEstadoInvitacion(invitacion?.estado ?? null)}`}>{invitacion ? etiqueta(invitacion.estado) : 'No disponible'}</span></dd></>
                   )}
                 </dl>
               )}
-              {firma.modalidad === 'ELECTRONICA' && firma.estado === 'FIRMADA' && firma.evidencia_electronica_disponible && (
+              {((firma.modalidad === 'ELECTRONICA' && firma.estado === 'FIRMADA' && firma.evidencia_electronica_disponible) || (firma.modalidad === 'FISICA' && firma.documento)) && (
                 <button className="btn btn-outline btn-small" type="button" onClick={() => setEvidenciaSeleccionada(firma)}>Ver evidencia</button>
               )}
               {datos.estado === 'EN_CURSO' && firma.modalidad === 'ELECTRONICA' && firma.estado === 'PENDIENTE' && invitacion && (
@@ -387,16 +387,18 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
       )}
       {evidenciaSeleccionada && (
         <DocumentoPreviewModal
-          nombreArchivo={`convenio-${convenioId}-firma-${evidenciaSeleccionada.id}.png`}
-          tipoMime="image/png"
-          permitirPng
-          urlContenido={`/api/convenios/${convenioId}/firmas/${evidenciaSeleccionada.id}/evidencia?disposicion=inline`}
-          etiquetaDescarga="Descargar PNG"
+          nombreArchivo={evidenciaSeleccionada.documento?.nombre_archivo ?? `convenio-${convenioId}-firma-${evidenciaSeleccionada.id}.png`}
+          tipoMime={evidenciaSeleccionada.modalidad === 'FISICA' ? evidenciaSeleccionada.documento?.tipo_mime : 'image/png'}
+          permitirPng={evidenciaSeleccionada.modalidad === 'ELECTRONICA'}
+          urlContenido={evidenciaSeleccionada.modalidad === 'FISICA'
+            ? `/api/convenios/${convenioId}/documentos/${evidenciaSeleccionada.documento!.id}/contenido?disposicion=inline`
+            : `/api/convenios/${convenioId}/firmas/${evidenciaSeleccionada.id}/evidencia?disposicion=inline`}
+          etiquetaDescarga={evidenciaSeleccionada.modalidad === 'FISICA' ? 'Descargar PDF' : 'Descargar PNG'}
           resumen={<dl className="proyecto-datos">
             <dt>Firmante</dt><dd>{evidenciaSeleccionada.nombre_firmante}</dd>
             <dt>Rol</dt><dd>{etiqueta(evidenciaSeleccionada.rol_firmante)}</dd>
-            <dt>Modalidad</dt><dd>Electrónica</dd>
-            <dt>Fecha registrada</dt><dd>{fecha(evidenciaSeleccionada.fecha_firma)}</dd>
+            <dt>Modalidad</dt><dd>{etiqueta(evidenciaSeleccionada.modalidad)}</dd>
+            <dt>Fecha registrada</dt><dd>{evidenciaSeleccionada.modalidad === 'FISICA' ? fechaFisica(evidenciaSeleccionada.fecha_firma) : fecha(evidenciaSeleccionada.fecha_firma)}</dd>
           </dl>}
           onCerrar={() => setEvidenciaSeleccionada(null)}
         />

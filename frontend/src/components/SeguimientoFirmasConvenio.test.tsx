@@ -17,6 +17,14 @@ const firma = {
 
 function montar(firmas: object[] = [firma], estado = 'EN_CURSO', fallo?: number) {
   const fetchMock = vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/documentos/')) {
+      return Promise.resolve(fallo ? {
+        ok: false, status: fallo, text: async () => JSON.stringify({ detail: `Error ${fallo}` }),
+      } : {
+        ok: true, blob: async () => new Blob(['%PDF-1.4 original'], { type: 'application/pdf' }),
+        headers: new Headers(),
+      })
+    }
     if (url.includes('/evidencia')) {
       return Promise.resolve(fallo ? {
         ok: false, status: fallo, text: async () => JSON.stringify({ detail: `Error ${fallo}` }),
@@ -71,9 +79,34 @@ describe('consulta de evidencia electrónica', () => {
     expect(screen.queryByRole('button', { name: 'Ver evidencia' })).toBeNull()
   })
 
-  it('conserva el enlace al PDF físico', async () => {
-    montar([{ ...firma, modalidad: 'FISICA', documento: { id: 4, nombre_archivo: 'soporte.pdf' } }])
-    expect((await screen.findByRole('link', { name: 'Ver/descargar soporte.pdf' })).getAttribute('href')).toBe('/api/convenios/11/documentos/4/contenido')
+  it('usa botones uniformes y abre el PDF original en el visor con descarga y cierre', async () => {
+    const { fetchMock } = montar([
+      firma,
+      { ...firma, id: 18, modalidad: 'FISICA', documento: { id: 4, nombre_archivo: 'soporte.pdf', tipo_mime: 'application/pdf' } },
+    ])
+    const acciones = await screen.findAllByRole('button', { name: 'Ver evidencia' })
+    expect(acciones).toHaveLength(2)
+    expect(acciones[0].className).toBe(acciones[1].className)
+    expect(acciones[0].parentElement?.className).toBe(acciones[1].parentElement?.className)
+    expect(screen.getByText('soporte.pdf')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Ver\/descargar/ })).toBeNull()
+    await userEvent.click(acciones[1])
+    expect(await screen.findByTestId('preview-iframe')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'soporte.pdf' })).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledWith('/api/convenios/11/documentos/4/contenido?disposicion=inline', expect.objectContaining({ credentials: 'include', signal: expect.any(AbortSignal) }))
+    const descarga = screen.getByRole('link', { name: 'Descargar PDF' })
+    expect(descarga.getAttribute('href')).toBe('/api/convenios/11/documentos/4/contenido?disposicion=attachment')
+    expect(descarga.getAttribute('download')).toBe('soporte.pdf')
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:evidencia')
+  })
+
+  it.each([403, 404])('maneja HTTP %s al abrir evidencia física', async (codigo) => {
+    montar([{ ...firma, modalidad: 'FISICA', documento: { id: 4, nombre_archivo: 'soporte.pdf', tipo_mime: 'application/pdf' } }], 'COMPLETADO', codigo)
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver evidencia' }))
+    expect(await screen.findByTestId('preview-error')).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
   })
 
   it.each([401, 403, 404, 409, 502])('maneja HTTP %s y permite cerrar', async (codigo) => {
