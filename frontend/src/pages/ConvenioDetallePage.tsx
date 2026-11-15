@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useRef, useState } from 'react'
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
@@ -18,7 +18,7 @@ import { IniciarRenovacionFinalizado } from '../components/IniciarRenovacionFina
 import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import { SoportesConvenio } from '../components/SoportesConvenio'
-import { type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio } from './epica02'
+import { type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio, useAliados } from './epica02'
 
 interface UsuarioResumen { id: number; nombre_completo: string }
 interface ObservacionRevision {
@@ -40,6 +40,7 @@ interface Revision {
 }
 interface DocumentoAsociado { id: number; tipo: string; nombre_archivo: string; tipo_mime: string; tamano_bytes: number }
 interface VersionReferencia { id: number; numero: number }
+interface RecuperacionIdentidad { revisionId: number; invitacionId: number; version: number }
 interface RevisionPendiente {
   convenio: Convenio & { tipo_convenio: { id: number; nombre: string } | null }
   revision_pendiente: Revision
@@ -74,6 +75,7 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
 
 export function ConvenioDetallePage() {
   const ubicacion = useLocation()
+  const navigate = useNavigate()
   const retorno = volverA(ubicacion, 'Volver al convenio')
   const id = Number(useParams().convenioId)
   const [parametros, setParametros] = useSearchParams()
@@ -108,7 +110,7 @@ export function ConvenioDetallePage() {
 
   const cliente = useQueryClient()
   const notify = useNotifications()
-  const { puede } = useSesion()
+  const { puede, sesion } = useSesion()
   const puedeConsultarEtapa = puede('convenios.editar')
     || puede('convenios.revisar')
     || puede('convenios.gestionar_revision_contraparte')
@@ -116,6 +118,9 @@ export function ConvenioDetallePage() {
   const [borrador, setBorrador] = useState<{ version: number; contenido: DocumentoConvenio } | null>(null)
   const [observacion, setObservacion] = useState('')
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
+  const [recuperacionIdentidad, setRecuperacionIdentidad] = useState<RecuperacionIdentidad | null>(null)
+  const [identidadIncompatible, setIdentidadIncompatible] = useState(false)
+  const [aliadoSeleccionadoId, setAliadoSeleccionadoId] = useState<string | null>(null)
   const [documentoPreview, setDocumentoPreview] = useState<DocumentoAsociado | null>(null)
 
   const convenio = useQuery({
@@ -152,6 +157,15 @@ export function ConvenioDetallePage() {
   const revisionContrapartePendiente = historialContraparte.data?.revisiones.find(
     (item) => item.tipo === 'CONTRAPARTE' && item.estado === 'PENDIENTE',
   )
+  const requiereCatalogoAliados = Boolean(
+    Number.isInteger(id)
+      && id > 0
+      && puede('convenios.gestionar_revision_contraparte')
+      && convenio.data?.origen === 'MANUAL_ORI'
+      && flujoContraparte.data?.etapa_actual?.codigo === 'REVISION_CONTRAPARTE'
+      && !revisionContrapartePendiente,
+  )
+  const aliadosActivos = useAliados(true, requiereCatalogoAliados)
 
   async function refrescarRevision(limpiarBorrador = true) {
     if (limpiarBorrador) setBorrador(null)
@@ -159,6 +173,7 @@ export function ConvenioDetallePage() {
       cliente.invalidateQueries({ queryKey: ['convenio', id] }),
       cliente.invalidateQueries({ queryKey: ['convenio', id, 'revision'] }),
       cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
+      cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
       cliente.invalidateQueries({ queryKey: ['revisiones-juridicas', 'pendientes'] }),
     ])
   }
@@ -203,6 +218,18 @@ export function ConvenioDetallePage() {
             : 'Segunda revisión aprobada. El proyecto quedó habilitado para contraparte.'
           : 'Proyecto devuelto a Elaboración con observaciones.',
       })
+      if (sesion?.rol.codigo === 'REVISOR_ORI' || !puede('convenios.editar')) {
+        setBorrador(null)
+        await Promise.all([
+          cliente.invalidateQueries({ queryKey: ['convenio', id], refetchType: 'none' }),
+          cliente.invalidateQueries({ queryKey: ['convenio', id, 'revision'], refetchType: 'none' }),
+          cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'], refetchType: 'none' }),
+          cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
+          cliente.invalidateQueries({ queryKey: ['revisiones-juridicas', 'pendientes'] }),
+        ])
+        navigate(`/convenios/${id}/historial`, { replace: true, state: ubicacion.state })
+        return
+      }
       await refrescarRevision()
     },
     onError: (error) => notify({
@@ -227,11 +254,13 @@ export function ConvenioDetallePage() {
       ])
     },
     onError: async (error) => {
+      if (error instanceof ApiError && error.detail && typeof error.detail === 'object'
+        && 'codigo' in error.detail && error.detail.codigo === 'IDENTIDAD_ALIADO_CAMBIADA') setIdentidadIncompatible(true)
       notify({
         type: 'error',
         message: error instanceof Error ? error.message : 'No fue posible enviar la elaboración de convenio a la contraparte.',
       })
-      if (error instanceof ApiError && (error.status === 409 || error.status === 502)) {
+      if (error instanceof ApiError && (error.status === 409 || error.status === 502 || error.status === 503)) {
         setConfirmarEnvio(false)
         await Promise.all([
           cliente.invalidateQueries({ queryKey: ['convenio', id], exact: true }),
@@ -242,17 +271,74 @@ export function ConvenioDetallePage() {
     },
   })
   const reenviarInvitacionManual = useMutation({
-    mutationFn: (revisionId: number) => apiFetch(
-      `/convenios/${id}/revision-contraparte/${revisionId}/reenviar-invitacion`,
-      { method: 'POST' },
-    ),
+    mutationFn: (revisionId: number) => {
+      const ultimaInvitacionId = Math.max(0, ...(revisionContrapartePendiente?.invitaciones_contraparte.map((item) => item.id) ?? []))
+      if (!ultimaInvitacionId) throw new Error('No hay una invitación vigente. Recargue el historial antes de reenviar.')
+      return apiFetch(`/convenios/${id}/revision-contraparte/${revisionId}/reenviar-invitacion`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_invitacion_id: ultimaInvitacionId }),
+      })
+    },
     onSuccess: async () => {
       notify({ type: 'success', message: 'Invitación enviada al correo del aliado.' })
       await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] })
     },
-    onError: (error) => notify({
-      type: 'error', message: error instanceof Error ? error.message : 'No se pudo reenviar la invitación.',
+    onError: async (error) => {
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No se pudo reenviar la invitación.' })
+      await cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] })
+    },
+  })
+  const reabrirPorIdentidad = useMutation({
+    mutationFn: () => apiFetch(`/convenios/${id}/revision-juridica/reabrir-por-identidad`, {
+      method: 'POST', body: JSON.stringify({ expected_version: convenio.data?.version_actual }),
     }),
+    onSuccess: async () => {
+      setIdentidadIncompatible(false)
+      notify({ type: 'success', message: 'El convenio volvió a Elaboración. Obtenga nuevos avales RJ1 y RJ2 para la identidad actual.' })
+      await refrescarRevision()
+    },
+    onError: (error) => notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible reabrir Elaboración.' }),
+  })
+  const invalidarPorIdentidad = useMutation({
+    mutationFn: (objetivo: RecuperacionIdentidad) => apiFetch(
+      `/convenios/${id}/revision-contraparte/${objetivo.revisionId}/invalidar-por-identidad`, {
+        method: 'POST', body: JSON.stringify({ expected_version: objetivo.version, expected_invitacion_id: objetivo.invitacionId }),
+      },
+    ),
+    onSuccess: async () => {
+      setRecuperacionIdentidad(null)
+      setIdentidadIncompatible(false)
+      notify({ type: 'success', message: 'Invitación invalidada administrativamente. Complete Elaboración y obtenga nuevos avales RJ1 y RJ2.' })
+      await refrescarRevision()
+    },
+    onError: async (error) => {
+      setRecuperacionIdentidad(null)
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible recuperar la revisión.' })
+      await refrescarRevision()
+    },
+  })
+  const guardarContraparte = useMutation({
+    mutationFn: (nuevoAliadoId: number) => apiFetch<Convenio>(`/convenios/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ aliado_id: nuevoAliadoId }),
+    }),
+    onSuccess: async (actualizado) => {
+      setAliadoSeleccionadoId(null)
+      cliente.setQueryData(['convenio', id], actualizado)
+      notify({ type: 'success', message: actualizado.etapa_actual_id !== convenio.data?.etapa_actual_id
+        || (convenio.data?.aliado_id !== null && convenio.data?.aliado_id !== actualizado.aliado_id)
+        ? 'Contraparte rectificada. Complete Elaboración y obtenga nuevamente RJ1 y RJ2.'
+        : 'Contraparte actualizada correctamente.' })
+      await Promise.all([
+        cliente.invalidateQueries({ queryKey: ['convenio', id] }),
+        cliente.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
+        cliente.invalidateQueries({ queryKey: ['convenio', id, 'historial'] }),
+      ])
+    },
+    onError: async (error) => {
+      notify({ type: 'error', message: error instanceof Error ? error.message : 'No fue posible actualizar la contraparte.' })
+      if (error instanceof ApiError && error.status === 409) await refrescarRevision()
+    },
   })
 
   if (convenio.isPending) return <p className="estado-pagina">Cargando convenio…</p>
@@ -280,7 +366,27 @@ export function ConvenioDetallePage() {
     && datos.version_actual > 0
   const puedeIrAElaboracion = puede('convenios.editar') && etapaActual === 'ELABORACION'
   const invitacionesRevision = revisionContrapartePendiente?.invitaciones_contraparte ?? []
+  const ultimaInvitacionId = Math.max(0, ...invitacionesRevision.map((item) => item.id))
   const esProyecto = datos.estado === 'EN_TRAMITE' || datos.estado === 'CANCELADO' || !datos.fecha_firma
+  const aliadoActual = datos.aliado ?? flujoContraparte.data?.aliado ?? null
+  const detalleAliadoActual = aliadoActual
+    ? (aliadosActivos.data?.items.find((item) => item.id === aliadoActual.id) ?? aliadoActual)
+    : null
+  const correoAliadoActual = detalleAliadoActual?.correo?.trim() ?? ''
+  const correoAliadoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correoAliadoActual)
+  const datosFaltantesContraparte: string[] = []
+  if (datos.origen === 'MANUAL_ORI' && detalleAliadoActual) {
+    if (!detalleAliadoActual.activo) datosFaltantesContraparte.push('estado activo')
+    if (!detalleAliadoActual.nombre?.trim()) datosFaltantesContraparte.push('nombre')
+    if (!detalleAliadoActual.identificacion?.trim()) datosFaltantesContraparte.push('identificación')
+    if (!correoAliadoValido) datosFaltantesContraparte.push('correo electrónico válido')
+  }
+  const contrapartePorDefinir = datos.origen === 'MANUAL_ORI' && !aliadoActual
+  const contraparteListaParaEnvio = datos.origen === 'MANUAL_ORI'
+    ? Boolean(aliadoActual && datosFaltantesContraparte.length === 0)
+    : true
+  const valorSelectorAliado = aliadoSeleccionadoId ?? (datos.aliado_id !== null ? String(datos.aliado_id) : '')
+  const puedeModificarContraparte = puede('convenios.editar') || puede('convenios.gestionar_revision_contraparte')
 
   return (
     <>
@@ -328,7 +434,10 @@ export function ConvenioDetallePage() {
 
       {pestana === 'historial' && (
         <div className="panel-pestana" role="tabpanel" id="panel-historial" aria-labelledby="pestana-historial">
-          <HistorialConvenioContenido convenioId={id} solicitudId={datos.solicitud_id} />
+          <HistorialConvenioContenido
+            convenioId={id}
+            solicitudId={datos.origen === 'MANUAL_ORI' ? null : datos.solicitud_id}
+          />
         </div>
       )}
 
@@ -351,15 +460,83 @@ export function ConvenioDetallePage() {
                   <h2>Revisión de contraparte</h2>
                   <p className="section-help">{datos.origen === 'MANUAL_ORI' ? 'Se enviará una invitación de revisión al correo del aliado registrado.' : `La versión ${datos.version_actual} cuenta con aval jurídico y quedará disponible para el Solicitante dentro de ORI Manager.`}</p>
                 </div>
-                <span className="badge badge-neutral">Lista para envío</span>
+                <span className={`badge ${contraparteListaParaEnvio ? 'badge-neutral' : 'badge-pendiente'}`}>
+                  {contraparteListaParaEnvio ? 'Lista para envío' : 'Contraparte pendiente'}
+                </span>
               </div>
               <dl className="proyecto-datos revision-contraparte-datos">
                 <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
-                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}</dt><dd>{datos.origen === 'MANUAL_ORI' ? (datos.aliado?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</dd>
-                {datos.origen !== 'MANUAL_ORI' && <><dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</dd></>}
+                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}</dt><dd>{datos.origen === 'MANUAL_ORI' ? (aliadoActual?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</dd>
+                {datos.origen === 'MANUAL_ORI'
+                  ? <><dt>Correo de la contraparte</dt><dd>{correoAliadoActual || 'Sin correo registrado'}</dd></>
+                  : <><dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</dd></>}
               </dl>
+              {contrapartePorDefinir && (
+                <p className="alert-error" role="alert">
+                  La contraparte está configurada como Por definir. Debe asignar una contraparte válida antes de enviar a revisión de contraparte.
+                </p>
+              )}
+              {!contrapartePorDefinir && datosFaltantesContraparte.length > 0 && (
+                <p className="alert-error" role="alert">
+                  La contraparte seleccionada no cumple los requisitos para el envío. Datos por completar: {datosFaltantesContraparte.join(', ')}.
+                </p>
+              )}
+              {datos.origen === 'MANUAL_ORI' && puedeModificarContraparte && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="contraparte-revision-select">
+                    {aliadoActual ? 'Corregir contraparte' : 'Asignar contraparte'}
+                  </label>
+                  {aliadoActual && <p className="section-help">Cambiar la contraparte devuelve el convenio a Elaboración y requiere nuevamente RJ1 y RJ2.</p>}
+                  {aliadosActivos.isPending && <p role="status">Cargando aliados activos…</p>}
+                  {aliadosActivos.isError && <p role="alert">No fue posible cargar los aliados. <button type="button" onClick={() => void aliadosActivos.refetch()}>Reintentar catálogo</button></p>}
+                  {aliadosActivos.isSuccess && aliadosActivos.data.items.length === 0 && <p>No hay aliados activos disponibles.</p>}
+                  <select
+                    id="contraparte-revision-select"
+                    className="form-control"
+                    value={valorSelectorAliado}
+                    onChange={(event) => setAliadoSeleccionadoId(event.target.value)}
+                    disabled={guardarContraparte.isPending || !aliadosActivos.isSuccess || aliadosActivos.isFetching}
+                  >
+                    <option value="">Por definir — seleccione un aliado</option>
+                    {aliadoActual && !aliadosActivos.data?.items.some((item) => item.id === aliadoActual.id) && (
+                      <option value={aliadoActual.id}>{aliadoActual.nombre} (contraparte actual)</option>
+                    )}
+                    {(aliadosActivos.data?.items ?? []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.nombre} ({item.identificacion}){item.correo ? ` · ${item.correo}` : ' · Sin correo'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="page-toolbar">
+                    <button
+                      className="btn btn-outline"
+                      type="button"
+                      disabled={
+                        guardarContraparte.isPending
+                        || !aliadosActivos.isSuccess
+                        || aliadosActivos.isFetching
+                        || !valorSelectorAliado
+                      }
+                      onClick={() => guardarContraparte.mutate(Number(valorSelectorAliado))}
+                    >
+                      {guardarContraparte.isPending ? 'Guardando contraparte…' : 'Guardar contraparte'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="page-toolbar">
-                <button className="btn btn-primary" type="button" onClick={() => setConfirmarEnvio(true)} disabled={enviarContraparte.isPending}>
+                {identidadIncompatible && puede('convenios.editar') && (
+                  <button type="button" className="btn btn-outline" disabled={reabrirPorIdentidad.isPending}
+                    onClick={() => reabrirPorIdentidad.mutate()}>
+                    Volver a Elaboración para revisar la identidad
+                  </button>
+                )}
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => setConfirmarEnvio(true)}
+                  disabled={!contraparteListaParaEnvio || enviarContraparte.isPending || guardarContraparte.isPending}
+                >
                   Enviar a revisión de contraparte
                 </button>
               </div>
@@ -378,10 +555,19 @@ export function ConvenioDetallePage() {
                 <span className="badge badge-pendiente">Pendiente</span>
               </div>
               {datos.origen === 'MANUAL_ORI' && (
-                <button type="button" className="btn btn-outline" disabled={reenviarInvitacionManual.isPending}
-                  onClick={() => reenviarInvitacionManual.mutate(revisionContrapartePendiente.id)}>
-                  {reenviarInvitacionManual.isPending ? 'Enviando…' : 'Reenviar enlace al aliado'}
-                </button>
+                <div className="page-toolbar">
+                  <button type="button" className="btn btn-outline" disabled={reenviarInvitacionManual.isPending || invalidarPorIdentidad.isPending}
+                    onClick={() => reenviarInvitacionManual.mutate(revisionContrapartePendiente.id)}>
+                    {reenviarInvitacionManual.isPending ? 'Enviando…' : 'Reenviar enlace al aliado'}
+                  </button>
+                  {puede('convenios.editar') && (
+                    <button type="button" className="btn btn-outline"
+                      disabled={!ultimaInvitacionId || historialContraparte.isFetching || reenviarInvitacionManual.isPending || invalidarPorIdentidad.isPending}
+                      onClick={() => setRecuperacionIdentidad({ revisionId: revisionContrapartePendiente.id, invitacionId: ultimaInvitacionId, version: datos.version_actual })}>
+                      Recuperar por cambio de identidad
+                    </button>
+                  )}
+                </div>
               )}
               <dl className="proyecto-datos revision-contraparte-datos">
                 <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
@@ -500,8 +686,22 @@ export function ConvenioDetallePage() {
           onCerrar={() => setConfirmarEnvio(false)}
         >
           <p>Se enviará la versión {datos.version_actual}, aprobada jurídicamente.</p>
-          <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${datos.aliado?.nombre ?? 'por definir'}.` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
+          <p>{datos.origen === 'MANUAL_ORI' ? `Se enviará al correo del aliado ${aliadoActual?.nombre ?? ''} (${correoAliadoActual}).` : `Solicitante responsable: ${flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—'} · ${flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}`}</p>
           <p className="texto-secundario">{datos.origen === 'MANUAL_ORI' ? 'La contraparte recibirá un enlace externo de revisión.' : 'La revisión quedará disponible en la bandeja autenticada del Solicitante dentro de ORI Manager.'}</p>
+        </ConfirmacionModal>
+      )}
+
+      {recuperacionIdentidad && (
+        <ConfirmacionModal
+          titulo="Invalidar invitación y volver a Elaboración"
+          confirmar="Confirmar recuperación"
+          procesando="Recuperando…"
+          pendiente={invalidarPorIdentidad.isPending}
+          onConfirmar={() => invalidarPorIdentidad.mutate(recuperacionIdentidad)}
+          onCerrar={() => setRecuperacionIdentidad(null)}
+        >
+          <p>Solo se realizará si la identidad jurídica actual es incompatible con la autorizada para la revisión.</p>
+          <p>Se revocarán los enlaces y se cerrará administrativamente la revisión pendiente de la versión {recuperacionIdentidad.version}. El convenio volverá a Elaboración y requerirá nuevos RJ1 y RJ2. Los avales históricos se conservan.</p>
         </ConfirmacionModal>
       )}
 

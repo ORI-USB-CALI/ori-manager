@@ -31,6 +31,7 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+- HT-16, cierre técnico del PR #180: [contraparte por definir](ht-16-contraparte-por-definir.md). Congela además la identidad jurídica del aliado (quince campos de snapshot), preserva la excepción inicial mediante una huella auditada y exige `expected_invitacion_id` en cada reenvío. Documenta nuevos avales, concurrencia, errores de correo y recuperación; conserva el flujo autenticado de solicitudes y el público de convenios manuales.
 - HU-10 (PR #126): el router público se habilita para convenios `MANUAL_ORI`,
   que carecen de solicitud y de Solicitante. Se conserva el flujo autenticado
   del FIX de HU-14 (#102) para convenios `SOLICITUD`; incluso sus enlaces
@@ -40,8 +41,8 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
   contraparte está pendiente y su versión sigue vigente. Las decisiones
   conservan los bloqueos transaccionales existentes y no omiten los dos avales
   jurídicos. Cobertura: `backend/tests/test_hu14_revision_contraparte_publica.py`.
-- Snapshots de HU-12: `origen` integra el contrato de catorce campos de las
-  nuevas revisiones y versiones. Los JSONB históricos sin esa clave se leen
+- Snapshots de HU-12: `origen` integró el contrato de catorce campos anterior a
+  la incorporación de `aliado_identidad` en HT-16. Los JSONB históricos sin `origen` se leen
   sin completarlos ni reescribirlos; la regresión de compatibilidad está en
   `backend/tests/test_hu12_editor_versiones.py`.
 
