@@ -44,3 +44,23 @@ Validacion local: 122 pruebas dirigidas aprobadas (regresiones OBS-S3-003, HU-24
 PDF/Excel, seguridad y borradores; dos casos HU-12 y uno HT-15). Las pruebas
 observan solo SELECT durante la exportacion y comparan contenido, snapshot y
 auditoria tras el rechazo. No se ejecutaron migraciones ni operaciones externas.
+
+## Prevencion antes de Juridica (PR #186)
+
+_faltantes_elaboracion reutiliza precarga_hu12_reconocible y devuelve un
+CampoFaltante de contenido con una instruccion para elaborar el texto definitivo.
+El rechazo ocurre antes de crear la version formal o cambiar de etapa y sigue
+el rollback existente de ElaboracionIncompleta, incluidos cambios de formulario.
+No se modifica el editor ni se corrigen automaticamente versiones historicas.
+El frontend existente muestra el motivo del campo contenido en el formulario.
+
+Las fixtures llamadas convenio_listo ahora preparan texto contractual: estar
+listo para Juridica ya no equivale a tener solo los metadatos completos. Las
+pruebas de precarga inicial siguen usando crear_convenio sin esa preparacion.
+
+Validacion preventiva: ocho pruebas nuevas de rechazo/aceptacion y atomicidad;
+144 pruebas aprobadas al incluir la regresion HU-10/HT-14/HU-24 del PR; 21 pruebas
+frontend aprobadas, incluidas presentacion del error y preservacion del editor.
+La seleccion ampliada HU-12/HT-15/OBS obtuvo 110 aprobadas y 14 fallos de entorno:
+el PostgreSQL local carece de observacion_revision.requiere_correccion. No se
+aplicaron migraciones. Ruff, TypeScript, ESLint dirigido y diff --check correctos.

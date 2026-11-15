@@ -107,8 +107,9 @@ def test_convenio_manual_nace_sin_version_y_con_documento_vacio_como_borrador(
 
 
 def test_convenio_desde_solicitud_nace_sin_version_y_con_la_plantilla_como_borrador(
-    client, db, gestor, convenio_listo
+    client, db, gestor, crear_convenio
 ) -> None:
+    convenio_listo = crear_convenio(gestor)
     assert convenio_listo.version_actual == 0
     assert _versiones(db, convenio_listo.id) == []
     borrador = _borrador(db, convenio_listo.id)
@@ -178,20 +179,18 @@ def test_el_primer_envio_del_convenio_manual_genera_la_v1_con_lo_elaborado(
     assert _borrador(db, convenio_manual.id) is None
 
 
-def test_el_primer_envio_sin_editar_la_plantilla_tambien_genera_la_v1(
-    client, db, gestor, convenio_listo
+def test_el_primer_envio_sin_editar_la_plantilla_es_rechazado(
+    client, db, gestor, crear_convenio, tipo_marco
 ) -> None:
-    plantilla = deepcopy(_borrador(db, convenio_listo.id).contenido)
-
-    enviado = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
-
-    assert enviado.status_code == 200, enviado.text
-    (v1,) = _versiones(db, convenio_listo.id)
-    assert v1.numero == 1
-    assert v1.contenido == plantilla
-    assert v1.snapshot_metadata["origen"] == "SOLICITUD"
-    assert v1.snapshot_metadata["convenio_origen_id"] is None
-    assert v1.snapshot_metadata["numero_renovacion"] is None
+    convenio = crear_convenio(gestor, tipo_convenio_id=tipo_marco, **DATOS_COMPLETOS)
+    plantilla = deepcopy(_borrador(db, convenio.id).contenido)
+    ruta = f"{_ruta(convenio.id)}/finalizar"
+    enviado = client.post(ruta, json={"expected_revision": revision_actual(client, ruta)})
+    assert enviado.status_code == 422
+    assert {f["campo"] for f in enviado.json()["detail"]["faltantes"]} == {"contenido"}
+    assert _versiones(db, convenio.id) == []
+    assert _borrador(db, convenio.id).contenido == plantilla
+    assert convenio.etapa_actual.codigo == "ELABORACION"
 
 
 def test_un_documento_vacio_no_se_puede_enviar_y_no_crea_version(

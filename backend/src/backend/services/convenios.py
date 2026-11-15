@@ -84,6 +84,7 @@ from backend.services.identidad_aliado import (
 )
 from backend.services.identidad_aliado import huella_identidad as _huella_identidad
 from backend.services.identidad_aliado import identidad_aliado as _identidad_aliado
+from backend.services.integridad_exportacion import precarga_hu12_reconocible
 from backend.services.notificaciones import ServicioNotificaciones
 from backend.services.vigencia import (
     fecha_actual_dominio,
@@ -2436,6 +2437,17 @@ class ServicioConvenios:
                     CampoFaltante(
                         campo="contenido",
                         motivo="El documento no puede estar vacío",
+                    )
+                )
+            elif precarga_hu12_reconocible(version.contenido):
+                faltantes.append(
+                    CampoFaltante(
+                        campo="contenido",
+                        motivo=(
+                            "Debe elaborar el texto contractual definitivo antes de enviarlo "
+                            "a revisión jurídica. El documento conserva la precarga "
+                            "completa de antecedentes de la solicitud HU-12."
+                        ),
                     )
                 )
         return faltantes

@@ -268,12 +268,19 @@ def formalizar_version(db: Session) -> Callable[[Convenio, Usuario], VersionConv
 def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
     """Convenio con todo lo requerido para entregarlo a Jurídica."""
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
-    return crear_convenio(
+    convenio = crear_convenio(
         gestor,
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo para la Universidad",
         duracion_meses=24,
     )
+
+    # Listo para Juridica incluye texto elaborado, no solo datos estructurales.
+    convenio.borrador.contenido = {"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "Las partes acuerdan cooperar en actividades academicas."}
+    ]}]}
+    db.commit()
+    return convenio
 
 
 # ---- Fixture compartida de HU-32 (evaluación) -----------------------------
