@@ -139,3 +139,10 @@ def test_h03_upgrade_downgrade_reaplicar_preserva_catalogo_e_historia(
     ).get_current_head()
     with motor.connect() as conexion:
         assert conexion.scalar(text("SELECT version_num FROM alembic_version")) == cabeza
+
+
+def test_ht15_encadena_despues_de_ht17_con_cabeza_unica():
+    scripts = ScriptDirectory.from_config(Config(Path(__file__).parents[1] / "alembic.ini"))
+    assert scripts.get_heads() == ["3816fbbdff1a"]
+    assert scripts.get_revision("3816fbbdff1a").down_revision == "c17a20261115"
+    assert scripts.get_revision("c17a20261115").down_revision == "0b2fb1bed5b2"

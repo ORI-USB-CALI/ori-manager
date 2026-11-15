@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pytest
+from helpers_revision import revision_actual
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -100,7 +101,7 @@ def test_reenvio_sin_cambios_reutiliza_la_version_si_ninguna_observacion_obliga(
     anterior = devolver_con(False, False)
     rondas = _juridicas(db, convenio_listo.id)
 
-    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert respuesta.status_code == 200, respuesta.text
     assert respuesta.json()["version_actual"] == 1
@@ -129,7 +130,7 @@ def test_reenvio_sin_cambios_se_bloquea_si_alguna_observacion_obliga(
     devolver_con(*obligan)
     rondas = _juridicas(db, convenio_listo.id)
 
-    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert respuesta.status_code == 409
     assert MENSAJE_OBLIGATORIAS in respuesta.json()["detail"]
@@ -151,7 +152,7 @@ def test_con_observacion_obligatoria_corregir_el_documento_genera_version_nueva(
         json={"contenido": corregido, "expected_revision": 0},
     ).status_code == 200
 
-    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert respuesta.status_code == 200, respuesta.text
     assert _versiones(db, convenio_listo.id) == [1, 2]
@@ -172,7 +173,7 @@ def test_un_cambio_en_los_datos_tambien_cumple_la_correccion_obligatoria(
         },
     ).status_code == 200
 
-    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")}).status_code == 200
     assert _versiones(db, convenio_listo.id) == [1, 2]
 
 
@@ -188,7 +189,7 @@ def test_las_observaciones_pendientes_impiden_reenviar_aunque_no_obliguen(
     )
     servicio.devolver(convenio_listo.id, revision.id, [], 1, revisor)
 
-    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert respuesta.status_code == 409
     assert "observaciones pendientes" in respuesta.json()["detail"]
@@ -213,7 +214,7 @@ def test_las_observaciones_escritas_al_devolver_cuentan_como_obligatorias(
     assert observacion.requiere_correccion is True
     servicio.atender_observacion(convenio_listo.id, observacion.id, "Revisado", gestor)
 
-    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    respuesta = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert respuesta.status_code == 409
     assert MENSAJE_OBLIGATORIAS in respuesta.json()["detail"]
@@ -266,7 +267,7 @@ def test_la_version_reutilizada_vuelve_a_exigir_rj1_y_rj2_en_la_ronda_nueva(
     client, db, gestor, revisor, crear_usuario, convenio_listo, devolver_con
 ) -> None:
     devolver_con(False)
-    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")}).status_code == 200
     servicio = ServicioConvenios(db)
     rj1 = _pendiente(db, convenio_listo.id)
     assert rj1.instancia_juridica == 1

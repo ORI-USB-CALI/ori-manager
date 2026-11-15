@@ -57,18 +57,24 @@ def origen(request, db, crear_usuario, crear_convenio, solicitante):
     autor = crear_usuario(CodigoRol.GESTOR_ORI)
     datos = {
         "objeto": "Convenio de origen para renovar",
-        "fecha_inicio": date(2025, 1, 1),
+        # HT-17: 24 meses desde el 06/11/2024 vencen el 06/11/2026 (mismo día del mes).
+        "fecha_inicio": date(2024, 11, 6),
         "fecha_vencimiento": FECHA_REFERENCIA + timedelta(days=30),
         "implicacion_financiera": "Recursos propios",
         "duracion_meses": 24,
     }
     if request.param == "MANUAL_ORI":
+        historicas = {campo: datos.pop(campo) for campo in ("fecha_inicio", "fecha_vencimiento", "duracion_meses")}
         convenio = ServicioConvenios(db).crear_manual(ConvenioCrearManual(**datos), autor)
+        for campo, valor in historicas.items():
+            setattr(convenio, campo, valor)
+        convenio.vigencia_ht17 = False
+        db.commit()
         # HT-06, CA-05: el código ya no entra por el contrato de creación; se
         # fija sobre el modelo porque estas pruebas distinguen origen de hijo.
         convenio.codigo = f"ORIGEN-{autor.id}"
     else:
-        convenio = crear_convenio(autor, codigo=f"ORIGEN-{autor.id}", **datos)
+        convenio = crear_convenio(autor, historico=True, codigo=f"ORIGEN-{autor.id}", **datos)
         convenio.solicitud.solicitante_id = solicitante.id
         convenio.solicitud.contacto_contraparte_nombre = "Contacto vigente"
         convenio.solicitud.observaciones = "Observación histórica que no debe copiarse"
@@ -334,6 +340,7 @@ def test_renovacion_se_edita_y_requiere_sus_dos_avales_propios(
         "expected_revision": 1, "contenido": contenido,
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
+        "fecha_inicio": "2031-01-01",
     })
     assert guardado.status_code == 200, guardado.text
     assert guardado.json()["version_actual"] == 0

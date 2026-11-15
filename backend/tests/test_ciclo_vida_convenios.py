@@ -28,7 +28,7 @@ HOY = date(2026, 10, 8)
 def preparar(db, gestor, crear_convenio, formalizar_version):
     def crear(estado=EstadoConvenio.VIGENTE, dias=30):
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             fecha_inicio=date(2025, 1, 1),
             fecha_vencimiento=HOY + timedelta(days=dias) if dias is not None else None,
         )

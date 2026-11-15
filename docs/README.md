@@ -9,6 +9,7 @@
 | Arquitectura, entornos y acceso | [Arquitectura](architecture/overview.md) |
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Formatos y normalización de solicitudes | [HT-14 — Validación de formatos](hu/ht-14-validacion-formatos-solicitud.md), identificaciones/DV, teléfonos idempotentes, direcciones y rollback conservador |
+| Vigencia contractual | [HT-17](hu/ht-17-duracion-vigencia.md), calculo automatico y compatibilidad historica CA-06 |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
 | Navegación de retorno en convenios | [HT-12 — Acción Volver](hu/ht-12-accion-volver.md), contexto encadenado, accesibilidad y alternativos por rol |
 | Introducción para solicitantes | [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md), roles, recorrido reutilizable, estados individuales y errores recuperables |
@@ -60,9 +61,13 @@
 
 ## Fuentes de referencia y trazabilidad
 
+- [Directorio público — referencia HU-09, PR #181](hu/hu-09-directorio-publico.md): contrato anónimo, vigencia, identidad y decisiones pendientes de CA-06/identificador oficial. [Validación del cierre](development/pr-181-hu09-cierre.md).
+
 **GitHub (`docs/`)** conserva los procedimientos técnicos versionados junto al código. **GitHub Wiki** se utiliza como guía de navegación y enlaces hacia documentos técnicos, no como segunda copia divergente. **Google Drive** alberga planes de release, fichas, actas, aprobaciones y evidencias de negocio.
 
 - [Drive — Gestión de Releases](https://drive.google.com/drive/folders/1TwlYItxGI0bYmJ6nxw6Ggk0Sbc08cRdb)
 - [Drive — Quality Assurance](https://drive.google.com/drive/folders/12aOj3os-8IVkqfuDmK2E85NWJABSQg8j)
 
 Las pruebas integrales de todo el sistema están previstas al finalizar **Sprint 5**; no deben confundirse con las pruebas de cada HU durante los sprints. Tampoco debe considerarse desplegado algo solo porque esté integrado en `develop`.
+
+- [Cierre de integración HT-15 — PR #183](development/pr-183-ht15-cierre.md).

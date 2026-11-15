@@ -85,7 +85,11 @@ from backend.services.identidad_aliado import (
 from backend.services.identidad_aliado import huella_identidad as _huella_identidad
 from backend.services.identidad_aliado import identidad_aliado as _identidad_aliado
 from backend.services.notificaciones import ServicioNotificaciones
-from backend.services.vigencia import fecha_actual_dominio, validar_vigencia
+from backend.services.vigencia import (
+    fecha_actual_dominio,
+    preparar_vigencia,
+    validar_vigencia,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +199,16 @@ def validar_completitud(
             convenio.fecha_inicio,
             convenio.fecha_vencimiento,
             hoy or fecha_actual_dominio(),
+            duracion_meses=convenio.duracion_meses if convenio.vigencia_ht17 else None,
         )
     )
+
+    if convenio.vigencia_ht17:
+        for campo in ("fecha_inicio", "fecha_vencimiento"):
+            if getattr(convenio, campo) is None:
+                faltantes.append(CampoFaltante(campo=campo, motivo="Es obligatorio para finalizar la elaboración"))
+        if convenio.duracion_meses is not None and convenio.duracion_meses < 4:
+            faltantes.append(CampoFaltante(campo="duracion_meses", motivo="La duración mínima es de 4 meses"))
 
     return faltantes
 
@@ -342,11 +354,20 @@ class VigenciaInvalida(ErrorConvenio):
 
 
 def exigir_vigencia_valida(
-    fecha_inicio: date | None, fecha_vencimiento: date | None
+    fecha_inicio: date | None,
+    fecha_vencimiento: date | None,
+    *,
+    duracion_meses: int | None,
 ) -> None:
-    """HT-08: punto único para rechazar una vigencia inválida al crear o editar."""
+    """Revalida la vigencia persistida, sin volver retroactivo un inicio valido.
+
+    Historicos pasan duracion_meses=None para conservar su convencion.
+    """
     faltantes = validar_vigencia(
-        fecha_inicio, fecha_vencimiento, fecha_actual_dominio()
+        fecha_inicio,
+        fecha_vencimiento,
+        fecha_actual_dominio(),
+        duracion_meses=duracion_meses,
     )
     if faltantes:
         raise VigenciaInvalida(faltantes)
@@ -594,8 +615,16 @@ class ServicioConvenios:
             raise ConfiguracionConvenioInvalida(
                 "No existe la etapa obligatoria ELABORACION"
             )
-        exigir_vigencia_valida(datos.fecha_inicio, datos.fecha_vencimiento)
+        calculado, errores = preparar_vigencia(
+            datos.fecha_inicio, datos.duracion_meses, datos.fecha_vencimiento,
+            fecha_actual_dominio(),
+        )
+        if errores:
+            raise VigenciaInvalida(errores)
         valores = datos.model_dump()
+        valores.update(vigencia_ht17=True)
+        if calculado is not None:
+            valores["fecha_vencimiento"] = calculado
         if renovacion is not None:
             valores.update(
                 convenio_origen_id=renovacion.convenio_origen_id,
@@ -664,8 +693,16 @@ class ServicioConvenios:
             CodigoRol.GESTOR_ORI.value, CodigoRol.ADMINISTRADOR_ORI.value
         ):
             raise ReferenciaConvenioInvalida("Solo Gestor ORI o Administrador ORI pueden crear convenios manualmente")
-        exigir_vigencia_valida(datos.fecha_inicio, datos.fecha_vencimiento)
+        calculado, errores = preparar_vigencia(
+            datos.fecha_inicio, datos.duracion_meses, datos.fecha_vencimiento,
+            fecha_actual_dominio(),
+        )
+        if errores:
+            raise VigenciaInvalida(errores)
         valores = datos.model_dump(exclude={"aliado_id"}, exclude_unset=True)
+        valores.update(vigencia_ht17=True)
+        if calculado is not None:
+            valores["fecha_vencimiento"] = calculado
         if renovacion is not None:
             valores.update(
                 convenio_origen_id=renovacion.convenio_origen_id,
@@ -1129,7 +1166,11 @@ class ServicioConvenios:
         # Acepta tanto "26" como "#26" para buscar el ID exacto.
         identificador = termino_original.removeprefix("#")
         if identificador.isascii() and identificador.isdecimal():
-            coincidencias.append(Convenio.id == int(identificador))
+            identificador_id = int(identificador)
+            # El ID es INTEGER en PostgreSQL; un NIT largo sigue siendo una
+            # búsqueda textual, pero no puede enviarse como parámetro int4.
+            if identificador_id <= 2_147_483_647:
+                coincidencias.append(Convenio.id == identificador_id)
 
         return [or_(*coincidencias)]
 
@@ -2447,18 +2488,27 @@ class ServicioConvenios:
             **cambios,
         }
         self._validar_referencias(combinados)
-        # HT-08: solo se valida cuando cambia el valor de alguna fecha, para no
-        # bloquear la edición de otros campos de convenios cargados antes de esta
-        # regla (el editor reenvía todas las fechas en cada guardado).
-        # Cubre actualizar y guardar_elaboracion (el CA-02 bloquea el guardado).
+        # HT-08/HT-17: solo se valida cuando cambia el valor de alguna fecha o de
+        # la duración, para no bloquear la edición de otros campos de convenios
+        # cargados antes de estas reglas (el editor reenvía todas las fechas en
+        # cada guardado). Cubre actualizar y guardar_elaboracion (el CA-02
+        # bloquea el guardado).
         if any(
             campo in cambios and cambios[campo] != getattr(convenio, campo)
-            for campo in ("fecha_inicio", "fecha_vencimiento")
+            for campo in ("fecha_inicio", "fecha_vencimiento", "duracion_meses")
         ):
-            exigir_vigencia_valida(
-                cambios.get("fecha_inicio", convenio.fecha_inicio),
-                cambios.get("fecha_vencimiento", convenio.fecha_vencimiento),
+            inicio = cambios.get("fecha_inicio", convenio.fecha_inicio)
+            duracion = cambios.get("duracion_meses", convenio.duracion_meses)
+            vencimiento = cambios.get("fecha_vencimiento")
+            if "fecha_vencimiento" not in cambios and (inicio is None or duracion is None):
+                vencimiento = convenio.fecha_vencimiento
+            calculado, errores = preparar_vigencia(
+                inicio, duracion, vencimiento, fecha_actual_dominio(),
             )
+            if errores:
+                raise VigenciaInvalida(errores)
+            cambios["fecha_vencimiento"] = calculado
+            cambios["vigencia_ht17"] = True
         if "aliado_id" in cambios:
             if convenio.origen != OrigenConvenio.MANUAL_ORI.value:
                 raise ReferenciaConvenioInvalida(

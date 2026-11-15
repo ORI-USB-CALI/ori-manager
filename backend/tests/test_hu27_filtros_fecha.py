@@ -44,7 +44,7 @@ def formalizar(db: Session, crear_convenio) -> Callable[..., Convenio]:
         estado: EstadoConvenio = EstadoConvenio.VIGENTE,
         **cambios,
     ) -> Convenio:
-        convenio = crear_convenio(autor, **cambios)
+        convenio = crear_convenio(autor, historico=True, **cambios)
         convenio.fecha_firma = fecha_firma
         convenio.estado = estado.value
         db.commit()
@@ -132,31 +132,31 @@ def test_ca03_filtra_por_vigencia_con_solapamiento(
 ) -> None:
     termino = f"vig-{uuid4().hex[:6]}"
     contenido = crear_convenio(
-        autor,
+        autor, historico=True,
         objeto=f"Convenio {termino} contenido en el rango",
         fecha_inicio=date(2026, 6, 15),
         fecha_vencimiento=date(2026, 6, 20),
     )
     borde_inicio = crear_convenio(
-        autor,
+        autor, historico=True,
         objeto=f"Convenio {termino} inicia en el último día del rango",
         fecha_inicio=date(2026, 6, 30),
         fecha_vencimiento=date(2027, 12, 31),
     )
     vigencia_indefinida = crear_convenio(
-        autor,
+        autor, historico=True,
         objeto=f"Convenio {termino} sin fecha de vencimiento",
         fecha_inicio=date(2026, 1, 1),
         fecha_vencimiento=None,
     )
     vencio_antes = crear_convenio(
-        autor,
+        autor, historico=True,
         objeto=f"Convenio {termino} venció antes del rango",
         fecha_inicio=date(2026, 1, 1),
         fecha_vencimiento=date(2026, 5, 31),
     )
     inicia_despues = crear_convenio(
-        autor,
+        autor, historico=True,
         objeto=f"Convenio {termino} inicia después del rango",
         fecha_inicio=date(2026, 7, 1),
         fecha_vencimiento=date(2026, 12, 31),
@@ -292,7 +292,8 @@ def test_fechas_se_combinan_con_identificadores_hu26(
         fecha_vencimiento=date(2026, 12, 31),
     )
     convenio.codigo = f"HU27-{uuid4().hex[:10]}"
-    convenio.solicitud.identificacion_aliado_propuesto = uuid4().hex[:12]
+    # Regresión determinista: una identificación numérica puede superar int4.
+    convenio.solicitud.identificacion_aliado_propuesto = "221551610907"
     db.commit()
     termino = {
         "codigo": convenio.codigo,
@@ -379,7 +380,8 @@ def test_vigencia_preserva_acceso_operativo_del_revisor(
     entrar_como(revisor)
     respuesta = client.get(URL_CONVENIOS, params={
         "buscar": f"#{convenio.id}", "tipo_fecha": "VIGENCIA",
-        "fecha_desde": "2026-06-01", "fecha_hasta": "2026-06-30",
+        "fecha_desde": convenio.fecha_inicio.isoformat(),
+        "fecha_hasta": convenio.fecha_vencimiento.isoformat(),
     })
     assert respuesta.status_code == 200
     assert respuesta.json()["total"] == 1
@@ -403,7 +405,8 @@ def test_fechas_y_busqueda_paginan_sobre_el_mismo_total(
     for desplazamiento, convenio in enumerate(reversed(convenios)):
         respuesta = client.get(URL_CONVENIOS, params={
             "buscar": termino, "tipo_fecha": tipo_fecha,
-            "fecha_desde": "2026-06-01", "fecha_hasta": "2026-06-30",
+            "fecha_desde": convenio.fecha_inicio.isoformat(),
+        "fecha_hasta": convenio.fecha_vencimiento.isoformat(),
             "limite": 1, "desplazamiento": desplazamiento,
         })
         assert respuesta.status_code == 200

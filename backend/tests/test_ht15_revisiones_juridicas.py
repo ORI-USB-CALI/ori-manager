@@ -9,6 +9,7 @@ from copy import deepcopy
 from datetime import date
 
 import pytest
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -80,7 +81,7 @@ def convenio_por_origen(
                     objeto="Cooperación académica",
                     alcance="INSTITUCIONAL",
                     implicacion_financiera="Sin costo para la Universidad",
-                    duracion_meses=24,
+                    **vigencia_nueva(duracion_meses=24),
                     tipo_convenio_id=tipo_marco.id,
                 ),
                 gestor,
@@ -98,9 +99,13 @@ def convenio_por_origen(
             convenio_listo.estado = EstadoConvenio.FINALIZADO.value
             convenio_listo.fecha_vencimiento = date(2025, 12, 31)
             db.commit()
-            return ServicioRenovaciones(db).iniciar_renovacion(
+            renovacion = ServicioRenovaciones(db).iniciar_renovacion(
                 convenio_listo.id, gestor
             )
+            for campo, valor in vigencia_nueva(duracion_meses=24).items():
+                setattr(renovacion, campo, valor)
+            db.commit()
+            return renovacion
         raise ValueError(f"Origen no soportado: {origen}")
 
     return _crear

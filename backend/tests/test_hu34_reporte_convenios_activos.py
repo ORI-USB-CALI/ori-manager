@@ -67,7 +67,7 @@ def crear_convenio_reporte(
         con_aliado_formal: bool = True,
     ) -> Convenio:
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             codigo=codigo,
             fecha_inicio=fecha_inicio,
             fecha_vencimiento=fecha_vencimiento,

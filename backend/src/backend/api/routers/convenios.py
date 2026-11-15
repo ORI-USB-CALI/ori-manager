@@ -901,7 +901,7 @@ def finalizar_elaboracion(
     convenio_id: int,
     db: DatabaseSession,
     usuario: PuedeEditar,
-    datos: ConvenioElaboracionFinalizar | None = None,
+    datos: ConvenioElaboracionFinalizar,
 ) -> Convenio:
     try:
         return ServicioConvenios(db).finalizar_elaboracion(convenio_id, usuario, datos)

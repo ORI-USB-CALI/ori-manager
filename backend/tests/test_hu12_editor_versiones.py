@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pytest
+from helpers_revision import revision_actual
 from sqlalchemy import func, select
 
 from backend.models.auditoria import Auditoria
@@ -35,7 +36,7 @@ def test_snapshots_historicos_sin_origen_se_leen_y_no_se_reescriben(
     client, db, convenio_listo, revisor,
 ) -> None:
     ruta = f"/api/convenios/{convenio_listo.id}"
-    assert client.post(f"{ruta}/elaboracion/finalizar").status_code == 200
+    assert client.post(f"{ruta}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"{ruta}/elaboracion/finalizar")}).status_code == 200
     revision = db.scalar(select(RevisionConvenio).where(
         RevisionConvenio.convenio_id == convenio_listo.id,
     ))

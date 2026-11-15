@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -429,4 +429,20 @@ describe('HT-13 - guardar avances del convenio', () => {
       objeto: `${elaboracion.objeto} enviado${posterior}`.trim(), contenido: DOCUMENTO_EDITADO, expected_revision: 1,
     })
   })
+})
+
+
+it('HT17 conserva el vencimiento historico al abrir y calcula solo al editar', async () => {
+  const historico = { ...elaboracion, fecha_inicio: '2099-01-01', duracion_meses: 12, fecha_vencimiento: '2100-01-01' }
+  const { usuario, guardados } = preparar(() => respuesta(200, historico), historico)
+  const vencimiento = await screen.findByLabelText('Fecha de vencimiento') as HTMLInputElement
+  expect(vencimiento.readOnly).toBe(true)
+  expect(vencimiento.value).toBe('2100-01-01')
+  await usuario.type(screen.getByRole('textbox', { name: 'Objeto' }), ' ajustado')
+  await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+  await waitFor(() => expect(guardados).toHaveLength(1))
+  expect(guardados[0].fecha_vencimiento).toBe('2100-01-01')
+  const inicio = screen.getByLabelText('Fecha de inicio')
+  fireEvent.change(inicio, { target: { value: '2099-01-31' } })
+  expect(vencimiento.value).toBe('2100-01-31')
 })

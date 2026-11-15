@@ -31,7 +31,7 @@ def crear_alertable(
         objeto: str = "Convenio identificable HU-30",
     ) -> Convenio:
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             codigo=codigo,
             objeto=objeto,
             fecha_vencimiento=(

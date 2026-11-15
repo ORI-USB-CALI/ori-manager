@@ -2,6 +2,7 @@ from copy import deepcopy
 from io import BytesIO
 
 import pytest
+from helpers_revision import revision_actual
 from openpyxl import load_workbook
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -152,7 +153,7 @@ def test_ca03_enviar_sin_cambios_reutiliza_la_version_sin_duplicarla(
     (v1,) = _versiones(db, convenio_listo.id)
     assert _guardar(client, convenio_listo.id, v1.contenido, 0).status_code == 200
 
-    enviado = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    enviado = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert enviado.status_code == 200, enviado.text
     assert [v.numero for v in _versiones(db, convenio_listo.id)] == [1]
@@ -172,7 +173,7 @@ def test_ca03_un_cambio_solo_de_datos_tambien_genera_version(
     )
     assert guardado.status_code == 200, guardado.text
 
-    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")}).status_code == 200
 
     versiones = _versiones(db, convenio_listo.id)
     assert [v.numero for v in versiones] == [1, 2]
@@ -344,7 +345,7 @@ def test_ca08_un_convenio_sin_borrador_trabaja_sobre_su_version_actual(
     assert elaboracion["version_actual"] == 2
     assert elaboracion["revision_borrador"] == 0
     assert "Guardado anterior a HT-13" in _texto(elaboracion["contenido"])
-    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")}).status_code == 200
     assert [v.numero for v in _versiones(db, convenio_listo.id)] == [1, 2]
 
 
@@ -421,7 +422,7 @@ def test_enviar_declara_si_genero_o_reutilizo_la_version(
         contenido = _con_parrafo(contenido, "Cambio antes de enviar")
     assert _guardar(client, convenio_listo.id, contenido, 0).status_code == 200
 
-    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")}).status_code == 200
 
     assert acciones[-1]["evento"] == evento
     assert acciones[-1]["etapa"] == "ELABORACION"

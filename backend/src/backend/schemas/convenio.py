@@ -114,7 +114,7 @@ class ConvenioElaboracionGuardar(ConvenioElaboracionActualizar):
 
 class ConvenioElaboracionFinalizar(ConvenioElaboracionActualizar):
     contenido: dict[str, Any] | None = None
-    expected_revision: int | None = Field(default=None, ge=0)
+    expected_revision: int = Field(ge=0)
 
 
 class UsuarioResumen(BaseModel):

@@ -289,7 +289,7 @@ class ServicioRenovaciones:
                 "alcance": origen.alcance,
                 "unidad_organizacional_id": origen.unidad_organizacional_id,
                 "implicacion_financiera": origen.implicacion_financiera,
-                "duracion_meses": origen.duracion_meses,
+                "duracion_meses": origen.duracion_meses if origen.duracion_meses and origen.duracion_meses >= 4 else None,
             }
             numero_renovacion = (origen.numero_renovacion or 0) + 1
             describir_accion(

@@ -8,9 +8,12 @@ BE-4: la validación indica qué falta para poder entregar el proyecto a Jurídi
 
 from collections.abc import Callable
 from datetime import date
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from helpers_revision import revision_actual
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -52,7 +55,7 @@ def gestor(client, crear_usuario, entrar_como) -> Usuario:
 def crear_convenio(db: Session) -> Callable[..., Convenio]:
     """Crea el convenio mediante el contrato canónico de HU-06."""
 
-    def _crear(autor: Usuario, **cambios) -> Convenio:
+    def _crear(autor: Usuario, *, historico=False, **cambios) -> Convenio:
         aliado_id = cambios.pop("aliado_id", None)
         solicitud = SolicitudConvenio(
             consecutivo=f"SOL-{uuid4().hex}",
@@ -81,10 +84,16 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        return ServicioConvenios(db).crear(
-            ConvenioCrear.model_validate(datos),
-            autor,
-        )
+        if not historico and datos.get("duracion_meses") is not None and "fecha_inicio" not in cambios and "fecha_vencimiento" not in cambios:
+            datos.update(vigencia_nueva(duracion_meses=datos["duracion_meses"]))
+        if historico:
+            with patch.object(servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])):
+                convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+            convenio.vigencia_ht17 = False
+            db.commit()
+        else:
+            convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+        return convenio
 
     return _crear
 
@@ -450,6 +459,7 @@ def test_ca06_reporta_los_campos_requeridos_que_faltan(
         "tipo_convenio_id",
         "implicacion_financiera",
         "duracion_meses",
+        "fecha_inicio", "fecha_vencimiento",
     }
 
 
@@ -472,13 +482,13 @@ def test_ca06_convenio_completo_no_reporta_faltantes(
     assert cuerpo["faltantes"] == []
 
 
-def test_ca06_codigo_y_fechas_no_son_obligatorios(
+def test_ca06_historico_sin_codigo_y_fechas_puede_continuar(
     client, db, gestor, crear_convenio
 ) -> None:
-    """codigo puede entrar en NULL a Jurídica y las fechas son opcionales en esta etapa."""
+    """CA-06: un historico en tramite conserva la completitud anterior a HT-17."""
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
     convenio = crear_convenio(
-        gestor,
+        gestor, historico=True,
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Aporte en especie",
         duracion_meses=12,
@@ -530,7 +540,7 @@ def test_ca06_finalizar_programa_sin_unidad_es_rechazado(
     )
     assert guardado.status_code == 200
 
-    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")})
 
     assert respuesta.status_code == 422
     assert [
@@ -580,9 +590,7 @@ def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
         gestor,
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo para la Universidad",
-        duracion_meses=24,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2028, 1, 1),
+        **vigencia_nueva(duracion_meses=24),
     )
 
 
@@ -602,7 +610,7 @@ def test_ca06_finalizar_incompleto_no_cambia_nada(
     convenio = crear_convenio(gestor)  # sin tipo, implicación ni duración
     etapa_antes = convenio.etapa_actual_id
 
-    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")})
 
     assert respuesta.status_code == 422
     detalle = respuesta.json()["detail"]
@@ -610,6 +618,7 @@ def test_ca06_finalizar_incompleto_no_cambia_nada(
         "tipo_convenio_id",
         "implicacion_financiera",
         "duracion_meses",
+        "fecha_inicio", "fecha_vencimiento",
     }
 
     db.refresh(convenio)
@@ -637,12 +646,12 @@ def test_finalizar_aplica_el_formulario_actual_sin_patch_previo(
         "unidad_organizacional_id": None,
         "implicacion_financiera": "Sin erogación presupuestal",
         "duracion_meses": 18,
-        "fecha_inicio": "2026-10-01",
-        "fecha_vencimiento": "2028-04-01",
+        "fecha_inicio": "2031-01-01",
+        "fecha_vencimiento": "2032-06-30",
     }
 
     respuesta = client.post(
-        f"/api/convenios/{convenio.id}/elaboracion/finalizar", json=datos
+        f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={**datos, "expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}
     )
 
     assert respuesta.status_code == 200
@@ -663,7 +672,7 @@ def test_finalizar_invalido_no_persiste_cambios_del_body(
 
     respuesta = client.post(
         f"/api/convenios/{convenio.id}/elaboracion/finalizar",
-        json={"objeto": "Cambio que debe revertirse"},
+        json={"objeto": "Cambio que debe revertirse", "expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")},
     )
 
     assert respuesta.status_code == 422
@@ -685,7 +694,7 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     client, db, gestor, convenio_listo
 ) -> None:
     respuesta = client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     )
     assert respuesta.status_code == 200
 
@@ -732,7 +741,7 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
 
 
 def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, convenio_listo) -> None:
-    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     assert respuesta.status_code == 200, respuesta.text
 
     snapshot = _revisiones_de(db, convenio_listo.id)[0].snapshot_datos
@@ -757,7 +766,7 @@ def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, conven
     assert snapshot["objeto"] == convenio_listo.objeto
     assert snapshot["origen"] == "SOLICITUD"
     assert snapshot["duracion_meses"] == 24
-    assert snapshot["fecha_inicio"] == "2026-01-01"
+    assert snapshot["fecha_inicio"] == convenio_listo.fecha_inicio.isoformat()
     # Los nulos se conservan como nulos, no se omiten ni se rellenan.
     assert snapshot["codigo"] is None
     assert snapshot["aliado_id"] is None
@@ -770,7 +779,7 @@ def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, conven
 def test_ca08_el_snapshot_no_cambia_si_el_convenio_cambia_despues(
     client, db, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     snapshot_original = dict(_revisiones_de(db, convenio_listo.id)[0].snapshot_datos)
 
     # Se fuerza un cambio posterior en el convenio, saltando el guard de etapa.
@@ -784,13 +793,13 @@ def test_ca08_el_snapshot_no_cambia_si_el_convenio_cambia_despues(
 def test_ca08_no_se_puede_finalizar_dos_veces(client, db, convenio_listo) -> None:
     assert (
         client.post(
-            f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+            f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
         ).status_code
         == 200
     )
 
     segunda = client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     )
 
     assert segunda.status_code == 409
@@ -820,7 +829,7 @@ def test_revisor_fuera_de_etapa_juridica_no_consulta_edita_ni_finaliza(
         == 403
     )
     assert (
-        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar").status_code
+        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}).status_code
         == 403
     )
 
@@ -842,6 +851,6 @@ def test_usuario_sin_permisos_no_puede_consultar_editar_ni_finalizar(
         == 403
     )
     assert (
-        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar").status_code
+        client.post(f"/api/convenios/{convenio.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio.id}/elaboracion/finalizar")}).status_code
         == 403
     )

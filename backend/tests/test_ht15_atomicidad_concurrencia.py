@@ -6,6 +6,7 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_json, vigencia_nueva
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -50,7 +51,7 @@ def convenio_manual(client, db, gestor, tipo_marco) -> Convenio:
             "objeto": "Cooperación académica",
             "alcance": "INSTITUCIONAL",
             "implicacion_financiera": "Sin costo para la Universidad",
-            "duracion_meses": 24,
+            **vigencia_json(duracion_meses=24),
             "tipo_convenio_id": tipo_marco,
         },
     )
@@ -186,7 +187,7 @@ def convenio_listo_concurrente(db_engine):
                 objeto="Convenio para envío concurrente",
                 alcance="INSTITUCIONAL",
                 implicacion_financiera="Sin costo para la Universidad",
-                duracion_meses=24,
+                **vigencia_nueva(duracion_meses=24),
                 tipo_convenio_id=tipo.id,
             ),
             usuario,

@@ -7,6 +7,7 @@ from io import BytesIO
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_json
 from openpyxl import load_workbook
 from sqlalchemy import func, select
 
@@ -48,9 +49,7 @@ def manual_documentado(client, db, gestor):
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "alcance": "INSTITUCIONAL",
         "implicacion_financiera": "Sin compromiso financiero",
-        "duracion_meses": 24,
-        "fecha_inicio": "2026-01-01",
-        "fecha_vencimiento": "2028-01-01",
+        **vigencia_json(duracion_meses=24),
     })
     assert respuesta.status_code == 201, respuesta.text
     convenio_id = respuesta.json()["id"]

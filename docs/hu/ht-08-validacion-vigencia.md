@@ -1,5 +1,7 @@
 # HT-08 — Validar las fechas de vigencia al crear o elaborar un convenio
 
+> Actualizacion HT-17: para registros nuevos o cambios de vigencia aplican minimo de cuatro meses, inicio desde hoy en Bogota y vencimiento automatico. Los historicos conservan sus datos. Ver [reglas definitivas](ht-17-duracion-vigencia.md).
+
 **Sprint:** 4 — Consultas · **Épica:** EP-03 · **Estimación:** 8 SP · **QA:** [#138](https://github.com/ORI-USB-CALI/ori-manager/issues/138).
 
 ## Comportamiento y criterios aprobados

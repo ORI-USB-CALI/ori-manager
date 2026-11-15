@@ -3,6 +3,8 @@ from datetime import date
 from io import BytesIO
 
 import pytest
+from helpers_revision import revision_actual
+from helpers_vigencia import vigencia_json
 from openpyxl import load_workbook
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,7 +37,7 @@ DATOS_COMPLETOS = {
     "objeto": "Cooperación académica",
     "alcance": "INSTITUCIONAL",
     "implicacion_financiera": "Sin costo para la Universidad",
-    "duracion_meses": 24,
+    **vigencia_json(duracion_meses=24),
 }
 
 
@@ -181,7 +183,7 @@ def test_el_primer_envio_sin_editar_la_plantilla_tambien_genera_la_v1(
 ) -> None:
     plantilla = deepcopy(_borrador(db, convenio_listo.id).contenido)
 
-    enviado = client.post(f"{_ruta(convenio_listo.id)}/finalizar")
+    enviado = client.post(f"{_ruta(convenio_listo.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_listo.id)}/finalizar")})
 
     assert enviado.status_code == 200, enviado.text
     (v1,) = _versiones(db, convenio_listo.id)
@@ -195,7 +197,7 @@ def test_el_primer_envio_sin_editar_la_plantilla_tambien_genera_la_v1(
 def test_un_documento_vacio_no_se_puede_enviar_y_no_crea_version(
     client, db, convenio_manual
 ) -> None:
-    respuesta = client.post(f"{_ruta(convenio_manual.id)}/finalizar")
+    respuesta = client.post(f"{_ruta(convenio_manual.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_manual.id)}/finalizar")})
 
     assert respuesta.status_code == 422, respuesta.text
     assert {item["campo"] for item in respuesta.json()["detail"]["faltantes"]} == {
@@ -236,7 +238,7 @@ def test_los_ciclos_siguientes_continuan_la_numeracion_desde_la_v1(
         _ruta(convenio_manual.id),
         json={"contenido": DOCUMENTO_ELABORADO, "expected_revision": 1},
     )
-    assert client.post(f"{_ruta(convenio_manual.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_manual.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_manual.id)}/finalizar")}).status_code == 200
     servicio = ServicioConvenios(db)
     devuelta = servicio.devolver(
         convenio_manual.id,
@@ -261,7 +263,7 @@ def test_los_ciclos_siguientes_continuan_la_numeracion_desde_la_v1(
         json={"contenido": corregido, "expected_revision": 0},
     ).status_code == 200
 
-    assert client.post(f"{_ruta(convenio_manual.id)}/finalizar").status_code == 200
+    assert client.post(f"{_ruta(convenio_manual.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_manual.id)}/finalizar")}).status_code == 200
 
     versiones = _versiones(db, convenio_manual.id)
     assert [version.numero for version in versiones] == [1, 2]
@@ -287,7 +289,7 @@ def test_un_convenio_con_v1_previa_conserva_su_numeracion_y_sigue_en_v2(
         json={"contenido": DOCUMENTO_ELABORADO, "expected_revision": 0},
     ).status_code == 200
 
-    enviado = client.post(f"{_ruta(convenio_manual.id)}/finalizar")
+    enviado = client.post(f"{_ruta(convenio_manual.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_manual.id)}/finalizar")})
 
     assert enviado.status_code == 200, enviado.text
     assert enviado.json()["version_actual"] == 2
@@ -344,7 +346,7 @@ def test_la_bitacora_no_declara_version_mientras_no_exista_una_formal(
         _ruta(convenio_manual.id),
         json={"contenido": DOCUMENTO_ELABORADO, "expected_revision": 1},
     )
-    client.post(f"{_ruta(convenio_manual.id)}/finalizar")
+    client.post(f"{_ruta(convenio_manual.id)}/finalizar", json={"expected_revision": revision_actual(client, f"{_ruta(convenio_manual.id)}/finalizar")})
 
     db.expire_all()
     filas = list(
@@ -379,3 +381,24 @@ def test_un_error_al_crear_el_borrador_no_deja_el_convenio(
         db.scalar(total),
         db.scalar(select(func.count()).select_from(BorradorConvenio)),
     ) == antes
+
+@pytest.mark.parametrize("payload", [None, {}])
+def test_finalizar_http_exige_revision(client, db, gestor, convenio_manual, payload):
+    respuesta = client.post(f"{_ruta(convenio_manual.id)}/finalizar", json=payload)
+    assert respuesta.status_code == 422
+    assert _versiones(db, convenio_manual.id) == []
+    assert _borrador(db, convenio_manual.id).revision == 1
+
+
+def test_finalizar_revision_obsoleta_no_persiste_metadata(client, db, gestor, convenio_manual):
+    objeto_original = convenio_manual.objeto
+    respuesta = client.post(
+        f"{_ruta(convenio_manual.id)}/finalizar",
+        json={"expected_revision": 0, "objeto": "Cambio obsoleto", "contenido": DOCUMENTO_ELABORADO},
+    )
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json()["detail"]["current_revision"] == 1
+    db.expire_all()
+    assert db.get(Convenio, convenio_manual.id).objeto == objeto_original
+    assert _versiones(db, convenio_manual.id) == []
+    assert _borrador(db, convenio_manual.id).revision == 1

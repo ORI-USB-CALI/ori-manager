@@ -5,6 +5,7 @@ from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import delete, event, func, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
@@ -61,7 +62,7 @@ def escenario(db_engine):
         servicio = ServicioConvenios(db)
         convenio = servicio.crear_manual(ConvenioCrearManual(
             objeto="Proyecto concurrente HT-16", alcance="INSTITUCIONAL",
-            duracion_meses=12, implicacion_financiera="Sin costo",
+            **vigencia_nueva(), implicacion_financiera="Sin costo",
             tipo_convenio_id=db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         ), gestor)
         convenio_id = convenio.id
