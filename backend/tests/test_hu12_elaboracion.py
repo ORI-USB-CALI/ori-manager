@@ -731,7 +731,7 @@ def test_ca08_finalizar_mueve_etapa_y_abre_revision_juridica(
     assert revision.historial_etapa_id == transicion.id
 
 
-def test_ca08_snapshot_congela_los_catorce_campos(client, db, convenio_listo) -> None:
+def test_ca08_snapshot_congela_metadatos_e_identidad_juridica(client, db, convenio_listo) -> None:
     respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
     assert respuesta.status_code == 200, respuesta.text
 
@@ -742,6 +742,7 @@ def test_ca08_snapshot_congela_los_catorce_campos(client, db, convenio_listo) ->
         "solicitud_id",
         "origen",
         "aliado_id",
+        "aliado_identidad",
         "tipo_convenio_id",
         "objeto",
         "alcance",
@@ -760,6 +761,7 @@ def test_ca08_snapshot_congela_los_catorce_campos(client, db, convenio_listo) ->
     # Los nulos se conservan como nulos, no se omiten ni se rellenan.
     assert snapshot["codigo"] is None
     assert snapshot["aliado_id"] is None
+    assert snapshot["aliado_identidad"] is None
     # Nada de etapas posteriores ni objetos ORM.
     assert "fecha_firma" not in snapshot
     assert "porcentaje_avance" not in snapshot

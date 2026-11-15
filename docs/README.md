@@ -22,6 +22,10 @@
 | Contribuciones | [Política documental](development/documentation-policy.md) |
 | Wiki de GitHub | [Portada preparada](wiki/Home.md), pendiente de publicar |
 
+## Auditorías correctivas
+
+- [HT-16 — Contraparte por definir](hu/ht-16-contraparte-por-definir.md) · [PR #180](https://github.com/ORI-USB-CALI/ori-manager/pull/180) y [QA #172](https://github.com/ORI-USB-CALI/ori-manager/issues/172); cierre técnico: identidad jurídica congelada, idempotencia obligatoria, concurrencia y correo. No se infiere el estado oficial ni el sprint de HT-16 de este índice.
+
 ## Historias técnicas en desarrollo (Sprint 4)
 
 - [HT-14 — Validación de formatos de la solicitud](hu/ht-14-validacion-formatos-solicitud.md) · [PR #171](https://github.com/ORI-USB-CALI/ori-manager/pull/171) e incidencia [QA #146](https://github.com/ORI-USB-CALI/ori-manager/issues/146); correcciones H-01 a H-05 y descubrimiento Vitest, pendientes de auditoría técnica y aceptación QA.
@@ -54,6 +58,8 @@
 - [HU-21 — Observaciones juridicas](hu/hu-21-observaciones-juridicas.md)
 
 ## Fuentes de referencia y trazabilidad
+
+- [Directorio público — referencia HU-09, PR #181](hu/hu-09-directorio-publico.md): contrato anónimo, vigencia, identidad y decisiones pendientes de CA-06/identificador oficial. [Validación del cierre](development/pr-181-hu09-cierre.md).
 
 **GitHub (`docs/`)** conserva los procedimientos técnicos versionados junto al código. **GitHub Wiki** se utiliza como guía de navegación y enlaces hacia documentos técnicos, no como segunda copia divergente. **Google Drive** alberga planes de release, fichas, actas, aprobaciones y evidencias de negocio.
 

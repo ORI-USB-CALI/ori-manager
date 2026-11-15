@@ -6,11 +6,11 @@ import { Link } from 'react-router-dom'
 import { apiFetch } from '../app/api'
 
 export interface ConvenioPublico {
-  codigo: string | null
-  aliado: string | null
+  codigo: string
+  aliado: string
   tipo_convenio: string | null
   objeto: string | null
-  fecha_inicio: string | null
+  fecha_inicio: string
   fecha_vencimiento: string
   estado: 'VIGENTE'
 }
@@ -64,10 +64,10 @@ export function DirectorioConveniosPage() {
               </tr>
             </thead>
             <tbody>
-              {directorio.data.items.map((convenio, indice) => (
-                <tr key={convenio.codigo ?? indice}>
-                  <td>{convenio.codigo ?? 'Sin código'}</td>
-                  <td>{convenio.aliado ?? 'Sin aliado registrado'}</td>
+              {directorio.data.items.map((convenio) => (
+                <tr key={convenio.codigo}>
+                  <td>{convenio.codigo}</td>
+                  <td>{convenio.aliado}</td>
                   <td>{convenio.tipo_convenio ?? '—'}</td>
                   <td>{convenio.objeto ?? '—'}</td>
                   <td>{formatearFecha(convenio.fecha_inicio)}</td>

@@ -64,9 +64,11 @@ from backend.schemas.convenio import (
     HistorialConvenioLeer,
     HistorialEtapaLeer,
     HitoLineaTiempoLeer,
+    InvalidarRevisionPorIdentidad,
     InvitacionFirmaConvenioLeer,
     ObservacionRevisionLeer,
     ProcesoFirmasConvenioLeer,
+    ReenviarInvitacionContraparte,
     RevisionContenidoGuardar,
     RevisionContraparteDetalleLeer,
     RevisionContrapartePendienteLeer,
@@ -103,12 +105,15 @@ from backend.services.convenios import (
     ConvenioDuplicado,
     ConvenioNoEditable,
     ConvenioNoEncontrado,
+    CorreoContraparteNoDisponible,
     DocumentoConvenioInvalido,
     DocumentoDemasiadoGrande,
     ElaboracionIncompleta,
     ErrorConvenio,
     FiltroConsultaInvalido,
     FiltrosConsultaConvenio,
+    IdentidadAliadoIncompatible,
+    InvitacionNoConfirmada,
     ObservacionNoDisponible,
     ReferenciaConvenioInvalida,
     RevisionNoDisponible,
@@ -194,6 +199,12 @@ PuedeVerReportes = Annotated[Usuario, requiere(Permiso.CONVENIOS_VER_REPORTES)]
 
 
 def _lanzar_http(exc: ErrorConvenio) -> NoReturn:
+    if isinstance(exc, IdentidadAliadoIncompatible):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={
+            "codigo": "IDENTIDAD_ALIADO_CAMBIADA", "message": str(exc),
+        }) from exc
+    if isinstance(exc, (CorreoContraparteNoDisponible, InvitacionNoConfirmada)):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     if isinstance(exc, ConvenioNoEncontrado):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     if isinstance(exc, ConflictoVersionConvenio):
@@ -1255,27 +1266,27 @@ def enviar_revision_contraparte(
         servicio = ServicioConvenios(
             db, enviador=correo, frontend_url=settings.public_frontend_url
         )
-        # No crear una revisión manual que no pueda recibir su enlace público.
-        convenio_previo = servicio.obtener(convenio_id)
-        if convenio_previo.origen == "MANUAL_ORI" and not settings.public_frontend_url:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Falta PUBLIC_FRONTEND_URL")
         revision = servicio.enviar_a_contraparte(
             convenio_id, datos.expected_version, usuario
         )
-        if convenio_previo.origen == "MANUAL_ORI":
-            servicio.reenviar_invitacion_contraparte(convenio_id, revision.id, usuario)
         convenio = servicio.obtener_historial(convenio_id)
         return RevisionConvenioLeer.model_validate(
             next(item for item in convenio.revisiones if item.id == revision.id)
         )
     except ErrorConvenio as exc:
         _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible enviar el correo de revisión a la contraparte",
+        ) from exc
 
 
 @router.post("/{convenio_id}/revision-contraparte/{revision_id}/reenviar-invitacion")
 def reenviar_invitacion_manual(
     convenio_id: int,
     revision_id: int,
+    datos: ReenviarInvitacionContraparte,
     db: DatabaseSession,
     usuario: PuedeGestionarContraparte,
     correo: Correo,
@@ -1287,8 +1298,40 @@ def reenviar_invitacion_manual(
         convenio = servicio.obtener(convenio_id)
         if convenio.origen != "MANUAL_ORI":
             raise ReferenciaConvenioInvalida("Solo para convenios de origen manual")
-        invitacion = servicio.reenviar_invitacion_contraparte(convenio_id, revision_id, usuario)
+        invitacion = servicio.reenviar_invitacion_contraparte(
+            convenio_id, revision_id, usuario,
+            expected_invitacion_id=datos.expected_invitacion_id,
+        )
         return {"id": invitacion.id, "enviado_en": invitacion.enviado_en}
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+    except ErrorEnvioCorreo as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "No fue posible enviar el correo de revisión a la contraparte",
+        ) from exc
+
+
+@router.post("/{convenio_id}/revision-contraparte/{revision_id}/invalidar-por-identidad", response_model=ConvenioLeer)
+def invalidar_revision_por_identidad(
+    convenio_id: int, revision_id: int, datos: InvalidarRevisionPorIdentidad,
+    db: DatabaseSession, usuario: PuedeGestionarContraparte,
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).invalidar_revision_por_identidad(
+            convenio_id, revision_id, datos.expected_version, datos.expected_invitacion_id, usuario,
+        )
+    except ErrorConvenio as exc:
+        _lanzar_http(exc)
+
+
+@router.post("/{convenio_id}/revision-juridica/reabrir-por-identidad", response_model=ConvenioLeer)
+def reabrir_por_identidad(
+    convenio_id: int, datos: EnviarRevisionContraparte,
+    db: DatabaseSession, usuario: PuedeEditar,
+) -> Convenio:
+    try:
+        return ServicioConvenios(db).reabrir_por_identidad(convenio_id, datos.expected_version, usuario)
     except ErrorConvenio as exc:
         _lanzar_http(exc)
 
