@@ -1119,7 +1119,11 @@ class ServicioConvenios:
         # Acepta tanto "26" como "#26" para buscar el ID exacto.
         identificador = termino_original.removeprefix("#")
         if identificador.isascii() and identificador.isdecimal():
-            coincidencias.append(Convenio.id == int(identificador))
+            identificador_id = int(identificador)
+            # El ID es INTEGER en PostgreSQL; un NIT largo sigue siendo una
+            # búsqueda textual, pero no puede enviarse como parámetro int4.
+            if identificador_id <= 2_147_483_647:
+                coincidencias.append(Convenio.id == identificador_id)
 
         return [or_(*coincidencias)]
 

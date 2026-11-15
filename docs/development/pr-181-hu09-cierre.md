@@ -48,6 +48,29 @@ Starlette/httpx/anyio y `datetime.utcnow`, no errores de HU-31.
 
 ## Decisiones elevadas al líder técnico
 
+### Incidencia detectada por CI durante el cierre
+
+El primer CI del commit `c68802b` aprobó frontend y ambos CodeQL, pero backend
+terminó con 3016 aprobadas y un fallo HU-27: el fixture genera una identificación
+hexadecimal aleatoria y ocasionalmente produce solo dígitos. En ese caso HU-26
+también la comparaba con `convenio.id` (INTEGER PostgreSQL), causando
+`NumericValueOutOfRange` para `221551610907`.
+La corrección mínima limita solo la comparación numérica por ID al máximo int4;
+conserva las búsquedas textuales por identificación/código/objeto. El caso de
+combinación con fechas ahora usa esa identificación numérica determinista tanto
+para formalización como para vigencia. No modifica HU-31 ni sus fixtures.
+Validación posterior a esta corrección: 108 pruebas específicas aprobadas,
+Ruff y `git diff --check` aprobados. La validación global definitiva queda a
+cargo del CI remoto; no se repiten las suites locales para publicar este ajuste.
+
+La integración GitHub devolvió 403 al actualizar la descripción y publicar el
+comentario a `tech-leads`; la alternativa con autenticación Git devolvió 500 y
+no hay navegador conectado. No se afirma que esas escrituras se publicaron.
+Las decisiones se entregan versionadas para revisión del equipo y en el reporte
+final al solicitante. La descripción original del PR sigue desactualizada.
+
+### Funcionalidad
+
 - Confirmar el ID oficial y la ficha del backlog; HT-09 ya es bitácora.
 - Resolver autorización/clasificación institucional para CA-06 y revisión de
   contenido libre de los campos públicos. No existe ese mecanismo en el modelo
