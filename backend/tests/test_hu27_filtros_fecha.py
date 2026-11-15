@@ -292,7 +292,8 @@ def test_fechas_se_combinan_con_identificadores_hu26(
         fecha_vencimiento=date(2026, 12, 31),
     )
     convenio.codigo = f"HU27-{uuid4().hex[:10]}"
-    convenio.solicitud.identificacion_aliado_propuesto = uuid4().hex[:12]
+    # Regresión determinista: una identificación numérica puede superar int4.
+    convenio.solicitud.identificacion_aliado_propuesto = "221551610907"
     db.commit()
     termino = {
         "codigo": convenio.codigo,

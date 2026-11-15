@@ -100,6 +100,9 @@ export function LoginPage() {
         <p className="registro-login">
           ¿No tiene cuenta? <Link to="/registro">Crear cuenta</Link>
         </p>
+        <p className="registro-login">
+          <Link to="/directorio">Consultar convenios vigentes</Link>
+        </p>
       </section>
     </main>
   )

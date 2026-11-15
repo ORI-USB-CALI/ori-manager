@@ -59,6 +59,8 @@
 
 ## Fuentes de referencia y trazabilidad
 
+- [Directorio público — referencia HU-09, PR #181](hu/hu-09-directorio-publico.md): contrato anónimo, vigencia, identidad y decisiones pendientes de CA-06/identificador oficial. [Validación del cierre](development/pr-181-hu09-cierre.md).
+
 **GitHub (`docs/`)** conserva los procedimientos técnicos versionados junto al código. **GitHub Wiki** se utiliza como guía de navegación y enlaces hacia documentos técnicos, no como segunda copia divergente. **Google Drive** alberga planes de release, fichas, actas, aprobaciones y evidencias de negocio.
 
 - [Drive — Gestión de Releases](https://drive.google.com/drive/folders/1TwlYItxGI0bYmJ6nxw6Ggk0Sbc08cRdb)
