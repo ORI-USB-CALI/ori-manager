@@ -7,11 +7,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { ConvenioDetallePage } from './ConvenioDetallePage'
-import type { Convenio, HistorialConvenio } from './epica02'
+import { ConvenioHistorialPage } from './ConvenioHistorialPage'
+import type { Aliado, Convenio, HistorialConvenio } from './epica02'
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '')
+    this.querySelector('button')?.focus()
   }
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute('open')
@@ -44,8 +46,13 @@ function respuesta(status: number, cuerpo: unknown): Response {
 }
 
 function Ubicacion() {
-  const { search } = useLocation()
-  return <output data-testid="ubicacion">{search}</output>
+  const { pathname, search } = useLocation()
+  return (
+    <>
+      <output data-testid="ubicacion">{search}</output>
+      <output data-testid="ruta-actual">{pathname}{search}</output>
+    </>
+  )
 }
 
 function preparar({
@@ -53,6 +60,7 @@ function preparar({
   lineaTiempoDisponible = true,
   datos = convenio,
   historialSolicitudStatus = 200,
+  documentoStatus = 200,
   sesionUsuario = sesion,
   elaboracionData = null,
   revisionData = null,
@@ -62,13 +70,21 @@ function preparar({
   lineaTiempoDisponible?: boolean
   datos?: Convenio
   historialSolicitudStatus?: number
+  documentoStatus?: number
   sesionUsuario?: Sesion
   elaboracionData?: unknown
   revisionData?: unknown
   estado?: unknown
 } = {}) {
+  const notify = vi.fn()
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST' && url.endsWith('/observaciones')) return respuesta(201, {})
+    if (url.endsWith('/aprobar') && init?.method === 'POST') {
+      return respuesta(200, { id: 1, estado: 'RESUELTA', resultado: 'APROBADA' })
+    }
+    if (url.endsWith('/devolver') && init?.method === 'POST') {
+      return respuesta(200, { id: 1, estado: 'RESUELTA', resultado: 'DEVUELTA' })
+    }
     if (url === '/api/convenios/41') return respuesta(200, datos)
     if (url === '/api/convenios/41/revisiones') return respuesta(200, historial)
     if (url === '/api/solicitudes/recibidas/1/historial') {
@@ -86,6 +102,14 @@ function preparar({
       return revisionData ? respuesta(200, revisionData) : respuesta(404, { detail: 'Not Found' })
     }
     if (url.includes('disposicion=inline')) {
+      if (documentoStatus !== 200) {
+        return {
+          ok: false,
+          status: documentoStatus,
+          statusText: 'Error',
+          text: async () => JSON.stringify({ detail: 'Error de acceso al documento' }),
+        } as unknown as Response
+      }
       return {
         ok: true,
         status: 200,
@@ -101,16 +125,17 @@ function preparar({
   cliente.setQueryData(['convenio', datos.id], datos)
   render(
     <QueryClientProvider client={cliente}>
-      <NotificationsContext.Provider value={vi.fn()}>
+      <NotificationsContext.Provider value={notify}>
         <MemoryRouter initialEntries={[estado === undefined ? ruta : { pathname: ruta, state: estado }]}>
           <Routes>
             <Route path="/convenios/:convenioId" element={<><ConvenioDetallePage /><Ubicacion /></>} />
+            <Route path="/convenios/:convenioId/historial" element={<><ConvenioHistorialPage /><Ubicacion /></>} />
           </Routes>
         </MemoryRouter>
       </NotificationsContext.Provider>
     </QueryClientProvider>,
   )
-  return { fetch, usuario: userEvent.setup() }
+  return { fetch, notify, usuario: userEvent.setup() }
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -261,6 +286,663 @@ describe('HU-23: previsualización de documentos asociados en revisión jurídic
       expect(screen.queryByRole('heading', { level: 2, name: 'propuesta_academica.pdf' })).toBeNull()
     })
     expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+
+  it('CA-03 y CA-05 (HU23-TC06): conserva el foco y el scroll al cerrar el visor en revisión jurídica sin forzar descarga', async () => {
+    const sesionRevisor: Sesion = {
+      ...sesion,
+      permisos: ['convenios.ver', 'convenios.revisar'],
+    }
+    const elaboracionConEtapa = {
+      ...convenio,
+      etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+    }
+    const revisionConDocs = {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 1,
+        instancia_juridica: 1,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [
+        {
+          id: 1,
+          tipo: 'PROPUESTA_CONVENIO',
+          nombre_archivo: 'propuesta_academica.pdf',
+          tipo_mime: 'application/pdf',
+          tamano_bytes: 2048,
+          creado_en: '2026-10-20T10:00:00Z',
+        },
+      ],
+    }
+
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+      vi.stubGlobal('scrollX', x)
+      vi.stubGlobal('scrollY', y)
+    })
+    vi.stubGlobal('scrollX', 0)
+    vi.stubGlobal('scrollY', 420)
+
+    try {
+      const { fetch, usuario } = preparar({
+        sesionUsuario: sesionRevisor,
+        elaboracionData: elaboracionConEtapa,
+        revisionData: revisionConDocs,
+      })
+
+      const btnVer = await screen.findByRole('link', { name: 'Ver' })
+      btnVer.focus()
+      await usuario.click(btnVer)
+
+      // Simular que el navegador desplazó la ventana al abrir el modal
+      vi.stubGlobal('scrollX', 0)
+      vi.stubGlobal('scrollY', 0)
+
+      expect(await screen.findByTestId('preview-iframe')).toBeTruthy()
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('disposicion=attachment'))).toBe(false)
+
+      await usuario.click(screen.getByRole('button', { name: 'Cerrar previsualizador' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull()
+      })
+      expect(document.activeElement).toBe(btnVer)
+      expect(scrollTo).toHaveBeenCalledWith(0, 420)
+      expect(fetch.mock.calls.filter(([url]) => String(url).includes('disposicion=inline'))).toHaveLength(1)
+    } finally {
+      scrollTo.mockRestore()
+    }
+  })
+
+  it.each([
+    [403, 'No tiene permiso para consultar este documento.'],
+    [404, 'El documento solicitado no fue encontrado o no está vigente.'],
+  ])('CA-05 (HU23-TC06): maneja respuesta %i en el visor durante revisión jurídica y restaura el foco al cerrar', async (codigo, mensajeEsperado) => {
+    const sesionRevisor: Sesion = {
+      ...sesion,
+      permisos: ['convenios.ver', 'convenios.revisar'],
+    }
+    const elaboracionConEtapa = {
+      ...convenio,
+      etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+    }
+    const revisionConDocs = {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Texto del convenio' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 1,
+        instancia_juridica: 1,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [
+        {
+          id: 1,
+          tipo: 'PROPUESTA_CONVENIO',
+          nombre_archivo: 'propuesta_academica.pdf',
+          tipo_mime: 'application/pdf',
+          tamano_bytes: 2048,
+          creado_en: '2026-10-20T10:00:00Z',
+        },
+      ],
+    }
+
+    const { usuario } = preparar({
+      sesionUsuario: sesionRevisor,
+      elaboracionData: elaboracionConEtapa,
+      revisionData: revisionConDocs,
+      documentoStatus: codigo,
+    })
+
+    const btnVer = await screen.findByRole('link', { name: 'Ver' })
+    btnVer.focus()
+    await usuario.click(btnVer)
+
+    expect(await screen.findByTestId('preview-error')).toBeTruthy()
+    expect(screen.getByText(mensajeEsperado)).toBeTruthy()
+    expect(screen.queryByTestId('preview-iframe')).toBeNull()
+
+    await usuario.click(screen.getByRole('button', { name: 'Cerrar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+    expect(document.activeElement).toBe(btnVer)
+    expect(screen.getByRole('heading', { name: 'Documentos asociados' })).toBeTruthy()
+  })
+
+  it('CA-04: restringe las acciones visibles en el detalle según los permisos del perfil ORI', async () => {
+    const sesionGestor: Sesion = {
+      ...sesion,
+      rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' },
+      permisos: ['convenios.ver', 'convenios.editar', 'convenios.gestionar_soportes'],
+    }
+    const { fetch } = preparar({
+      datos: { ...convenio, estado: 'EN_TRAMITE', fecha_firma: null },
+      sesionUsuario: sesionGestor,
+      elaboracionData: {
+        ...convenio,
+        estado: 'EN_TRAMITE',
+        etapa_actual: { codigo: 'ELABORACION', nombre: 'Elaboración' },
+      },
+    })
+
+    expect(await screen.findByRole('link', { name: 'Continuar elaboración' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Aprobar revisión' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41/revision')).toBe(false)
+  })
+})
+
+describe('CA-01 (#176): redirección posterior a la aprobación jurídica de convenios', () => {
+  const sesionRevisor: Sesion = {
+    ...sesion,
+    permisos: ['convenios.ver', 'convenios.revisar'],
+  }
+
+  function datosRevision(instancia: 1 | 2) {
+    return {
+      version_actual: {
+        numero: 1,
+        contenido: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Cláusula única' }] }] },
+      },
+      version_recibida: { numero: 1 },
+      revision_pendiente: {
+        id: 15,
+        instancia_juridica: instancia,
+        numero_ronda: 1,
+        creado_en: '2026-10-20T10:00:00Z',
+        observaciones: [],
+      },
+      documentos: [],
+    }
+  }
+
+  it('redirige al historial del convenio tras aprobar un convenio manual sin intentar cargar una solicitud inexistente', async () => {
+    const convenioManual: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = preparar({
+      datos: convenioManual,
+      sesionUsuario: sesionRevisor,
+      elaboracionData: {
+        ...convenioManual,
+        etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+      },
+      revisionData: datosRevision(1),
+      estado: { volver: { to: '/revisiones-juridicas', texto: 'Volver a revisiones jurídicas' } },
+    })
+
+    const btnAprobar = await screen.findByRole('button', { name: 'Aprobar revisión' })
+    await usuario.click(btnAprobar)
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success',
+        message: 'Primera revisión aprobada. Se habilitó la segunda revisión.',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('ruta-actual').textContent).toBe('/convenios/41/historial')
+    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Historial y trazabilidad' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Volver a revisiones jurídicas' }).getAttribute('href'))
+      .toBe('/revisiones-juridicas')
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/solicitudes/'))).toBe(false)
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
+  })
+
+  it('redirige a una vista válida correspondiente al flujo tras aprobar un convenio derivado de solicitud', async () => {
+    const convenioSolicitud: Convenio = {
+      ...convenio,
+      origen: 'SOLICITUD',
+      solicitud_id: 1,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = preparar({
+      datos: convenioSolicitud,
+      sesionUsuario: sesionRevisor,
+      elaboracionData: {
+        ...convenioSolicitud,
+        etapa_actual: { codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión y aval jurídico' },
+      },
+      revisionData: datosRevision(2),
+    })
+
+    const btnAprobar = await screen.findByRole('button', { name: 'Aprobar revisión' })
+    await usuario.click(btnAprobar)
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success',
+        message: 'Segunda revisión aprobada. El proyecto quedó habilitado para contraparte.',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('ruta-actual').textContent).toBe('/convenios/41/historial')
+    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Historial y trazabilidad' })).toBeTruthy()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41')).toBe(false)
+  })
+})
+
+describe('HT-16 (#172): validación y asignación de contraparte antes del envío (CA-01, CA-02, CA-03)', () => {
+  const sesionGestor: Sesion = {
+    ...sesion,
+    rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' },
+    permisos: ['convenios.ver', 'convenios.editar', 'convenios.gestionar_revision_contraparte'],
+  }
+
+  const aliadosCatalogo = [
+    {
+      id: 10,
+      nombre: 'Aliado Sin Correo',
+      tipo: 'EMPRESA',
+      sector_economico: 'Educación',
+      tipo_identificacion: 'NIT',
+      identificacion: '800111222',
+      digito_verificacion: '1',
+      identificacion_completa: '800111222-1',
+      pais_id: null,
+      ciudad: 'Cali',
+      direccion: null,
+      telefono: null,
+      correo: null,
+      sitio_web: null,
+      activo: true,
+      creado_en: '2026-10-20T14:00:00Z',
+      actualizado_en: '2026-10-20T14:00:00Z',
+    },
+    {
+      id: 11,
+      nombre: 'Universidad Contraparte Válida',
+      tipo: 'UNIVERSIDAD',
+      sector_economico: null,
+      tipo_identificacion: 'NIT',
+      identificacion: '890333444',
+      digito_verificacion: '5',
+      identificacion_completa: '890333444-5',
+      pais_id: null,
+      ciudad: 'Cali',
+      direccion: null,
+      telefono: null,
+      correo: 'juridica@universidad.edu.co',
+      sitio_web: null,
+      activo: true,
+      creado_en: '2026-10-20T14:00:00Z',
+      actualizado_en: '2026-10-20T14:00:00Z',
+    },
+  ] satisfies Array<Aliado & { digito_verificacion: string; identificacion_completa: string }>
+
+  function montarEscenarioContraparte(convenioInicial: Convenio, envioStatuses: number[] = [201],
+    catalogo: (url: string) => Promise<Response> = async () => respuesta(200, { items: aliadosCatalogo, total: aliadosCatalogo.length }),
+    recuperacionStatus = 200) {
+    let actual: Convenio = { ...convenioInicial, etapa_actual_id: 3 }
+    let revisionesActuales: HistorialConvenio['revisiones'] = []
+    let intentoEnvio = 0
+    let etapa = 'REVISION_CONTRAPARTE'
+    const notify = vi.fn()
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/convenios/41' && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as { aliado_id: number }
+        const encontrado = aliadosCatalogo.find((item) => item.id === body.aliado_id) ?? null
+        if (actual.aliado_id !== null && actual.aliado_id !== body.aliado_id) etapa = 'ELABORACION'
+        actual = {
+          ...actual,
+          etapa_actual_id: etapa === 'ELABORACION' ? 1 : 3,
+          aliado_id: body.aliado_id,
+          aliado: encontrado
+            ? {
+                id: encontrado.id,
+                nombre: encontrado.nombre,
+                identificacion: encontrado.identificacion,
+                identificacion_completa: encontrado.identificacion_completa,
+                correo: encontrado.correo,
+                activo: encontrado.activo,
+              }
+            : null,
+        }
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41') {
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41/elaboracion') {
+        return respuesta(200, {
+          ...actual,
+          etapa_actual: { id: 3, orden: 3, codigo: etapa, nombre: etapa === 'ELABORACION' ? 'Elaboración' : 'Revisión de contraparte' },
+        })
+      }
+      if (url === '/api/convenios/41/revisiones') {
+        return respuesta(200, { revisiones: revisionesActuales, cambios_etapa: [] })
+      }
+      if (
+        url === '/api/convenios/41/actividades' ||
+        url === '/api/convenios/41/documentos' ||
+        url === '/api/convenios/41/observaciones'
+      ) {
+        return respuesta(200, [])
+      }
+      if (url.startsWith('/api/aliados?limite=100&activo=true')) {
+        return catalogo(url)
+      }
+      if (url === '/api/convenios/41/revision-juridica/reabrir-por-identidad' && init?.method === 'POST') {
+        etapa = 'ELABORACION'
+        actual = { ...actual, etapa_actual_id: 1 }
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41/revision-contraparte/99/invalidar-por-identidad' && init?.method === 'POST') {
+        if (recuperacionStatus !== 200) return respuesta(recuperacionStatus, { detail: 'La identidad sigue autorizada; no se puede invalidar por identidad' })
+        etapa = 'ELABORACION'
+        actual = { ...actual, etapa_actual_id: 1 }
+        revisionesActuales = revisionesActuales.map((item) => ({
+          ...item, estado: 'RESUELTA', resultado: 'DEVUELTA',
+          resuelta_por: { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.com' },
+          resuelta_en: '2026-10-20T14:20:00Z',
+          invitaciones_contraparte: item.invitaciones_contraparte.map((invitacion) => ({ ...invitacion, revocado_en: '2026-10-20T14:20:00Z' })),
+        }))
+        return respuesta(200, actual)
+      }
+      if (url === '/api/convenios/41/revision-contraparte/99/reenviar-invitacion' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { expected_invitacion_id: number }
+        const revision = revisionesActuales[0]
+        const invitacion = revision.invitaciones_contraparte.find((item) => item.id === body.expected_invitacion_id)
+        if (!invitacion || invitacion.revocado_en) return respuesta(409, { detail: 'La invitación cambió. Recargue el historial antes de reenviar.' })
+        const nueva = { ...invitacion, id: 502, enviado_en: '2026-10-20T14:10:00Z' }
+        revisionesActuales = [{ ...revision, invitaciones_contraparte: [
+          { ...invitacion, revocado_en: nueva.enviado_en }, nueva,
+        ] }]
+        return respuesta(200, { id: nueva.id, enviado_en: nueva.enviado_en })
+      }
+      if (url === '/api/convenios/41/revision-contraparte/enviar' && init?.method === 'POST') {
+        const statusActual = envioStatuses[Math.min(intentoEnvio, envioStatuses.length - 1)]
+        intentoEnvio += 1
+        if (statusActual !== 201) {
+          return respuesta(statusActual, { detail: statusActual === 409
+            ? { codigo: 'IDENTIDAD_ALIADO_CAMBIADA', message: 'La identidad jurídica cambió; requiere reiniciar la revisión jurídica desde Elaboración' }
+            : 'No fue posible enviar el correo de revisión a la contraparte' })
+        }
+        const creada = {
+          id: 99,
+          convenio_id: 41,
+          tipo: 'CONTRAPARTE' as const,
+          historial_etapa_id: 1,
+          instancia_juridica: null,
+          numero_ronda: null,
+          estado: 'PENDIENTE' as const,
+          resultado: null,
+          version_convenio_id: 3,
+          version_resultado_id: null,
+          version_convenio: { id: 3, numero: 3 },
+          version_resultado: null,
+          snapshot_datos: null,
+          creada_por: { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.com' },
+          responsable: null,
+          resuelta_por: null,
+          creado_en: '2026-10-20T14:00:00Z',
+          resuelta_en: null,
+          observaciones: [],
+          invitaciones_contraparte: [
+            {
+              id: 501,
+              correo_destino: actual.aliado?.correo ?? 'juridica@universidad.edu.co',
+              correo_cc: null,
+              expira_en: '2026-10-20T15:00:00Z',
+              enviado_en: '2026-10-20T14:00:00Z',
+              utilizado_en: null,
+              revocado_en: null,
+              creado_en: '2026-10-20T14:00:00Z',
+              generada_por: { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.com' },
+            },
+          ],
+          respuesta_contraparte: null,
+        }
+        revisionesActuales = [creada]
+        return respuesta(201, creada)
+      }
+      return respuesta(404, { detail: 'Not Found' })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const cliente = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    cliente.setQueryData(CLAVE_SESION, sesionGestor)
+    render(
+      <QueryClientProvider client={cliente}>
+        <NotificationsContext.Provider value={notify}>
+          <MemoryRouter initialEntries={['/convenios/41']}>
+            <Routes>
+              <Route path="/convenios/:convenioId" element={<ConvenioDetallePage />} />
+            </Routes>
+          </MemoryRouter>
+        </NotificationsContext.Provider>
+      </QueryClientProvider>,
+    )
+    return { fetch, notify, usuario: userEvent.setup() }
+  }
+
+  it('CA-01, CA-02 y CA-03: asigna desde Por definir y exige nuevos avales al rectificar la contraparte', async () => {
+    const manualPorDefinir: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      aliado_id: null,
+      aliado: null,
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { fetch, notify, usuario } = montarEscenarioContraparte(manualPorDefinir)
+
+    const encabezadoContraparte = await screen.findByRole('heading', { name: 'Revisión de contraparte' })
+    const seccionContraparte = encabezadoContraparte.closest('section') as HTMLElement
+
+    const alertaPorDefinir = await within(seccionContraparte).findByRole('alert')
+    expect(alertaPorDefinir.textContent).toContain('Por definir')
+    expect(alertaPorDefinir.textContent).toContain('Debe asignar una contraparte válida')
+
+    const btnEnviar = within(seccionContraparte).getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement
+    expect(btnEnviar.disabled).toBe(true)
+
+    const selector = await within(seccionContraparte).findByLabelText('Asignar contraparte')
+    await usuario.selectOptions(selector, '10')
+    await usuario.click(within(seccionContraparte).getByRole('button', { name: 'Guardar contraparte' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/convenios/41',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ aliado_id: 10 }),
+        }),
+      )
+    })
+    expect(notify).toHaveBeenCalledWith({
+      type: 'success',
+      message: 'Contraparte actualizada correctamente.',
+    })
+
+    // Con el aliado sin correo, la interfaz identifica el dato pendiente y mantiene bloqueado el envío (CA-01 Escenario 2)
+    const alertaDatosFaltantes = await within(seccionContraparte).findByRole('alert')
+    expect(alertaDatosFaltantes.textContent).toContain('Datos por completar: correo electrónico válido')
+    expect((within(seccionContraparte).getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement).disabled).toBe(true)
+
+    // Rectificar seleccionando una contraparte con correo válido
+    const selectorCorregir = within(seccionContraparte).getByLabelText('Corregir contraparte')
+    await usuario.selectOptions(selectorCorregir, '11')
+    await usuario.click(within(seccionContraparte).getByRole('button', { name: 'Guardar contraparte' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Revisión de contraparte' })).toBeNull()
+      expect(notify).toHaveBeenCalledWith({
+        type: 'success', message: 'Contraparte rectificada. Complete Elaboración y obtenga nuevamente RJ1 y RJ2.',
+      })
+    })
+    expect(screen.getByRole('link', { name: /elaboración/i })).toBeTruthy()
+    expect(fetch.mock.calls.some(([url]) => url === '/api/convenios/41/revision-contraparte/enviar')).toBe(false)
+  })
+
+  const manualPorDefinir: Convenio = {
+    ...convenio, origen: 'MANUAL_ORI', solicitud_id: null, aliado_id: null,
+    aliado: null, estado: 'EN_TRAMITE', fecha_firma: null,
+  }
+
+  it('consulta todas las páginas del contrato real y permite seleccionar un aliado posterior al primero', async () => {
+    const primera = Array.from({ length: 100 }, (_, i) => ({ ...aliadosCatalogo[0], id: i + 100, nombre: `Aliado ${i}` }))
+    const { fetch, usuario } = montarEscenarioContraparte(manualPorDefinir, [201], async (url) =>
+      respuesta(200, { items: url.includes('desplazamiento=100') ? [aliadosCatalogo[1]] : primera, total: 101 }))
+    const opcion = await screen.findByRole('option', { name: /Universidad Contraparte Válida/ })
+    expect(opcion).toBeTruthy()
+    expect(fetch).toHaveBeenCalledWith('/api/aliados?limite=100&activo=true&desplazamiento=100', expect.anything())
+    await usuario.selectOptions(screen.getByLabelText('Asignar contraparte'), '11')
+    await usuario.click(screen.getByRole('button', { name: 'Guardar contraparte' }))
+    const enviar = await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' })
+    await waitFor(() => expect((enviar as HTMLButtonElement).disabled).toBe(false))
+    await usuario.click(enviar)
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+  })
+
+  it('muestra la carga y deshabilita el selector hasta completar el catálogo', async () => {
+    let completar!: (r: Response) => void
+    montarEscenarioContraparte(manualPorDefinir, [201], () => new Promise((resolve) => { completar = resolve }))
+    expect(await screen.findByText('Cargando aliados activos…')).toBeTruthy()
+    expect((screen.getByLabelText('Asignar contraparte') as HTMLSelectElement).disabled).toBe(true)
+    completar(respuesta(200, { items: aliadosCatalogo, total: 2 }))
+    await waitFor(() => expect((screen.getByLabelText('Asignar contraparte') as HTMLSelectElement).disabled).toBe(false))
+  })
+
+  it('envía el ID vigente al reenviar una invitación y refresca su trazabilidad', async () => {
+    const { fetch, usuario } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] })
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Reenviar enlace al aliado' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/convenios/41/revision-contraparte/99/reenviar-invitacion',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_invitacion_id: 501 }) }),
+    ))
+    expect(await screen.findByText('Invitaciones registradas: 2.')).toBeTruthy()
+  })
+
+  it('confirma la recuperación administrativa con versión e invitación esperadas y regresa a Elaboración', async () => {
+    const { fetch, usuario, notify } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] })
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Recuperar por cambio de identidad' }))
+    const modal = screen.getByRole('dialog', { name: 'Invalidar invitación y volver a Elaboración' })
+    expect(within(modal).getByText(/Los avales históricos se conservan/)).toBeTruthy()
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/invalidar-por-identidad'))).toBe(false)
+    await usuario.click(within(modal).getByRole('button', { name: 'Confirmar recuperación' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/convenios/41/revision-contraparte/99/invalidar-por-identidad',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_version: 3, expected_invitacion_id: 501 }) }),
+    ))
+    expect(await screen.findByRole('link', { name: /elaboración/i })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeNull()
+    expect(notify).toHaveBeenCalledWith({ type: 'success', message: 'Invitación invalidada administrativamente. Complete Elaboración y obtenga nuevos avales RJ1 y RJ2.' })
+  })
+
+  it('conserva la revisión pendiente si el servidor rechaza una recuperación no justificada', async () => {
+    const { usuario, notify } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] }, [201], undefined, 409)
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Recuperar por cambio de identidad' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirmar recuperación' }))
+    await waitFor(() => expect(notify).toHaveBeenCalledWith({ type: 'error', message: 'La identidad sigue autorizada; no se puede invalidar por identidad' }))
+    expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /elaboración/i })).toBeNull()
+  })
+
+  it('permite volver a Elaboración cuando el servidor detecta una identidad incompatible', async () => {
+    const { fetch, usuario } = montarEscenarioContraparte({ ...manualPorDefinir,
+      aliado_id: 11, aliado: aliadosCatalogo[1] }, [409])
+    await usuario.click(await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    await usuario.click(await screen.findByRole('button', { name: 'Volver a Elaboración para revisar la identidad' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/convenios/41/revision-juridica/reabrir-por-identidad',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expected_version: 3 }) }),
+    ))
+    expect(await screen.findByRole('link', { name: /elaboración/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
+  })
+
+  it('maneja catálogo vacío y conserva visible una contraparte actual inactiva', async () => {
+    montarEscenarioContraparte({ ...manualPorDefinir, aliado_id: 99,
+      aliado: { id: 99, nombre: 'Aliado histórico', identificacion: '123', activo: false, correo: null } },
+    [201], async () => respuesta(200, { items: [], total: 0 }))
+    expect(await screen.findByText('No hay aliados activos disponibles.')).toBeTruthy()
+    expect((screen.getByRole('option', { name: 'Aliado histórico (contraparte actual)' }) as HTMLOptionElement).selected).toBe(true)
+    expect((screen.getByRole('button', { name: 'Enviar a revisión de contraparte' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('informa errores de catálogo y permite reintentar sin perder la contraparte actual', async () => {
+    let intentos = 0
+    const { usuario } = montarEscenarioContraparte({ ...manualPorDefinir, aliado_id: 99,
+      aliado: { id: 99, nombre: 'Aliado histórico', identificacion: '123', activo: false, correo: null } }, [201], async () => {
+      intentos += 1
+      return intentos === 1 ? respuesta(500, { detail: 'Catálogo no disponible' })
+        : respuesta(200, { items: aliadosCatalogo, total: 2 })
+    })
+    const reintentar = await screen.findByRole('button', { name: 'Reintentar catálogo' })
+    expect((screen.getByRole('option', { name: 'Aliado histórico (contraparte actual)' }) as HTMLOptionElement).selected).toBe(true)
+    await usuario.click(reintentar)
+    expect(await screen.findByRole('option', { name: /Universidad Contraparte Válida/ })).toBeTruthy()
+    expect(screen.queryByText(/No fue posible cargar los aliados/)).toBeNull()
+  })
+
+  it('CA-03 Escenario 2 y CA-05: informa un fallo durante el envío sin crear revisión y permite reintentar exitosamente', async () => {
+    const manualConContraparte: Convenio = {
+      ...convenio,
+      origen: 'MANUAL_ORI',
+      solicitud_id: null,
+      aliado_id: 11,
+      aliado: {
+        id: 11,
+        nombre: 'Universidad Contraparte Válida',
+        identificacion: '890333444',
+        identificacion_completa: '890333444-5',
+        correo: 'juridica@universidad.edu.co',
+        activo: true,
+      },
+      estado: 'EN_TRAMITE',
+      fecha_firma: null,
+    }
+    const { notify, usuario } = montarEscenarioContraparte(manualConContraparte, [502, 201])
+
+    const btnEnviar = await screen.findByRole('button', { name: 'Enviar a revisión de contraparte' })
+    await usuario.click(btnEnviar)
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith({
+        type: 'error',
+        message: 'No fue posible enviar el correo de revisión a la contraparte',
+      })
+    })
+    expect(screen.queryByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Revisión de contraparte' })).toBeTruthy()
+
+    // Reintento válido después del fallo recuperable (CA-05 Escenario 2)
+    await usuario.click(screen.getByRole('button', { name: 'Enviar a revisión de contraparte' }))
+    await usuario.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar versión 3' }))
+    expect(await screen.findByRole('heading', { name: 'Revisión de contraparte en curso' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enviar a revisión de contraparte' })).toBeNull()
   })
 })
 

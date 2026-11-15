@@ -14,6 +14,7 @@ const CAMPOS_SNAPSHOT: Record<string, string> = {
   solicitud_id: 'Solicitud (ID)',
   origen: 'Origen',
   aliado_id: 'Aliado (ID)',
+  aliado_identidad: 'Identidad jurídica del aliado',
   tipo_convenio_id: 'Tipo de convenio (ID)',
   objeto: 'Objeto',
   alcance: 'Alcance',

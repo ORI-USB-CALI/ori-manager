@@ -28,8 +28,7 @@ from backend.models.solicitud_convenio import SolicitudConvenio
 from backend.models.tipo_convenio import TipoConvenio
 from backend.models.version_convenio import VersionConvenio
 from backend.schemas.convenio import ConvenioCrearManual
-from backend.services import convenios as servicio_convenios
-from backend.services import renovaciones
+from backend.services import convenios, renovaciones
 from backend.services.convenios import RevisionNoDisponible, ServicioConvenios
 from backend.services.renovaciones import ServicioRenovaciones
 
@@ -50,9 +49,7 @@ DOCUMENTO_VIGENTE = {
 @pytest.fixture(autouse=True)
 def fecha_dominio_fija(monkeypatch):
     monkeypatch.setattr(renovaciones, "fecha_actual_dominio", lambda: FECHA_REFERENCIA)
-    monkeypatch.setattr(
-        servicio_convenios, "fecha_actual_dominio", lambda: FECHA_REFERENCIA
-    )
+    monkeypatch.setattr(convenios, "fecha_actual_dominio", lambda: FECHA_REFERENCIA)
 
 
 @pytest.fixture(params=["SOLICITUD", "MANUAL_ORI"])

@@ -1,3 +1,8 @@
+/// <reference types="node" />
+
+import { readFileSync } from 'node:fs'
+import { URL as NodeURL } from 'node:url'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -248,5 +253,63 @@ describe('BitacoraPage', () => {
     expect(screen.getByRole('alert').textContent).toContain('no puede ser posterior')
     expect((screen.getByRole('button', { name: 'Buscar' }) as HTMLButtonElement).disabled).toBe(true)
     expect(urlsAuditoria(fetch)).toHaveLength(1)
+  })
+
+  it('CA-02 (#167): presenta la naturaleza "Automática" completa sin cortes y eventos extensos como "BORRADOR_GUARDADO" con columnas identificables', async () => {
+    const datosLegibilidad: PaginaBitacora = {
+      items: [
+        {
+          id: 12,
+          fecha_hora: '2026-10-10T14:30:00Z',
+          usuario: gestora,
+          rol: 'GESTOR_ORI',
+          entidad: 'convenio',
+          registro_id: 41,
+          accion: 'UPDATE',
+          campo: 'contenido',
+          valor_anterior: '[contenido redactado]',
+          valor_nuevo: '[contenido redactado]',
+          contexto: 'Guardó avance del borrador de convenio',
+          evento: 'BORRADOR_GUARDADO',
+          etapa: 'ELABORACION',
+          version: 1,
+          ejecucion: 'AUTOMATICA',
+          responsable: gestora,
+        },
+      ],
+      total: 1,
+    }
+    simularApi(() => respuesta(200, datosLegibilidad))
+
+    const estilo = document.createElement('style')
+    estilo.textContent = readFileSync(new NodeURL('../index.css', import.meta.url), 'utf8')
+      .replace(/^@import[^;]*;/gm, '')
+    document.head.appendChild(estilo)
+
+    try {
+      renderizar()
+
+      const tabla = await screen.findByRole('table', { name: 'Bitácora de cambios' })
+      const contenedor = screen.getByRole('region', { name: 'Bitácora de cambios' })
+      expect(tabla.classList.contains('bitacora-tabla')).toBe(true)
+      expect(contenedor.classList.contains('bitacora-tabla-container')).toBe(true)
+      expect(within(tabla).getAllByRole('columnheader')).toHaveLength(13)
+
+      const celdaNaturaleza = within(tabla).getByText('Automática').closest('td') as HTMLTableCellElement
+      expect(celdaNaturaleza).toBeTruthy()
+      expect(celdaNaturaleza.classList.contains('bitacora-col-naturaleza')).toBe(true)
+      expect(celdaNaturaleza.textContent).toBe('Automática')
+      expect(getComputedStyle(celdaNaturaleza).whiteSpace).toBe('nowrap')
+      expect(getComputedStyle(celdaNaturaleza).overflowWrap).toBe('normal')
+
+      const celdaEvento = within(tabla).getByText('BORRADOR_GUARDADO').closest('td') as HTMLTableCellElement
+      expect(celdaEvento).toBeTruthy()
+      expect(celdaEvento.classList.contains('bitacora-col-evento')).toBe(true)
+      expect(celdaEvento.textContent).toBe('BORRADOR_GUARDADO')
+      expect(getComputedStyle(celdaEvento).overflowWrap).toBe('break-word')
+      expect(getComputedStyle(contenedor).overflowX).toBe('auto')
+    } finally {
+      estilo.remove()
+    }
   })
 })

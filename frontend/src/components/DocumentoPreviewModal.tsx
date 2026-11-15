@@ -21,6 +21,8 @@ export function DocumentoPreviewModal({
 }: DocumentoPreviewModalProps) {
   const dialogo = useRef<HTMLDialogElement>(null)
   const focoPrevioRef = useRef<HTMLElement | null>(null)
+  const posicionPreviaRef = useRef<{ x: number; y: number } | null>(null)
+  const desplazamientosPreviosRef = useRef<Array<{ elemento: HTMLElement; top: number; left: number }>>([])
 
   // Criterio principal: tipoMime registrado si existe; de lo contrario, extensión del nombre como indicio inicial
   const tipoMimeNormalizado = tipoMime?.trim().toLowerCase()
@@ -58,14 +60,42 @@ export function DocumentoPreviewModal({
     return url.startsWith('/api') ? url.slice(4) : url
   }
 
+  // HT-18: conservar el lugar de lectura, incluso dentro de contenedores con scroll.
+  // Capturar antes de showModal(), que puede modificar el foco y el desplazamiento.
+  const restaurarNavegacion = () => {
+    const focoPrevio = focoPrevioRef.current
+    if (focoPrevio?.isConnected) {
+      focoPrevio.focus({ preventScroll: true })
+    }
+    for (const { elemento, top, left } of desplazamientosPreviosRef.current) {
+      if (elemento.isConnected) {
+        elemento.scrollTop = top
+        elemento.scrollLeft = left
+      }
+    }
+    const posicion = posicionPreviaRef.current
+    if (posicion && (window.scrollX !== posicion.x || window.scrollY !== posicion.y)) {
+      window.scrollTo(posicion.x, posicion.y)
+    }
+  }
+
   useEffect(() => {
-    if (!dialogo.current?.open) {
-      focoPrevioRef.current = document.activeElement as HTMLElement | null
+    focoPrevioRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    posicionPreviaRef.current = { x: window.scrollX, y: window.scrollY }
+    desplazamientosPreviosRef.current = []
+    let ancestro = focoPrevioRef.current?.parentElement
+    while (ancestro) {
+      desplazamientosPreviosRef.current.push({
+        elemento: ancestro,
+        top: ancestro.scrollTop,
+        left: ancestro.scrollLeft,
+      })
+      ancestro = ancestro.parentElement
     }
     dialogo.current?.showModal()
 
     return () => {
-      if (focoPrevioRef.current?.isConnected) focoPrevioRef.current.focus()
+      restaurarNavegacion()
     }
   }, [])
 
@@ -173,7 +203,7 @@ export function DocumentoPreviewModal({
     peticionRef.current?.abort()
     liberarUrl()
     setAbierto(false)
-    if (focoPrevioRef.current?.isConnected) focoPrevioRef.current.focus()
+    restaurarNavegacion()
     onCerrar()
   }
 

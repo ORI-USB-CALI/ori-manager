@@ -17,6 +17,8 @@ interface DataTableProps<T> {
   onClearEmpty?: () => void
   isLoading?: boolean
   loadingMessage?: string
+  containerClassName?: string
+  tableClassName?: string
 }
 
 export function DataTable<T>({
@@ -28,15 +30,20 @@ export function DataTable<T>({
   onClearEmpty,
   isLoading = false,
   loadingMessage = 'Cargando…',
+  containerClassName,
+  tableClassName,
 }: DataTableProps<T>) {
   if (isLoading) return <p className="estado-pagina">{loadingMessage}</p>
   if (rows.length === 0) {
     return <TableEmptyState message={emptyMessage} onClear={onClearEmpty} />
   }
 
+  const claseContenedor = containerClassName ? `table-container ${containerClassName}` : 'table-container'
+  const claseTabla = tableClassName ? `table ${tableClassName}` : 'table'
+
   return (
-    <div className="table-container" role="region" aria-label={label} tabIndex={0}>
-      <table className="table" aria-label={label}>
+    <div className={claseContenedor} role="region" aria-label={label} tabIndex={0}>
+      <table className={claseTabla} aria-label={label}>
         <thead>
           <tr>
             {columns.map((column) => (
