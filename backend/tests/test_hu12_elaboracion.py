@@ -93,6 +93,11 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             db.commit()
         else:
             convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+        # Estos escenarios validan metadatos y transiciones de un texto elaborado.
+        convenio.borrador.contenido = {"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": "Las partes acuerdan cooperar en actividades academicas."}
+        ]}]}
+        db.commit()
         return convenio
 
     return _crear

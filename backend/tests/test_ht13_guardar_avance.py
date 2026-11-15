@@ -355,11 +355,16 @@ def test_ca08_un_convenio_sin_borrador_trabaja_sobre_su_version_actual(
 def test_en_elaboracion_se_exporta_el_avance_guardado(
     client, db, convenio_listo
 ) -> None:
+    db.refresh(convenio_listo, ["borrador"])
+    assert convenio_listo.borrador is None
+    anterior = deepcopy(_versiones(db, convenio_listo.id)[0].contenido)
     contenido = _con_parrafo(
         _elaboracion(client, convenio_listo.id)["contenido"], "Cláusula del avance"
     )
     assert _guardar(client, convenio_listo.id, contenido, 0).status_code == 200
 
+    assert convenio_listo.borrador.contenido == contenido
+    assert _versiones(db, convenio_listo.id)[0].contenido == anterior
     respuesta = client.get(
         f"/api/convenios/{convenio_listo.id}/exportar", params={"formato": "excel"}
     )

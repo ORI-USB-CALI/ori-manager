@@ -446,3 +446,20 @@ it('HT17 conserva el vencimiento historico al abrir y calcula solo al editar', a
   fireEvent.change(inicio, { target: { value: '2099-01-31' } })
   expect(vencimiento.value).toBe('2100-01-31')
 })
+
+
+it('muestra el motivo del campo contenido al rechazar la precarga HU-12', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) }
+  const { usuario } = preparar(() => respuesta(200, remotoCompleto), remotoCompleto)
+  const peticionOriginal = globalThis.fetch
+  const motivo = 'Debe elaborar el texto contractual definitivo antes de enviarlo a revision juridica. El documento conserva la precarga completa de antecedentes de la solicitud HU-12.'
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => url.endsWith('/elaboracion/finalizar')
+    ? Promise.resolve(respuesta(422, { detail: { message: 'Proyecto incompleto', faltantes: [{ campo: 'contenido', motivo }] } }))
+    : peticionOriginal(url, init)))
+  await usuario.click(await screen.findByRole('button', { name: 'Finalizar elaboración' }))
+  await usuario.click(screen.getByRole('button', { name: 'Confirmar y enviar a Jurídica' }))
+  expect(await screen.findByText(motivo)).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+})

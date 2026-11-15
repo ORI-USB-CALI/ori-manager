@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from helpers_contenido import preparar_documento_contractual
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,7 @@ def _entregar_a_juridica(db, crear_convenio, autor, **cambios):
         **cambios,
     }
     convenio = crear_convenio(autor, **datos)
+    preparar_documento_contractual(db, convenio)
     return ServicioConvenios(db).finalizar_elaboracion(convenio.id, autor)
 
 

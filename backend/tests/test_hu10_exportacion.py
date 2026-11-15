@@ -205,12 +205,17 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
         assert all(firma.estado == "FIRMADA" for firma in dto.firmantes)
     else:
         assert dto.solicitud_consecutivo == convenio.solicitud.consecutivo
-        assert dto.justificacion == convenio.solicitud.justificacion
+        # Los antecedentes siguen en el expediente; solo el borrador los presenta.
+        assert dto.justificacion == (convenio.solicitud.justificacion if modo == "BORRADOR" else NO_DISPONIBLE)
         assert dto.solicitante_nombre == convenio.solicitud.solicitante.nombre_completo
         assert dto.solicitante_correo == convenio.solicitud.solicitante.correo
         assert dto.solicitante_tipo == convenio.solicitud.tipo_solicitante
-        assert dto.aliado_contacto_nombre == "Contacto de solicitud"
-        assert dto.aliado_contacto_correo == "contacto-solicitud@example.com"
+        if modo == "BORRADOR":
+            assert dto.aliado_contacto_nombre == "Contacto de solicitud"
+            assert dto.aliado_contacto_correo == "contacto-solicitud@example.com"
+        else:
+            assert dto.aliado_contacto_nombre == NO_DISPONIBLE
+            assert dto.aliado_contacto_correo == (convenio.aliado.correo or NO_DISPONIBLE)
     respuesta = client.get(f"/api/convenios/{convenio.id}/exportar", params={"formato": formato})
     assert respuesta.status_code == 200, respuesta.text
     prefijo = "BORRADOR_Convenio_" if modo == "BORRADOR" else "Convenio_"
@@ -227,7 +232,11 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
         else:
             # La celda puede repartir un consecutivo largo entre varias líneas.
             assert convenio.solicitud.consecutivo in texto.replace(" ", "")
-            assert convenio.solicitud.justificacion in texto
+            assert (convenio.solicitud.justificacion in texto) is (modo == "BORRADOR")
+            # El PDF no tiene seccion de contactos propuestos, ni en borrador.
+            if modo == "OFICIAL":
+                assert "Contacto de solicitud" not in texto
+                assert "contacto-solicitud@example.com" not in texto
         for firma in dto.firmantes:
             assert firma.nombre in texto
     else:
@@ -238,6 +247,10 @@ def test_exporta_archivo_valido_con_datos_reales_y_sin_escrituras(
         assert set(datos_reales) <= valores
         assert dto.solicitud_consecutivo in valores
         assert dto.justificacion in valores
+        if origen == "SOLICITUD":
+            assert (convenio.solicitud.justificacion in valores) is (modo == "BORRADOR")
+            assert ("Contacto de solicitud" in valores) is (modo == "BORRADOR")
+            assert ("contacto-solicitud@example.com" in valores) is (modo == "BORRADOR")
         assert dto.aliado_contacto_correo in valores
         generales = {fila[0]: fila[1] for fila in libro["Datos Generales"].values if fila[0]}
         assert generales["Consecutivo de la solicitud"] == dto.solicitud_consecutivo
