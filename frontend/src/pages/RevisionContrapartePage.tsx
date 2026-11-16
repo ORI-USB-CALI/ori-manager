@@ -81,7 +81,7 @@ export function RevisionContrapartePage() {
     return (
       <section className="card estado-vacio">
         <h1>{noEncontrada ? 'Revisión no encontrada' : 'No se pudo consultar la revisión'}</h1>
-        <Link className="btn btn-outline" to="/revisiones-contraparte">Volver a la bandeja</Link>
+        <Link className="btn accion-volver" to="/revisiones-contraparte">Volver a la bandeja</Link>
       </section>
     )
   }
@@ -122,7 +122,7 @@ export function RevisionContrapartePage() {
           </section>
         </aside>
       </div>
-      <div className="page-toolbar"><Link className="btn btn-outline" to="/revisiones-contraparte">Volver a la bandeja</Link></div>
+      <div className="page-toolbar"><Link className="btn accion-volver" to="/revisiones-contraparte">Volver a la bandeja</Link></div>
 
       {decision === 'aprobar' && (
         <ConfirmacionModal titulo="Aprobar elaboración" confirmar="Confirmar aprobación" procesando="Aprobando…" pendiente={resolver.isPending} onConfirmar={() => resolver.mutate('aprobar')} onCerrar={() => setDecision(null)}>

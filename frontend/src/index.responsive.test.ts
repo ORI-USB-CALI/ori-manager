@@ -65,6 +65,31 @@ const TABLET = '(max-width: 1024px)'
 const TABLET_VERTICAL = '(max-width: 768px)'
 const MOVIL = '(max-width: 640px)'
 
+describe('Lote 2: variante optativa de tablas densas', () => {
+  it('reutiliza el único contenedor de scroll y conserva foco visible', () => {
+    expect(valores('.table-container', 'min-width')).toEqual(['0'])
+    expect(valores('.table-container', 'max-width')).toEqual(['100%'])
+    expect(valores('.table-container', 'overflow-x')).toEqual(['auto'])
+    expect(valores('.tabla-seccion', 'min-width')).toEqual(['0'])
+    expect(valores('.tabla-densa-region:focus-visible', 'outline')).toEqual(['3px solid var(--text-primary)'])
+  })
+
+  it('da más espacio a prosa y personas que a rondas/versiones sin recortar textos', () => {
+    expect(valores('.tabla-densa .tabla-col-descripcion', 'min-width')).toEqual(['20rem'])
+    expect(valores('.tabla-densa .tabla-col-persona', 'min-width')).toEqual(['17rem'])
+    expect(valores('.tabla-densa .tabla-col-numero', 'min-width')).toEqual(['5.5rem'])
+    expect(valores('.tabla-densa .tabla-col-descripcion', 'white-space')).toEqual(['pre-wrap'])
+    expect(REGLAS.filter((regla) => regla.selector.includes('tabla-densa')).flatMap((regla) => regla.declaraciones)
+      .some(([nombre, valor]) => nombre.includes('line-clamp') || (nombre === 'overflow' && valor === 'hidden'))).toBe(false)
+  })
+
+  it('reserva espacio para fechas y acciones sin fragmentar las fechas', () => {
+    expect(valores('.tabla-densa .tabla-col-fecha', 'min-width')).toEqual(['11rem'])
+    expect(valores('.tabla-densa .tabla-col-fecha', 'white-space')).toEqual(['nowrap'])
+    expect(valores('.tabla-densa .tabla-col-acciones', 'min-width')).toEqual(['9rem'])
+  })
+})
+
 describe('HT-18 CA-04: bitácora legible en escritorio, tablet y móvil', () => {
   it('la tabla conserva su ancho y se desplaza dentro de su contenedor en cada resolución', () => {
     expect(valores('.bitacora-tabla-container', 'overflow-x')).toEqual(['auto'])

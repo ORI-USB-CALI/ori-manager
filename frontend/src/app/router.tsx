@@ -82,7 +82,7 @@ export const router = createBrowserRouter([
         { path: '/convenios/:convenioId/firmas/documento-aprobado', element: <DocumentoAprobadoFirmaPage /> },
       ] },
       { element: <RequierePermiso permiso="convenios.revisar" />, children: [
-        { path: '/revisiones-juridicas', element: <RevisionesJuridicasPage /> },
+        { path: '/revisiones-juridicas', element: <RevisionesJuridicasPage />, handle: { layout: 'wide' } },
       ] },
       { element: <RequierePermiso permiso="convenios.revisar_contraparte_propia" />, children: [
         { path: '/revisiones-contraparte', element: <RevisionesContrapartePage /> },
