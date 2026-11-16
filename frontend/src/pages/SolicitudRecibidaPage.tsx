@@ -109,7 +109,7 @@ export function SolicitudRecibidaPage() {
         <dt>Justificación</dt><dd>{valor(solicitud.justificacion)}</dd><dt>Implicación financiera</dt><dd>{valor(solicitud.implicacion_financiera)}</dd>
         <dt>Actividades</dt><dd>{valor(solicitud.actividades_por_parte)}</dd><dt>Metas</dt><dd>{valor(solicitud.metas_esperadas)}</dd>
         <dt>Vigencia estimada</dt><dd>{valor(solicitud.vigencia_estimada)}</dd><dt>Requisitos de renovación</dt><dd>{valor(solicitud.requisitos_renovacion)}</dd>
-        <dt>Observaciones originales</dt><dd>{valor(solicitud.observaciones)}</dd>
+        <dt>Observaciones del solicitante</dt><dd>{valor(solicitud.observaciones)}</dd>
       </dl></section>
 
       <section className="card"><h2>Supervisores</h2><dl>

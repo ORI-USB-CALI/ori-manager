@@ -94,6 +94,16 @@ function montar(ruta = '/ori/solicitudes/41', sesion = gestor) {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('identifica las observaciones del solicitante conservando su valor y acceso al historial', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => respuesta(200, { ...solicitud, observaciones: 'Aclaración aportada por el solicitante' })))
+  montar()
+  const etiqueta = await screen.findByText('Observaciones del solicitante')
+  expect(etiqueta.tagName).toBe('DT')
+  expect(etiqueta.nextElementSibling?.textContent).toBe('Aclaración aportada por el solicitante')
+  expect(screen.queryByText('Observaciones originales')).toBeNull()
+  expect(screen.getByRole('link', { name: /historial/i }).getAttribute('href')).toBe('/ori/solicitudes/41/historial')
+})
+
 describe('HT-01: aprobación completa en ORI', () => {
   it.each(['RADICADA', 'EN_ESTUDIO'] as const)(
     'aprueba una solicitud %s, muestra la respuesta antes del refetch y actualiza la bandeja',
