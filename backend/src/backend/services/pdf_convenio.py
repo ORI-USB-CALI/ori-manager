@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-from datetime import UTC, datetime
 from functools import partial
 from html import escape
 from types import SimpleNamespace
@@ -53,10 +52,16 @@ from backend.services.validador_exportacion_convenio import (
     proceso_firmas_de_version,
     version_exportable,
 )
+from backend.services.vigencia import fecha_civil_dominio, instante_actual_dominio
 
 # Los antecedentes exclusivos de solicitudes no están pendientes de completar
 # cuando el convenio fue creado directamente por ORI.
 NO_APLICA_CREACION_MANUAL = "No aplica (creación directa ORI)"
+
+MESES_ES = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
 
 # Nombres amigables para los roles institucionales
 ETIQUETAS_ROL: dict[str, str] = {
@@ -302,7 +307,7 @@ class ServicioPdfConvenio:
             duracion_meses=definitivo("duracion_meses"),
             porcentaje_avance=convenio.porcentaje_avance,
             version_actual=convenio.version_actual,
-            fecha_emision=datetime.now(UTC),
+            fecha_emision=instante_actual_dominio(),
             solicitante_nombre=_o_no_disponible(
                 solicitante.nombre_completo if solicitante else sin_antecedente
             ),
@@ -513,7 +518,8 @@ class ServicioPdfConvenio:
             elementos.append(Paragraph(MARCA_BORRADOR, estilos["marca_borrador"]))
         elementos.append(Spacer(1, 3))
 
-        fecha_texto = dto.fecha_emision.strftime("%d de %B de %Y")
+        emision = fecha_civil_dominio(dto.fecha_emision)
+        fecha_texto = f"{emision.day} de {MESES_ES[emision.month - 1]} de {emision.year}"
         elementos.append(
             Paragraph(
                 f"{'Fecha de generación' if borrador else 'Fecha de emisión'}: "

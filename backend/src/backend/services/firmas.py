@@ -47,7 +47,7 @@ from backend.services.convenios import (
     exigir_vigencia_valida,
 )
 from backend.services.documentos import TAMANO_MAXIMO_DOCUMENTO, AlmacenDocumentos
-from backend.services.vigencia import instante_actual_dominio
+from backend.services.vigencia import fecha_civil_dominio, instante_actual_dominio
 
 CODIGO_ETAPA_ELABORACION = "ELABORACION"
 CODIGO_ETAPA_REVISION_FINAL = "REVISION_FINAL"
@@ -63,6 +63,16 @@ ROLES_FIRMANTES = (
     RolFirmanteConvenio.RECTOR,
     RolFirmanteConvenio.PARTE_SOLICITANTE,
 )
+
+
+def _fecha_contractual_firma(firma: FirmaConvenio) -> date:
+    # Formalizar ya exige fecha para cada una de las siete firmas.
+    assert firma.fecha_firma is not None
+    if firma.modalidad == ModalidadFirma.FISICA.value:
+        # Fecha declarada: registrar_firmas_fisicas la guarda a medianoche UTC.
+        instante = firma.fecha_firma
+        return instante.astimezone(UTC).date() if instante.tzinfo else instante.date()
+    return fecha_civil_dominio(firma.fecha_firma)
 
 
 @dataclass
@@ -983,8 +993,8 @@ class ServicioFirmas:
         convenio.estado = EstadoConvenio.VIGENTE.value
         convenio.activado_en = ahora
         convenio.fecha_firma = max(
-            firma.fecha_firma for firma in firmas if firma.fecha_firma is not None
-        ).date()
+            _fecha_contractual_firma(firma) for firma in firmas
+        )
         convenio.etapa_actual = etapa_seguimiento
         try:
             # HT-06, CA-02 y RN-15: el código se asigna dentro del alcance

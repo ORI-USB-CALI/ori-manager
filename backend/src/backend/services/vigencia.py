@@ -5,7 +5,7 @@ Vive en un módulo propio porque `renovaciones` importa `convenios`; si
 """
 
 from calendar import monthrange
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from backend.schemas.convenio import CampoFaltante
@@ -32,6 +32,13 @@ def instante_actual_dominio() -> datetime:
 
 def fecha_actual_dominio() -> date:
     return instante_actual_dominio().date()
+
+
+def fecha_civil_dominio(instante: datetime) -> date:
+    """Fecha colombiana de un instante; timestamps antiguos sin zona representan UTC."""
+    if instante.tzinfo is None:
+        instante = instante.replace(tzinfo=UTC)
+    return instante.astimezone(ZONA_HORARIA_DOMINIO).date()
 
 
 def sumar_meses(fecha: date, meses: int) -> date:

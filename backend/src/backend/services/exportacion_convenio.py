@@ -7,7 +7,6 @@ y el despacho al generador correspondiente (PDF o Excel).
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -22,6 +21,7 @@ from backend.services.validador_exportacion_convenio import (
     ConvenioExportValidator,
     modo_emision,
 )
+from backend.services.vigencia import fecha_actual_dominio
 
 MENSAJE_CONVENIO_INCOMPLETO = (
     "No es posible generar el documento oficial. Faltan datos obligatorios."
@@ -108,7 +108,7 @@ class ServicioExportacionConvenio:
         # Solo ASCII: va en la cabecera Content-Disposition, que no admite
         # cualquier carácter, y no debe poder formar rutas.
         codigo_seguro = re.sub(r"[^A-Za-z0-9_.-]", "_", raw_codigo)
-        fecha_actual = datetime.now(UTC).date().isoformat()
+        fecha_actual = fecha_actual_dominio().isoformat()
         # Un borrador nunca se descarga con el nombre de un documento oficial.
         prefijo = (
             "BORRADOR_Convenio"
