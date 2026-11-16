@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 
+import { CampoLectura, DetalleCampos } from './DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import type { HistorialConvenio, RevisionConvenioTrazabilidad } from '../pages/epica02'
 import { LineaTiempoConvenio } from './LineaTiempoConvenio'
@@ -106,60 +107,44 @@ function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
                   : ETIQUETA_TIPO_REVISION[revision.tipo] ?? revision.tipo}{' '}
                 <span className={`badge ${badge.clase}`}>{badge.texto}</span>
               </h3>
-              <dl>
-                <dt>Objeto revisado</dt>
-                <dd>{revision.snapshot_datos?.objeto ?? '—'}</dd>
-                <dt>Versión recibida</dt>
-                <dd>{revision.version_convenio?.numero ?? 'Legacy'}</dd>
-                <dt>Versión resultado</dt>
-                <dd>{revision.version_resultado?.numero ?? '—'}</dd>
-                <dt>Entregada a revisión</dt>
-                <dd>{fechaHora(revision.creado_en)}</dd>
+              <DetalleCampos>
+                <CampoLectura etiqueta="Objeto revisado" amplio>{revision.snapshot_datos?.objeto ?? '—'}</CampoLectura>
+                <CampoLectura etiqueta="Versión recibida">{revision.version_convenio?.numero ?? 'Legacy'}</CampoLectura>
+                <CampoLectura etiqueta="Versión resultado">{revision.version_resultado?.numero ?? '—'}</CampoLectura>
+                <CampoLectura etiqueta="Entregada a revisión">{fechaHora(revision.creado_en)}</CampoLectura>
                 {revision.creada_por && (
                   <>
-                    <dt>{revision.tipo === 'CONTRAPARTE' ? 'Enviada por' : 'Creada por'}</dt>
-                    <dd>{revision.creada_por.nombre_completo}</dd>
+                    <CampoLectura etiqueta={revision.tipo === 'CONTRAPARTE' ? 'Enviada por' : 'Creada por'}>{revision.creada_por.nombre_completo}</CampoLectura>
                   </>
                 )}
                 {revision.responsable && (
                   <>
-                    <dt>Responsable</dt>
-                    <dd>{revision.responsable.nombre_completo}</dd>
+                    <CampoLectura etiqueta="Responsable">{revision.responsable.nombre_completo}</CampoLectura>
                   </>
                 )}
                 {revision.resultado && (
                   <>
-                    <dt>Resuelta</dt>
-                    <dd>
-                      {fechaHora(revision.resuelta_en)}
-                      {revision.resuelta_por ? ` · ${revision.resuelta_por.nombre_completo}` : ''}
-                    </dd>
+                    <CampoLectura etiqueta="Fecha de resolución">{fechaHora(revision.resuelta_en)}</CampoLectura>
+                    <CampoLectura etiqueta="Resuelta por">{revision.resuelta_por?.nombre_completo ?? '—'}</CampoLectura>
                   </>
                 )}
-              </dl>
+              </DetalleCampos>
               {revision.respuesta_contraparte && (
                 <div className="timeline-respuesta-contraparte">
                   <h4>Decisión de la contraparte externa</h4>
-                  <dl>
-                    <dt>Firmante</dt>
-                    <dd>{revision.respuesta_contraparte.nombre_firmante}</dd>
-                    <dt>Cargo</dt>
-                    <dd>{revision.respuesta_contraparte.cargo_firmante}</dd>
-                    <dt>Correo</dt>
-                    <dd>{revision.respuesta_contraparte.correo_actor}</dd>
-                    <dt>Resultado</dt>
-                    <dd>{revision.resultado ? ETIQUETA_RESULTADO[revision.resultado] ?? revision.resultado : '—'}</dd>
-                    <dt>Fecha</dt>
-                    <dd>{fechaHora(revision.respuesta_contraparte.creado_en)}</dd>
-                    <dt>Firma de conformidad</dt>
-                    <dd>{revision.respuesta_contraparte.tiene_firma ? 'Registrada' : 'No aplica'}</dd>
+                  <DetalleCampos>
+                    <CampoLectura etiqueta="Firmante">{revision.respuesta_contraparte.nombre_firmante}</CampoLectura>
+                    <CampoLectura etiqueta="Cargo">{revision.respuesta_contraparte.cargo_firmante}</CampoLectura>
+                    <CampoLectura etiqueta="Correo">{revision.respuesta_contraparte.correo_actor}</CampoLectura>
+                    <CampoLectura etiqueta="Resultado">{revision.resultado ? ETIQUETA_RESULTADO[revision.resultado] ?? revision.resultado : '—'}</CampoLectura>
+                    <CampoLectura etiqueta="Fecha">{fechaHora(revision.respuesta_contraparte.creado_en)}</CampoLectura>
+                    <CampoLectura etiqueta="Firma de conformidad">{revision.respuesta_contraparte.tiene_firma ? 'Registrada' : 'No aplica'}</CampoLectura>
                     {revision.respuesta_contraparte.firma_sha256 && (
                       <>
-                        <dt>Huella SHA-256</dt>
-                        <dd className="texto-hash">{revision.respuesta_contraparte.firma_sha256}</dd>
+                        <CampoLectura etiqueta="Huella SHA-256" amplio className="texto-hash">{revision.respuesta_contraparte.firma_sha256}</CampoLectura>
                       </>
                     )}
-                  </dl>
+                  </DetalleCampos>
                 </div>
               )}
               {revision.invitaciones_contraparte.length > 0 && (
@@ -167,16 +152,16 @@ function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
                   <h4>Invitaciones enviadas</h4>
                   {revision.invitaciones_contraparte.map((invitacion) => (
                     <article className="document-row invitacion-trazabilidad" key={invitacion.id}>
-                      <dl>
-                        <dt>Generada por</dt><dd>{invitacion.generada_por.nombre_completo}</dd>
-                        <dt>Destinatario</dt><dd>{invitacion.correo_destino}</dd>
-                        <dt>CC</dt><dd>{invitacion.correo_cc ?? 'Sin copia'}</dd>
-                        <dt>Generada</dt><dd>{fechaHora(invitacion.creado_en)}</dd>
-                        <dt>Enviada</dt><dd>{fechaHora(invitacion.enviado_en)}</dd>
-                        <dt>Expira</dt><dd>{fechaHora(invitacion.expira_en)}</dd>
-                        {invitacion.utilizado_en && <><dt>Utilizada</dt><dd>{fechaHora(invitacion.utilizado_en)}</dd></>}
-                        {invitacion.revocado_en && <><dt>Revocada</dt><dd>{fechaHora(invitacion.revocado_en)}</dd></>}
-                      </dl>
+                      <DetalleCampos>
+                        <CampoLectura etiqueta="Generada por">{invitacion.generada_por.nombre_completo}</CampoLectura>
+                        <CampoLectura etiqueta="Destinatario">{invitacion.correo_destino}</CampoLectura>
+                        <CampoLectura etiqueta="CC">{invitacion.correo_cc ?? 'Sin copia'}</CampoLectura>
+                        <CampoLectura etiqueta="Generada">{fechaHora(invitacion.creado_en)}</CampoLectura>
+                        <CampoLectura etiqueta="Enviada">{fechaHora(invitacion.enviado_en)}</CampoLectura>
+                        <CampoLectura etiqueta="Expira">{fechaHora(invitacion.expira_en)}</CampoLectura>
+                        {invitacion.utilizado_en && <><CampoLectura etiqueta="Utilizada">{fechaHora(invitacion.utilizado_en)}</CampoLectura></>}
+                        {invitacion.revocado_en && <><CampoLectura etiqueta="Revocada">{fechaHora(invitacion.revocado_en)}</CampoLectura></>}
+                      </DetalleCampos>
                     </article>
                   ))}
                 </div>
@@ -231,10 +216,10 @@ function TrazabilidadRevisiones({ convenioId: id, solicitudId }: Props) {
 /** Trazabilidad del convenio: pestaña Historial del detalle y /convenios/:id/historial. */
 export function HistorialConvenioContenido({ convenioId, solicitudId }: Props) {
   return (
-    <>
+    <div className="detalle-secciones">
       <LineaTiempoConvenio convenioId={convenioId} />
       <VersionesConvenio convenioId={convenioId} />
       <TrazabilidadRevisiones convenioId={convenioId} solicitudId={solicitudId} />
-    </>
+    </div>
   )
 }

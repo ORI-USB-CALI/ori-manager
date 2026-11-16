@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
+import { CampoLectura, DetalleCampos } from './DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import type {
@@ -162,16 +163,16 @@ export function RevisionFinalConvenio({ convenioId }: { convenioId: number }) {
         <aside className="revision-panel">
           <section className="card proyecto-resumen">
             <h2>Condiciones de revisión</h2>
-            <dl className="proyecto-datos">
-              <dt>Versión aprobada</dt><dd>{version.numero}</dd>
-              <dt>Resultado de contraparte</dt><dd>{etiqueta(contraparte.resultado)}</dd>
-              <dt>Aprobada por</dt><dd>{respuestaContraparte?.nombre_firmante ?? contraparte.resuelta_por?.nombre_completo ?? '—'}</dd>
-              <dt>Cargo</dt><dd>{respuestaContraparte?.cargo_firmante ?? '—'}</dd>
-              <dt>Fecha de respuesta</dt><dd>{fecha(respuestaContraparte?.creado_en ?? contraparte.resuelta_en)}</dd>
-              <dt>Revisiones jurídicas</dt><dd>{datos.revisiones_juridicas.length}</dd>
-              <dt>Observaciones pendientes</dt><dd>{datos.observaciones_pendientes.length}</dd>
-              <dt>Estado de revisión final</dt><dd>{etiqueta(datos.revision_pendiente.estado)}</dd>
-            </dl>
+            <DetalleCampos>
+              <CampoLectura etiqueta="Versión aprobada">{version.numero}</CampoLectura>
+              <CampoLectura etiqueta="Resultado de contraparte">{etiqueta(contraparte.resultado)}</CampoLectura>
+              <CampoLectura etiqueta="Aprobada por">{respuestaContraparte?.nombre_firmante ?? contraparte.resuelta_por?.nombre_completo ?? '—'}</CampoLectura>
+              <CampoLectura etiqueta="Cargo">{respuestaContraparte?.cargo_firmante ?? '—'}</CampoLectura>
+              <CampoLectura etiqueta="Fecha de respuesta">{fecha(respuestaContraparte?.creado_en ?? contraparte.resuelta_en)}</CampoLectura>
+              <CampoLectura etiqueta="Revisiones jurídicas">{datos.revisiones_juridicas.length}</CampoLectura>
+              <CampoLectura etiqueta="Observaciones pendientes">{datos.observaciones_pendientes.length}</CampoLectura>
+              <CampoLectura etiqueta="Estado de revisión final">{etiqueta(datos.revision_pendiente.estado)}</CampoLectura>
+            </DetalleCampos>
           </section>
 
           <section className="card">

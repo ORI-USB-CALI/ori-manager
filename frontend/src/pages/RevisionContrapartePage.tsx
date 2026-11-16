@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { ConfirmacionModal } from '../components/ConfirmacionModal'
@@ -105,13 +106,13 @@ export function RevisionContrapartePage() {
         <aside className="revision-panel">
           <section className="card proyecto-resumen">
             <h2>Información del envío</h2>
-            <dl className="proyecto-datos">
-              <dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd>
-              <dt>Versión</dt><dd>{datos.version_recibida.numero}</dd>
-              <dt>Enviado por</dt><dd>{datos.enviada_por.nombre_completo}</dd>
-              <dt>Correo</dt><dd>{datos.enviada_por.correo}</dd>
-              <dt>Fecha</dt><dd>{fecha(datos.fecha_envio)}</dd>
-            </dl>
+            <DetalleCampos compacto>
+              <CampoLectura etiqueta="Objeto" amplio>{datos.objeto ?? '—'}</CampoLectura>
+              <CampoLectura etiqueta="Versión">{datos.version_recibida.numero}</CampoLectura>
+              <CampoLectura etiqueta="Enviado por">{datos.enviada_por.nombre_completo}</CampoLectura>
+              <CampoLectura etiqueta="Correo">{datos.enviada_por.correo}</CampoLectura>
+              <CampoLectura etiqueta="Fecha">{fecha(datos.fecha_envio)}</CampoLectura>
+            </DetalleCampos>
           </section>
           <section className="card revision-decision">
             <h2>Tu decisión</h2>

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { enumLabel } from '../components/tableFormatters'
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
@@ -77,7 +79,7 @@ export function AliadoDetallePage() {
   const datos = aliado.data
 
   return (
-    <>
+    <div className="detalle-secciones">
       <div className="page-toolbar"><div><Link to="/aliados">← Aliados</Link><h1>{datos.nombre}</h1></div><span className={`badge ${datos.activo ? 'badge-activo' : 'badge-inactivo'}`}>{datos.activo ? 'ACTIVO' : 'INACTIVO'}</span></div>
       <section className="card">
         <h2>Información del aliado</h2>
@@ -92,7 +94,7 @@ export function AliadoDetallePage() {
             <div><button className="btn btn-primary" disabled={editar.isPending}>Guardar</button> <button className="btn btn-outline" type="button" onClick={() => setEditando(false)}>Cancelar</button></div>
           </form>
         ) : (
-          <dl><dt>Tipo de identificación</dt><dd>{datos.tipo_identificacion}</dd><dt>NIT / documento</dt><dd>{datos.identificacion}</dd><dt>Tipo</dt><dd>{ETIQUETA_TIPO[datos.tipo as TipoAliado]}</dd><dt>Ciudad</dt><dd>{datos.ciudad ?? '—'}</dd><dt>Correo</dt><dd>{datos.correo ?? '—'}</dd><dt>Teléfono</dt><dd>{datos.telefono ?? '—'}</dd></dl>
+          <DetalleCampos><CampoLectura etiqueta="Tipo de identificación">{enumLabel(datos.tipo_identificacion)}</CampoLectura><CampoLectura etiqueta="NIT / documento">{datos.identificacion}</CampoLectura><CampoLectura etiqueta="Tipo">{ETIQUETA_TIPO[datos.tipo as TipoAliado]}</CampoLectura><CampoLectura etiqueta="Ciudad">{datos.ciudad ?? '—'}</CampoLectura><CampoLectura etiqueta="Correo">{datos.correo ?? '—'}</CampoLectura><CampoLectura etiqueta="Teléfono">{datos.telefono ?? '—'}</CampoLectura></DetalleCampos>
         )}
         <div className="page-toolbar">
           {puede('aliados.editar') && !editando && <button className="btn btn-outline" onClick={() => setEditando(true)}>Editar datos</button>}
@@ -105,6 +107,6 @@ export function AliadoDetallePage() {
           <div className="table-container"><table className="table"><thead><tr><th>Código</th><th>Objeto</th><th>Estado</th><th>Inicio</th><th>Vencimiento</th></tr></thead><tbody>{datos.convenios.map((convenio) => <tr key={convenio.id}><td><Link to={`/convenios/${convenio.id}`} state={retorno}>{referenciaConvenio(convenio.codigo, convenio.id)}</Link></td><td>{convenio.objeto ?? '—'}</td><td><span className="badge">{convenio.estado}</span></td><td>{fecha(convenio.fecha_inicio)}</td><td>{fecha(convenio.fecha_vencimiento)}</td></tr>)}</tbody></table></div>
         )}
       </section>
-    </>
+    </div>
   )
 }
