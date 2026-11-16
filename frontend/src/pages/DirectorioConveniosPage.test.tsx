@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -39,6 +39,22 @@ afterEach(() => {
 })
 
 describe('directorio público de convenios (HU-09)', () => {
+  it('distingue producto, universidad y área sin ampliar las siete columnas públicas', async () => {
+    mostrar(Response.json({ items: [CONVENIO], total: 1 }))
+    const tabla = await screen.findByRole('table')
+    expect(within(screen.getByRole('banner')).getByText('ORI Manager')).toBeTruthy()
+    expect(within(screen.getByRole('banner')).getByText('Universidad de San Buenaventura Cali')).toBeTruthy()
+    expect(within(screen.getByRole('banner')).getByText('Oficina de Relaciones Interinstitucionales')).toBeTruthy()
+    expect(within(tabla).getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      'Convenio', 'Institución o aliado', 'Tipo', 'Objeto', 'Inicio', 'Finalización', 'Estado',
+    ])
+    expect(screen.getByRole('region', { name: 'Convenios vigentes' }).tabIndex).toBe(0)
+    expect(screen.getByRole('contentinfo').textContent).toContain('Universidad de San Buenaventura Cali')
+    const usuario = userEvent.setup()
+    await usuario.tab()
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Iniciar sesión' }))
+    expect(screen.getByRole('link', { name: 'Iniciar sesión' }).getAttribute('href')).toBe('/login')
+  })
   it('muestra los convenios vigentes sin sesión y solo consulta el endpoint público', async () => {
     const { fetch, enrutador } = mostrar(Response.json({ items: [CONVENIO], total: 1 }))
 

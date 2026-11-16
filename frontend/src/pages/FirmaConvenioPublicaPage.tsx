@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
+import { CabeceraPublica, PieInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { FirmaCanvas } from '../components/FirmaCanvas'
@@ -183,9 +184,9 @@ export function FirmaConvenioPublicaPage() {
 
   return (
     <div className="revision-publica-shell">
-      <header className="revision-publica-header"><div><strong>USB</strong><span>Oficina de Relaciones Interinstitucionales</span></div></header>
+      <CabeceraPublica />
       {contenido}
-      <footer className="revision-publica-footer">Universidad de San Buenaventura Cali · Firma electrónica de elaboración de convenio</footer>
+      <PieInstitucional />
     </div>
   )
 }

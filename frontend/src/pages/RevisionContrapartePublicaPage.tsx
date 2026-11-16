@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
+import { CabeceraPublica, PieInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { ConvenioEditor } from '../components/ConvenioEditor'
@@ -392,15 +393,9 @@ export function RevisionContrapartePublicaPage() {
 
   return (
     <div className="revision-publica-shell">
-      <header className="revision-publica-header">
-        <div>
-          <strong>ORI</strong>
-          <span>Oficina de Relaciones Interinstitucionales</span>
-        </div>
-        <span>Revisión externa de elaboración de convenio</span>
-      </header>
+      <CabeceraPublica />
       {contenido}
-      <footer className="revision-publica-footer">Universidad de San Buenaventura · Gestión de convenios</footer>
+      <PieInstitucional />
     </div>
   )
 }

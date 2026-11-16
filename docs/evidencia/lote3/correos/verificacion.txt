@@ -1,0 +1,2 @@
+Se creó una cuenta en ORI Manager. Verifique su correo en: https://ori.example.invalid/verificar-correo?token=FICTICIO_SIN_VALIDEZ_123
+El enlace vence en 24 horas. Si no realizó el registro, puede ignorar este mensaje.
