@@ -31,6 +31,42 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+### Corrección del mensaje de contenido inicial en Elaboración
+
+Al finalizar con información inicial de la solicitud sin sustituir, se conserva
+HTTP 422 y el contrato `detail.faltantes` con `campo=contenido`. El motivo ahora
+indica: «El documento todavía contiene información inicial de la solicitud.
+Debes reemplazarla por el texto definitivo del convenio antes de enviarlo a
+revisión jurídica». El resumen en pantalla se titula «Revisa lo siguiente antes
+de finalizar», y conserva los mensajes de otros campos y sus errores junto a
+cada control.
+
+Se mantienen los permisos de edición y las reglas contractuales. El rechazo no
+modifica documento, metadatos, borrador, versiones, revisiones, historial,
+auditoría ni solicitud; un texto contractual válido permite finalizar. No hay
+cambios de plantillas, estructura documental, snapshots o versiones históricas,
+ni se requieren migraciones.
+
+Regresión: `backend/tests/test_obs003_prevencion_elaboracion.py` cubre rechazo
+desde borrador, formulario y versión histórica, con o sin texto añadido,
+ausencia de efectos y aceptación de texto contractual.
+`frontend/src/pages/ConvenioElaboracionPage.test.tsx` comprueba el mensaje,
+el encabezado, la ausencia de referencias técnicas en pantalla y notificaciones,
+la conservación de lo escrito y los errores simultáneos de otros campos.
+
+Verificación local (15/11/2026): 51 pruebas backend aprobadas entre la regresión
+anterior, `test_hu12_elaboracion.py` y `test_integracion_solicitud_elaboracion.py`,
+contra PostgreSQL local en Docker, sin ejecutar migraciones; 54 pruebas frontend
+aprobadas entre la página, `FinalizarElaboracionModal.test.tsx` y
+`vigencia.test.tsx`. Ruff, TypeScript, ESLint y `git diff --check` aprobados.
+
+La revisión se limita a la página de Elaboración, su confirmación y las
+validaciones que consumen. Se detectaron además mensajes técnicos en los errores
+de estructura documental inválida (`contenido_convenio.py`) y de configuración
+de etapas; se registran sin alterarlos para preservar el contrato API y el
+alcance de esta corrección. No se atribuye esta revisión a una aceptación en
+staging ni se modifica el estado histórico de la HU.
+
 ### HU-10, bloque 4A: exportación sin solicitud de origen
 
 `GET /api/convenios/{id}/exportar?formato=pdf|excel` admite convenios

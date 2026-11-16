@@ -78,8 +78,13 @@ def test_rechaza_precarga_antes_de_versionar_sin_efectos(
     assert respuesta.status_code == 422
     faltantes = respuesta.json()["detail"]["faltantes"]
     assert [f["campo"] for f in faltantes] == ["contenido"]
-    assert "Debe elaborar el texto contractual definitivo" in faltantes[0]["motivo"]
-    assert "HU-12" in faltantes[0]["motivo"]
+    assert faltantes[0]["motivo"] == (
+        "El documento todavía contiene información inicial de la solicitud. "
+        "Debes reemplazarla por el texto definitivo del convenio antes "
+        "de enviarlo a revisión jurídica"
+    )
+    for referencia in ("HU-12", "precarga_hu12", "precarga", "_faltantes_elaboracion"):
+        assert referencia not in respuesta.text
     db.expire_all()
     assert _snapshot(db) == antes
 

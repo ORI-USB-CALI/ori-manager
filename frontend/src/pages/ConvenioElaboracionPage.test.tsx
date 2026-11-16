@@ -448,18 +448,42 @@ it('HT17 conserva el vencimiento historico al abrir y calcula solo al editar', a
 })
 
 
-it('muestra el motivo del campo contenido al rechazar la precarga HU-12', async () => {
+it.each([false, true])('orienta al rechazar el contenido inicial y conserva otros errores (otros campos: %s)', async (otrosCampos) => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) }
-  const { usuario } = preparar(() => respuesta(200, remotoCompleto), remotoCompleto)
+  const { usuario, guardados, notify } = preparar(() => respuesta(200, remotoCompleto), remotoCompleto)
   const peticionOriginal = globalThis.fetch
-  const motivo = 'Debe elaborar el texto contractual definitivo antes de enviarlo a revision juridica. El documento conserva la precarga completa de antecedentes de la solicitud HU-12.'
+  const motivo = 'El documento todavía contiene información inicial de la solicitud. Debes reemplazarla por el texto definitivo del convenio antes de enviarlo a revisión jurídica'
+  const faltantes = [
+    { campo: 'contenido', motivo },
+    ...(otrosCampos ? [
+      { campo: 'objeto', motivo: 'Es obligatorio para finalizar la elaboración' },
+      { campo: 'unidad_organizacional_id', motivo: 'Es obligatorio cuando el alcance es PROGRAMA' },
+    ] : []),
+  ]
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => url.endsWith('/elaboracion/finalizar')
-    ? Promise.resolve(respuesta(422, { detail: { message: 'Proyecto incompleto', faltantes: [{ campo: 'contenido', motivo }] } }))
+    ? Promise.resolve(respuesta(422, { detail: { message: 'Proyecto incompleto', faltantes } }))
     : peticionOriginal(url, init)))
-  await usuario.click(await screen.findByRole('button', { name: 'Finalizar elaboración' }))
+  const finalizar = await screen.findByRole('button', { name: 'Finalizar elaboración' })
+  comprobarMetadatos(METADATOS_REMOTOS)
+  const campos = Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea'))
+  const valoresAntes = campos.map((campo) => campo.value)
+  await usuario.click(finalizar)
   await usuario.click(screen.getByRole('button', { name: 'Confirmar y enviar a Jurídica' }))
   expect(await screen.findByText(motivo)).toBeTruthy()
+  const resumen = screen.getByRole('alert')
+  expect(within(resumen).getByText('Revisa lo siguiente antes de finalizar:')).toBeTruthy()
+  expect(screen.queryByText('Completa estos datos antes de finalizar:')).toBeNull()
+  if (otrosCampos) {
+    expect(within(resumen).getByText('Describe el objeto del convenio.')).toBeTruthy()
+    expect(within(resumen).getByText('Selecciona la unidad o programa responsable.')).toBeTruthy()
+    expect(screen.getAllByText('Describe el objeto del convenio.')).toHaveLength(2)
+    expect(screen.getAllByText('Selecciona la unidad o programa responsable.')).toHaveLength(2)
+  }
+  expect(document.body.textContent).not.toMatch(/HU-12|precarga|_faltantes_elaboracion|unidad_organizacional_id/)
+  expect(JSON.stringify(notify.mock.calls)).not.toMatch(/HU-12|precarga|_faltantes_elaboracion/)
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+  expect(campos.map((campo) => campo.value)).toEqual(valoresAntes)
+  expect(guardados).toHaveLength(0)
 })

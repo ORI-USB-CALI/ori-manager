@@ -499,7 +499,7 @@ export function ConvenioElaboracionPage() {
               <p className="section-help">Estos datos ayudan a identificar y gestionar el convenio dentro del sistema.</p>
               {Object.keys(errores).length > 0 && (
                 <div className="resumen-pendientes" role="alert">
-                  <strong>Completa estos datos antes de finalizar:</strong>
+                  <strong>Revisa lo siguiente antes de finalizar:</strong>
                   <ul>
                     {Object.entries(errores).map(([campo, mensaje]) => <li key={campo}>{mensaje}</li>)}
                   </ul>
