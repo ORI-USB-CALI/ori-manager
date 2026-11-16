@@ -241,6 +241,7 @@ export interface UnidadOrganizacionalResumen {
 }
 
 export interface ElaboracionConvenio extends Convenio {
+  contiene_antecedentes_iniciales?: boolean
   solicitud: SolicitudAntecedente | null
   etapa_actual: EtapaResumen | null
   tipo_convenio: TipoConvenioResumen | null

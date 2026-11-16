@@ -282,3 +282,16 @@ def _valores_solicitud(
             solicitud.supervisor_contraparte_correo,
         ),
     }
+
+
+def plantilla_contractual_neutra(contenido: dict) -> bool:
+    """Solo reutilizar plantillas validas sin antecedentes ni variables de solicitud."""
+    from backend.services.integridad_exportacion import precarga_hu12_reconocible
+
+    try:
+        validar_contenido(contenido)
+    except ContenidoConvenioInvalido:
+        return False
+    return not precarga_hu12_reconocible(contenido) and not re.search(
+        r"\{\{\s*solicitud\.", json.dumps(contenido, ensure_ascii=False)
+    )

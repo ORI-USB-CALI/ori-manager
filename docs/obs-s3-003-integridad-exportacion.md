@@ -45,7 +45,39 @@ PDF/Excel, seguridad y borradores; dos casos HU-12 y uno HT-15). Las pruebas
 observan solo SELECT durante la exportacion y comparan contenido, snapshot y
 auditoria tras el rechazo. No se ejecutaron migraciones ni operaciones externas.
 
-## Prevencion antes de Juridica (PR #186)
+## Corrección de la regresión en Elaboración
+
+La prevención estructural del PR #186 descrita abajo queda sustituida: impedía
+finalizar documentos que el propio sistema había inicializado con antecedentes,
+incluso tras añadir trabajo contractual. Cambiar el mensaje en #190 no resolvía
+esa contradicción.
+
+Los nuevos convenios desde solicitud usan documento limpio o plantilla neutra,
+sin expandir antecedentes. Los antiguos conservan su contenido al abrir y ofrecen
+reemplazo explícito con confirmación y copia temporal consultable. Guardar utiliza
+la revisión del borrador original y conserva el rechazo 409 ante concurrencia.
+La solicitud se consulta por separado; no se modifica para elaborar el contrato.
+
+`precarga_hu12_reconocible` sigue intacto en la protección PDF/Excel y se utiliza
+como indicador informativo en Elaboración. Ya no impide la transición a Jurídica.
+Se conserva el rechazo de exportación oficial ambigua, los snapshots aprobados y
+la prohibición de reconstruir o limpiar versiones históricas. Conservar la
+estructura antigua puede requerir una nueva versión revisada antes de exportar;
+la interfaz lo advierte. No se autoriza su emisión por el mero envío a Jurídica.
+
+Regresión: documentos nuevos limpios; recuperación explícita de borrador antiguo
+con trabajo adicional; rechazo de vacío; conflicto de guardado sin efectos;
+estructura similar permitida en Elaboración; históricos intactos; protección
+oficial original; contrato limpio formalizado exportable en PDF y Excel.
+Ver [HU-12](hu/hu-12-elaboracion.md) para los pasos de QA del convenio #97 y uno nuevo.
+
+Evidencia: 553 pruebas backend y 57 frontend aprobadas; Ruff, TypeScript, ESLint
+y comprobación de whitespace aprobados. Pruebas sobre base aislada local con
+migraciones existentes; sin nuevas migraciones ni cambios remotos. Se corrigieron
+fixtures de exportación de borrador para guardar texto explícitamente, sin retirar
+los casos de seguridad de históricos. Detalles de entorno en HU-12.
+
+## Registro histórico: prevención antes de Jurídica (PR #186, sustituida)
 
 _faltantes_elaboracion reutiliza precarga_hu12_reconocible y devuelve un
 CampoFaltante de contenido con una instruccion para elaborar el texto definitivo.

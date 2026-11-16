@@ -210,7 +210,7 @@ def test_flujo_real_solicitud_hasta_elaboracion(
     assert convenio.fecha_vencimiento is None
     assert convenio.duracion_meses is None
     assert convenio.version_actual == 0
-    assert convenio.plantilla_origen_id is not None
+    assert convenio.plantilla_origen_id is None
     borrador = db.scalar(
         select(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio.id)
     )
@@ -228,7 +228,7 @@ def test_flujo_real_solicitud_hasta_elaboracion(
         "Carlos Ruiz",
         "María Salas",
     ):
-        assert precargado in contenido_inicial
+        assert precargado not in contenido_inicial
 
     segundo_intento = client.post(
         f"/api/solicitudes/recibidas/{solicitud_id}/iniciar-elaboracion"
