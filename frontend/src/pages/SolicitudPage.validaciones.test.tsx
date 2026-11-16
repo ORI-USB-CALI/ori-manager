@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -44,7 +44,13 @@ const DEVUELTA = {
   pais_aliado_propuesto_id: 1, tipo_convenio_id: 1, documentos: [],
 } as unknown as Solicitud
 
-type Respuesta = (metodo: string, url: string) => Response | undefined
+type Respuesta = (metodo: string, url: string) => Response | Promise<Response> | undefined
+
+function diferido<T>() {
+  let resolver!: (valor: T) => void
+  const promesa = new Promise<T>((resolve) => { resolver = resolve })
+  return { promesa, resolver }
+}
 
 function preparar(ruta: string, responder: Respuesta = () => undefined) {
   const cliente = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
@@ -81,6 +87,72 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+describe('país persistido con catálogo asíncrono', () => {
+  it.each([
+    ['BORRADOR', 'solicitud'], ['BORRADOR', 'paises'],
+    ['DEVUELTA', 'solicitud'], ['DEVUELTA', 'paises'],
+  ] as const)('%s conserva Alemania y radica sin reseleccionarla cuando llega primero %s', async (estado, primero) => {
+    const peticionSolicitud = diferido<Response>()
+    const peticionPaises = diferido<Response>()
+    const datos = { ...DEVUELTA, estado, pais_aliado_propuesto_id: 2 }
+    const fetch = preparar('/solicitudes/5', (metodo, url) => {
+      if (metodo === 'GET' && url.endsWith('/solicitudes/5')) return peticionSolicitud.promesa
+      if (url.endsWith('/paises')) return peticionPaises.promesa
+      if (metodo === 'PATCH') return Response.json(datos)
+      if (url.endsWith('/solicitudes/5/radicar')) return Response.json({ ...datos, estado: 'RADICADA' })
+    })
+    const paises = [{ id: 1, codigo_iso: 'CO', nombre: 'Colombia' }, { id: 2, codigo_iso: 'DE', nombre: 'Alemania' }]
+    if (primero === 'solicitud') {
+      await act(async () => peticionSolicitud.resolver(Response.json(datos)))
+      await screen.findByRole('combobox', { name: 'País *' })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Observaciones' }), { target: { value: 'Ajuste del solicitante' } })
+      await act(async () => peticionPaises.resolver(Response.json(paises)))
+    } else {
+      await act(async () => peticionPaises.resolver(Response.json(paises)))
+      expect(screen.queryByRole('combobox', { name: 'País *' })).toBeNull()
+      await act(async () => peticionSolicitud.resolver(Response.json(datos)))
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Observaciones' }), { target: { value: 'Ajuste del solicitante' } })
+    }
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'País *' })).toHaveProperty('value', '2'))
+    expect((screen.getByRole('option', { name: 'Alemania' }) as HTMLOptionElement).selected).toBe(true)
+    expect(screen.getByRole('textbox', { name: 'Observaciones' })).toHaveProperty('value', 'Ajuste del solicitante')
+    fireEvent.click(screen.getByRole('button', { name: estado === 'DEVUELTA' ? 'Volver a radicar' : 'Radicar solicitud' }))
+    expect(await screen.findByText('Solicitud radicada correctamente.')).toBeTruthy()
+    const datosEnviados = JSON.parse(String(llamadas(fetch, 'PATCH')[0][1]?.body))
+    expect(datosEnviados.pais_aliado_propuesto_id).toBe('2')
+    expect(datosEnviados.observaciones).toBe('Ajuste del solicitante')
+    expect(datosEnviados.objeto).toBe(datos.objeto)
+    expect(llamadas(fetch, 'POST')).toHaveLength(1)
+  })
+
+  it('permite cambiar el país y no revierte la elección al actualizar la solicitud', async () => {
+    const datos = { ...DEVUELTA, pais_aliado_propuesto_id: 2 }
+    const fetch = preparar('/solicitudes/5', (metodo, url) => {
+      if (url.endsWith('/paises')) return Response.json([{ id: 1, codigo_iso: 'CO', nombre: 'Colombia' }, { id: 2, codigo_iso: 'DE', nombre: 'Alemania' }])
+      if (url.endsWith('/solicitudes/5') && (metodo === 'GET' || metodo === 'PATCH')) return Response.json(datos)
+    })
+    const user = userEvent.setup()
+    const pais = await screen.findByRole('combobox', { name: 'País *' })
+    await user.selectOptions(pais, '1')
+    await user.type(screen.getByRole('textbox', { name: 'Observaciones' }), 'Cambio legítimo')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await screen.findByText('Borrador guardado.')
+    expect(JSON.parse(String(llamadas(fetch, 'PATCH')[0][1]?.body)).pais_aliado_propuesto_id).toBe('1')
+    expect(pais).toHaveProperty('value', '1')
+    expect(screen.getByRole('textbox', { name: 'Observaciones' })).toHaveProperty('value', 'Cambio legítimo')
+  })
+
+  it.each([null, 999, -1])('un país ausente o fuera del catálogo (%s) sigue impidiendo radicar', async (paisId) => {
+    const fetch = preparar('/solicitudes/5', (metodo, url) => metodo === 'GET' && url.endsWith('/solicitudes/5')
+      ? Response.json({ ...DEVUELTA, pais_aliado_propuesto_id: paisId }) : undefined)
+    const pais = await screen.findByRole('combobox', { name: 'País *' })
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a radicar' }))
+    await waitFor(() => expect(pais.getAttribute('aria-invalid')).toBe('true'))
+    expect(llamadas(fetch, 'POST')).toHaveLength(0)
+    expect(llamadas(fetch, 'PATCH')).toHaveLength(0)
+  })
 })
 
 describe('validación de formato en el formulario de solicitud (HT14-FE02)', () => {

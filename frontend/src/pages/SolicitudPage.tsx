@@ -128,6 +128,8 @@ export function SolicitudPage() {
   const paises = usePaises()
   const consulta = useSolicitud(id)
   const [errores, setErrores] = useState<Record<string, string>>({})
+  // Conservar el valor persistido hasta una edicion manual, aunque las opciones lleguen despues.
+  const [paisEditado, setPaisEditado] = useState<{ solicitudId: number | null; valor: string } | null>(null)
   const [tipoDocumento, setTipoDocumento] = useState<TipoDocumento>('CAMARA_COMERCIO')
   // HT-14: el dígito de verificación solo aplica (y solo se exige) cuando el
   // tipo elegido es NIT, así que hay que saber cuál está seleccionado para
@@ -424,7 +426,7 @@ export function SolicitudPage() {
             undefined, alValidarDv('identificacion_aliado_propuesto', 'digito_verificacion_aliado_propuesto'),
           )}
           {campo('correo_aliado_propuesto', 'Correo institucional de la entidad')}{campo('sector_economico_aliado_propuesto', 'Sector económico (obligatorio para empresa)', false, null, false)}
-          <label className="form-group" htmlFor="solicitud-pais"><span className="form-label">País *</span><select id="solicitud-pais" aria-describedby={errores.pais_aliado_propuesto_id ? 'solicitud-pais-error' : undefined} aria-invalid={Boolean(errores.pais_aliado_propuesto_id)} className={`form-control select ${errores.pais_aliado_propuesto_id ? 'is-invalid' : ''}`} name="pais_aliado_propuesto_id" defaultValue={solicitud?.pais_aliado_propuesto_id ?? ''} disabled={!editable || paises.isPending}><option value="">Seleccione el país</option>{paises.data?.map((pais) => <option key={pais.id} value={pais.id}>{pais.nombre}</option>)}</select>{errores.pais_aliado_propuesto_id && <span id="solicitud-pais-error" className="form-error">{errores.pais_aliado_propuesto_id}</span>}</label>
+          <label className="form-group" htmlFor="solicitud-pais"><span className="form-label">País *</span><select id="solicitud-pais" aria-describedby={errores.pais_aliado_propuesto_id ? 'solicitud-pais-error' : undefined} aria-invalid={Boolean(errores.pais_aliado_propuesto_id)} className={`form-control select ${errores.pais_aliado_propuesto_id ? 'is-invalid' : ''}`} name="pais_aliado_propuesto_id" value={paisEditado?.solicitudId === id ? paisEditado.valor : String(solicitud?.pais_aliado_propuesto_id ?? '')} onChange={(evento) => setPaisEditado({ solicitudId: id, valor: evento.target.value })} disabled={!editable || paises.isPending}><option value="">Seleccione el país</option>{paises.data?.map((pais) => <option key={pais.id} value={pais.id}>{pais.nombre}</option>)}</select>{errores.pais_aliado_propuesto_id && <span id="solicitud-pais-error" className="form-error">{errores.pais_aliado_propuesto_id}</span>}</label>
           {campo('ciudad_aliado_propuesto', 'Ciudad', false, null, true, undefined, validarCiudad)}
           {campo('telefono_aliado_propuesto', 'Teléfono institucional', false, null, true, undefined, validarTelefono)}
           {campo('direccion_aliado_propuesto', 'Dirección', false, null, true, undefined, validarDireccion)}
