@@ -115,4 +115,22 @@ describe('HT-08 - vigencia en la creación manual', () => {
     expect(payload.fecha_inicio).toBeNull()
     expect(payload.fecha_vencimiento).toBeNull()
   })
+
+  // input/change ejercitan el contrato DOM; jsdom no abre el calendario nativo.
+  it.each(['input', 'change'] as const)('HT17: evento %s y ambos ordenes conservan fecha y payload', async (evento) => {
+    for (const fechaPrimero of [true, false]) {
+      const creaciones = stubCreacion()
+      abrir()
+      const inicio = screen.getByLabelText('Fecha de inicio de vigencia (opcional)') as HTMLInputElement
+      const cambiarFecha = () => fireEvent[evento](inicio, { target: { value: '2099-10-31' } })
+      const cambiarDuracion = () => fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '4' } })
+      if (fechaPrimero) { cambiarFecha(); cambiarDuracion() } else { cambiarDuracion(); cambiarFecha() }
+      expect(inicio.value).toBe('2099-10-31')
+      expect((screen.getByLabelText('Fecha de vencimiento (opcional)') as HTMLInputElement).value).toBe('2100-02-28')
+      fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
+      await screen.findByText('Editor disponible')
+      expect(JSON.parse(String(creaciones()[0].init?.body))).toMatchObject({ fecha_inicio: '2099-10-31', duracion_meses: 4, fecha_vencimiento: '2100-02-28' })
+      cleanup()
+    }
+  })
 })
