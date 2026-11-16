@@ -59,6 +59,7 @@ from backend.services.firma_electronica import (
 )
 from backend.services.firma_png import MAX_FIRMA_PNG_BYTES
 from backend.services.firmas import ServicioFirmas
+from backend.services.vigencia import ZONA_HORARIA_DOMINIO
 
 ROLES_ESPERADOS = [
     "ADMINISTRADOR_ORI",
@@ -454,6 +455,40 @@ def _formalizar(client, escenario):
     return client.post(
         f"/api/convenios/{escenario['convenio'].id}/firmas/formalizar"
     )
+
+
+@pytest.mark.parametrize("instante,fecha_fisica,esperada", [
+    ("2026-11-16T00:04:53+00:00", "2026-11-15", "2026-11-15"),
+    ("2026-11-16T00:04:53+00:00", "2026-11-16", "2026-11-16"),
+    ("2026-11-16T04:59:59+00:00", "2026-11-15", "2026-11-15"),
+    ("2026-11-16T05:00:00+00:00", "2026-11-15", "2026-11-16"),
+    ("2027-01-01T00:04:53+00:00", "2026-12-31", "2026-12-31"),
+    ("2027-01-01T05:00:00+00:00", "2026-12-31", "2027-01-01"),
+])
+def test_formalizar_fechas_civiles_mixtas_sin_modificar_eventos(
+    client, db, escenario_final, monkeypatch, instante, fecha_fisica, esperada
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    firmas = list(db.scalars(select(FirmaConvenio).where(FirmaConvenio.proceso_firmas_id == proceso["id"]).order_by(FirmaConvenio.orden)))
+    for firma in firmas:
+        firma.fecha_firma = datetime.fromisoformat(fecha_fisica).replace(tzinfo=UTC)
+    electronica = firmas[0]
+    electronica.modalidad = "ELECTRONICA"
+    electronica.correo_firmante = "firmante@example.com"
+    electronica.fecha_firma = datetime.fromisoformat(instante)
+    electronica.firma_png = base64.b64decode(FIRMA_PNG.split(",", 1)[1])
+    electronica.firma_sha256 = sha256(electronica.firma_png).hexdigest()
+    db.commit()
+    fechas_antes = {f.id: f.fecha_firma for f in firmas}
+    ahora = datetime.fromisoformat(instante).astimezone(ZONA_HORARIA_DOMINIO)
+    monkeypatch.setattr(servicio_firmas, "instante_actual_dominio", lambda: ahora)
+    respuesta = _formalizar(client, escenario_final)
+    assert respuesta.status_code == 200, respuesta.text
+    db.expire_all()
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    assert convenio.fecha_firma.isoformat() == esperada
+    assert convenio.codigo.startswith(f"USB-ORI-{ahora.year}-")
+    assert {f.id: f.fecha_firma for f in firmas} == fechas_antes
 
 
 def _obtener_documento_aprobado(client, convenio_id):
