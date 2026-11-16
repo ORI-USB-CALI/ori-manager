@@ -546,6 +546,47 @@ describe('HT-13 - guardar avances del convenio', () => {
 })
 
 
+it.each(['input', 'change'] as const)('HT17: %s sincroniza fechas al guardar y finalizar en ambos ordenes', async (evento) => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) }
+  for (const fechaPrimero of [true, false]) {
+    const persistido = { ...elaboracion, fecha_inicio: '2099-10-31', duracion_meses: 4, fecha_vencimiento: '2100-02-28', revision_borrador: 1 }
+    const { usuario, guardados, cliente } = preparar(() => respuesta(200, persistido))
+    const original = globalThis.fetch
+    const finales: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/elaboracion/finalizar')) {
+        finales.push(JSON.parse(String(init?.body)))
+        return Promise.resolve(respuesta(422, { detail: { message: 'Proyecto incompleto', faltantes: [{ campo: 'objeto', motivo: 'Otro dato pendiente' }] } }))
+      }
+      return original(url, init)
+    }))
+    const inicio = await screen.findByLabelText('Fecha de inicio') as HTMLInputElement
+    const cambiarFecha = () => fireEvent[evento](inicio, { target: { value: '2099-10-31' } })
+    const cambiarDuracion = () => fireEvent.change(screen.getByLabelText('Duración (meses)'), { target: { value: '4' } })
+    if (fechaPrimero) { cambiarFecha(); cambiarDuracion() } else { cambiarDuracion(); cambiarFecha() }
+    const fechas = { fecha_inicio: '2099-10-31', duracion_meses: 4, fecha_vencimiento: '2100-02-28' }
+    expect(inicio.value).toBe(fechas.fecha_inicio)
+    expect((screen.getByLabelText('Fecha de vencimiento') as HTMLInputElement).value).toBe(fechas.fecha_vencimiento)
+    // Primer intento inmediato, sin corregir la fecha ni desenfocar el campo.
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar elaboración' }))
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar y enviar a Jurídica' }))
+    await waitFor(() => expect(finales).toHaveLength(1))
+    expect(finales[0]).toMatchObject(fechas)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+    await waitFor(() => expect(guardados).toHaveLength(1))
+    expect(guardados[0]).toMatchObject(fechas)
+    await waitFor(() => expect(cliente.getQueryData<ElaboracionConvenio>(['convenios', 7, 'elaboracion'])?.revision_borrador).toBe(1))
+    cleanup()
+    // Nueva consulta/montaje desde la respuesta persistida, sin estado local previo.
+    preparar(() => respuesta(200, persistido), persistido)
+    expect((await screen.findByLabelText('Fecha de inicio') as HTMLInputElement).value).toBe(fechas.fecha_inicio)
+    expect((screen.getByLabelText('Fecha de vencimiento') as HTMLInputElement).value).toBe(fechas.fecha_vencimiento)
+    cleanup()
+  }
+})
+
 it('HT17 conserva el vencimiento historico al abrir y calcula solo al editar', async () => {
   const historico = { ...elaboracion, fecha_inicio: '2099-01-01', duracion_meses: 12, fecha_vencimiento: '2100-01-01' }
   const { usuario, guardados } = preparar(() => respuesta(200, historico), historico)

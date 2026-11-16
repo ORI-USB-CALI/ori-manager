@@ -4,8 +4,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from helpers_revision import revision_actual
+from sqlalchemy import select
 
 from backend.models.enums import EstadoConvenio
+from backend.models.revision_convenio import RevisionConvenio
 from backend.services import convenios, vigencia
 from backend.services.alertas_vencimiento import ServicioAlertasVencimiento
 from backend.services.ciclo_vida_convenios import conciliar_estados
@@ -142,3 +144,38 @@ def test_factory_nueva_aplica_ht17_y_carga_historica_es_explicita(gestor, crear_
     )
     assert historico.vigencia_ht17 is False
     assert historico.fecha_vencimiento == date(2020, 2, 1)
+
+
+def test_fechas_persisten_al_guardar_finalizar_y_devolver(
+    client, db, gestor, revisor, entrar_como, convenio_listo
+):
+    ruta = f"/api/convenios/{convenio_listo.id}"
+    fechas = {"fecha_inicio": "2099-10-31", "duracion_meses": 4,
+              "fecha_vencimiento": "2100-02-28"}
+    lectura = client.get(ruta + "/elaboracion").json()
+    guardado = client.patch(ruta + "/elaboracion", json={
+        **fechas, "contenido": lectura["contenido"],
+        "expected_revision": lectura["revision_borrador"],
+    })
+    assert guardado.status_code == 200, guardado.text
+    db.expire_all()
+    recargado = client.get(ruta + "/elaboracion").json()
+    assert {campo: recargado[campo] for campo in fechas} == fechas
+    finalizado = client.post(ruta + "/elaboracion/finalizar", json={
+        "expected_revision": recargado["revision_borrador"],
+    })
+    assert finalizado.status_code == 200, finalizado.text
+    revision = db.scalar(select(RevisionConvenio).where(
+        RevisionConvenio.convenio_id == convenio_listo.id
+    ))
+    entrar_como(revisor)
+    devuelto = client.post(ruta + f"/revisiones/{revision.id}/devolver", json={
+        "expected_version": convenio_listo.version_actual,
+        "observaciones": ["Revisar el objeto sin cambiar la vigencia"],
+    })
+    assert devuelto.status_code == 200, devuelto.text
+    entrar_como(gestor)
+    db.expire_all()
+    devuelto = client.get(ruta + "/elaboracion").json()
+    assert devuelto["etapa_actual"]["codigo"] == "ELABORACION"
+    assert {campo: devuelto[campo] for campo in fechas} == fechas
