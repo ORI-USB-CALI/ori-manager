@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 // Contrato compartido con las pruebas API y de exportación del backend.
-import ejemplo from '../../../backend/tests/fixtures/hu12_base_solicitud.json'
+import ejemplo from './fixtures/hu12_base_solicitud.json'
 import { documentoTieneTexto, informacionSolicitudComoDocumento } from './informacionSolicitud'
 
 describe('información narrativa opcional de solicitud', () => {

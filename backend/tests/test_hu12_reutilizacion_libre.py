@@ -14,7 +14,8 @@ from backend.services.contenido_convenio import validar_contenido
 from backend.services.integridad_exportacion import precarga_hu12_reconocible
 
 EJEMPLO = json.loads(
-    (Path(__file__).parent / "fixtures/hu12_base_solicitud.json").read_text(encoding="utf-8")
+    (Path(__file__).resolve().parents[2] / "frontend/src/pages/fixtures/hu12_base_solicitud.json")
+    .read_text(encoding="utf-8")
 )
 NARRATIVAS = ("objeto", "justificacion", "actividades_por_parte", "metas_esperadas")
 

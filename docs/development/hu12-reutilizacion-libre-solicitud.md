@@ -24,7 +24,7 @@ avance sin versión, primer envío V1, guardado idéntico en revisión, nueva ve
 ante cambios reales, reenvíos permitidos y rechazados, aval de versión exacta e
 inmutabilidad histórica. No se modifica ninguna implementación de versionamiento.
 
-`backend/tests/fixtures/hu12_base_solicitud.json` se comparte entre la prueba del
+`frontend/src/pages/fixtures/hu12_base_solicitud.json` se comparte entre la prueba del
 generador frontend y las pruebas API/exportación. Así se comprueba el documento
 real generado: sin placeholders, sin estructura de precarga OBS-S3-003, admitido
 por el validador documental y exportable como PDF/Excel oficial con la fuente

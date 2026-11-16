@@ -8,7 +8,7 @@ import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { ConvenioElaboracionPage } from './ConvenioElaboracionPage'
 import type { ElaboracionConvenio } from './epica02'
-import ejemploBase from '../../../backend/tests/fixtures/hu12_base_solicitud.json'
+import ejemploBase from './fixtures/hu12_base_solicitud.json'
 
 vi.mock('../components/ConvenioEditor', () => ({
   ConvenioEditor: ({ contenido, onChange, editable }: {
