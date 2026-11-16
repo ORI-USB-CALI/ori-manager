@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { enumLabel } from '../components/tableFormatters'
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
@@ -446,7 +448,7 @@ export function ConvenioDetallePage() {
       )}
 
       {pestana === 'resumen' && (
-        <div className="panel-pestana" role="tabpanel" id="panel-resumen" aria-labelledby="pestana-resumen">
+        <div className="panel-pestana detalle-secciones" role="tabpanel" id="panel-resumen" aria-labelledby="pestana-resumen">
           <IniciarRenovacionFinalizado key={datos.id} convenio={datos} />
 
           {puede('convenios.gestionar_revision_contraparte') && (flujoContraparte.isPending || historialContraparte.isPending) && (
@@ -468,13 +470,13 @@ export function ConvenioDetallePage() {
                   {contraparteListaParaEnvio ? 'Lista para envío' : 'Contraparte pendiente'}
                 </span>
               </div>
-              <dl className="proyecto-datos revision-contraparte-datos">
-                <dt>Versión aprobada</dt><dd>{datos.version_actual}</dd>
-                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}</dt><dd>{datos.origen === 'MANUAL_ORI' ? (aliadoActual?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</dd>
+              <DetalleCampos className="revision-contraparte-datos">
+                <CampoLectura etiqueta="Versión aprobada">{datos.version_actual}</CampoLectura>
+                <CampoLectura etiqueta={datos.origen === 'MANUAL_ORI' ? 'Contraparte' : 'Solicitante responsable'}>{datos.origen === 'MANUAL_ORI' ? (aliadoActual?.nombre ?? 'Por definir') : (flujoContraparte.data?.solicitud?.solicitante_nombre ?? '—')}</CampoLectura>
                 {datos.origen === 'MANUAL_ORI'
-                  ? <><dt>Correo de la contraparte</dt><dd>{correoAliadoActual || 'Sin correo registrado'}</dd></>
-                  : <><dt>Correo del Solicitante</dt><dd>{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</dd></>}
-              </dl>
+                  ? <><CampoLectura etiqueta="Correo de la contraparte">{correoAliadoActual || 'Sin correo registrado'}</CampoLectura></>
+                  : <><CampoLectura etiqueta="Correo del Solicitante">{flujoContraparte.data?.solicitud?.solicitante_correo ?? '—'}</CampoLectura></>}
+              </DetalleCampos>
               {contrapartePorDefinir && (
                 <p className="alert-error" role="alert">
                   La contraparte está configurada como Por definir. Debe asignar una contraparte válida antes de enviar a revisión de contraparte.
@@ -573,14 +575,13 @@ export function ConvenioDetallePage() {
                   )}
                 </div>
               )}
-              <dl className="proyecto-datos revision-contraparte-datos">
-                <dt>Versión</dt><dd>{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</dd>
-                <dt>{datos.origen === 'MANUAL_ORI' ? 'Contraparte externa' : 'Solicitante responsable'}</dt>
-                <dd>{datos.origen === 'MANUAL_ORI' ? (datos.aliado?.nombre ?? 'Por definir') : (revisionContrapartePendiente.responsable?.nombre_completo ?? '—')}</dd>
-                {datos.origen !== 'MANUAL_ORI' && <><dt>Correo</dt><dd>{revisionContrapartePendiente.responsable?.correo ?? '—'}</dd></>}
-                <dt>Enviado por</dt><dd>{revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</dd>
-                <dt>Fecha de envío</dt><dd>{fecha(revisionContrapartePendiente.creado_en)}</dd>
-              </dl>
+              <DetalleCampos className="revision-contraparte-datos">
+                <CampoLectura etiqueta="Versión">{revisionContrapartePendiente.version_convenio?.numero ?? '—'}</CampoLectura>
+                <CampoLectura etiqueta={datos.origen === 'MANUAL_ORI' ? 'Contraparte externa' : 'Solicitante responsable'}>{datos.origen === 'MANUAL_ORI' ? (datos.aliado?.nombre ?? 'Por definir') : (revisionContrapartePendiente.responsable?.nombre_completo ?? '—')}</CampoLectura>
+                {datos.origen !== 'MANUAL_ORI' && <><CampoLectura etiqueta="Correo">{revisionContrapartePendiente.responsable?.correo ?? '—'}</CampoLectura></>}
+                <CampoLectura etiqueta="Enviado por">{revisionContrapartePendiente.creada_por?.nombre_completo ?? 'ORI'}</CampoLectura>
+                <CampoLectura etiqueta="Fecha de envío">{fecha(revisionContrapartePendiente.creado_en)}</CampoLectura>
+              </DetalleCampos>
             </section>
           )}
 
@@ -607,11 +608,11 @@ export function ConvenioDetallePage() {
                 <section className="card proyecto-resumen">
                   <h2>Revisión jurídica {revision.instancia_juridica} de 2</h2>
                   <p className="revision-ronda">Ronda {revision.numero_ronda}</p>
-                  <dl className="proyecto-datos">
-                    <dt>Versión recibida</dt><dd>{consultaRevision.data.version_recibida.numero}</dd>
-                    <dt>Versión actual</dt><dd>{versionActual}</dd>
-                    <dt>Recibida el</dt><dd>{fecha(revision.creado_en)}</dd>
-                  </dl>
+                  <DetalleCampos compacto>
+                    <CampoLectura etiqueta="Versión recibida">{consultaRevision.data.version_recibida.numero}</CampoLectura>
+                    <CampoLectura etiqueta="Versión actual">{versionActual}</CampoLectura>
+                    <CampoLectura etiqueta="Recibida el">{fecha(revision.creado_en)}</CampoLectura>
+                  </DetalleCampos>
                   <button className="btn btn-outline btn-block" type="button" disabled={!borrador || guardar.isPending} onClick={() => guardar.mutate()}>{guardar.isPending ? 'Guardando…' : 'Guardar cambios'}</button>
                 </section>
 
@@ -680,7 +681,7 @@ export function ConvenioDetallePage() {
               <div className="page-toolbar">
                 {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`} state={retorno}>Continuar elaboración</Link>}
               </div>
-              <section className="card convenio-informacion"><h2>Información base</h2><dl><dt>Origen</dt><dd>{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</dd><dt>Creado el</dt><dd>{fecha(datos.creado_en)}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
+              <section className="card convenio-informacion"><h2>Información base</h2><DetalleCampos><CampoLectura etiqueta="Origen">{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</CampoLectura><CampoLectura etiqueta="Creado el">{fecha(datos.creado_en)}</CampoLectura><CampoLectura etiqueta="Objeto" amplio>{datos.objeto ?? '—'}</CampoLectura><CampoLectura etiqueta="Alcance">{datos.alcance ? enumLabel(datos.alcance) : '—'}</CampoLectura><CampoLectura etiqueta="Responsable">{datos.creado_por.nombre_completo}</CampoLectura></DetalleCampos></section>
               <SoportesConvenio
                 convenioId={id}
                 estadoConvenio={datos.estado}

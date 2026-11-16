@@ -1,5 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError } from '../app/api'
 import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
@@ -128,27 +129,24 @@ export function ConvenioVersionPage() {
         <aside className="elaboracion-panel">
           <section className="card proyecto-resumen">
             <h2>Datos de la versión</h2>
-            <dl className="proyecto-datos">
-              <dt>Número de versión</dt><dd>{datos.numero}</dd>
-              <dt>Autor</dt><dd>{datos.autor.nombre_completo}</dd>
-              <dt>Fecha</dt><dd>{fechaHora(datos.creado_en)}</dd>
-              <dt>Etapa</dt><dd>{datos.etapa.nombre}</dd>
-              <dt>Contexto de generación</dt><dd>{contextoVersion(datos.contexto)}</dd>
-              <dt>Plantilla utilizada</dt><dd>{datos.plantilla?.nombre ?? 'Sin plantilla asociada'}</dd>
-            </dl>
+            <DetalleCampos compacto>
+              <CampoLectura etiqueta="Número de versión">{datos.numero}</CampoLectura>
+              <CampoLectura etiqueta="Autor">{datos.autor.nombre_completo}</CampoLectura>
+              <CampoLectura etiqueta="Fecha">{fechaHora(datos.creado_en)}</CampoLectura>
+              <CampoLectura etiqueta="Etapa">{datos.etapa.nombre}</CampoLectura>
+              <CampoLectura etiqueta="Contexto de generación">{contextoVersion(datos.contexto)}</CampoLectura>
+              <CampoLectura etiqueta="Plantilla utilizada">{datos.plantilla?.nombre ?? 'Sin plantilla asociada'}</CampoLectura>
+            </DetalleCampos>
           </section>
 
           <section className="card proyecto-resumen">
             <h2>Datos del convenio en esta versión</h2>
             {snapshot.length > 0 ? (
-              <dl className="proyecto-datos">
+              <DetalleCampos compacto>
                 {snapshot.map(([campo, valor]) => (
-                  <div className="snapshot-campo" key={campo}>
-                    <dt>{CAMPOS_SNAPSHOT[campo] ?? campo}</dt>
-                    <dd>{valorSnapshot(valor)}</dd>
-                  </div>
+                  <CampoLectura key={campo} etiqueta={CAMPOS_SNAPSHOT[campo] ?? campo}>{valorSnapshot(valor)}</CampoLectura>
                 ))}
-              </dl>
+              </DetalleCampos>
             ) : (
               <p className="section-help">Esta versión no registró datos del convenio.</p>
             )}

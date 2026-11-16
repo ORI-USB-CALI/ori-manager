@@ -2095,15 +2095,11 @@ a:hover {
 }
 
 .firma-seguimiento-cabecera strong,
-.firma-seguimiento .proyecto-datos,
-.firma-seguimiento .proyecto-datos dd,
+.firma-seguimiento .detalle-campos,
+.firma-seguimiento .detalle-campos dd,
 .firma-seguimiento a {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.firma-seguimiento .proyecto-datos {
-  grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
 }
 
 .firma-fisica-resumen {
@@ -2418,21 +2414,6 @@ a:hover {
   margin-bottom: 12px;
 }
 
-.timeline-respuesta-contraparte dl,
-.invitacion-trazabilidad dl {
-  display: grid;
-  grid-template-columns: minmax(130px, auto) minmax(0, 1fr);
-  gap: 7px 16px;
-  width: 100%;
-}
-
-.timeline-respuesta-contraparte dd,
-.invitacion-trazabilidad dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 .texto-hash {
   font-family: monospace;
   font-size: 12px;
@@ -2552,24 +2533,6 @@ a:hover {
   border-top: 4px solid var(--color-magenta);
 }
 
-.proyecto-datos {
-  display: grid;
-  grid-template-columns: minmax(110px, auto) 1fr;
-  gap: 10px 16px;
-  margin-top: 18px;
-}
-
-.proyecto-datos dt {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.proyecto-datos dd {
-  margin: 0;
-  font-weight: 650;
-  text-align: right;
-}
-
 .datos-clave-campos {
   padding-top: 18px;
   margin-top: 18px;
@@ -2637,20 +2600,11 @@ a:hover {
   cursor: default;
 }
 
-.snapshot-campo {
-  display: contents;
-}
-
 .version-lista .version-enlace {
   justify-self: start;
   margin-top: 4px;
   color: var(--color-naranja);
   font-weight: 650;
-}
-
-.snapshot-campo dd {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .resumen-pendientes {
@@ -2925,16 +2879,6 @@ a:hover {
     flex-direction: column;
   }
 
-  .timeline-respuesta-contraparte dl,
-  .invitacion-trazabilidad dl {
-    grid-template-columns: 1fr;
-    gap: 3px;
-  }
-
-  .timeline-respuesta-contraparte dd,
-  .invitacion-trazabilidad dd {
-    margin-bottom: 8px;
-  }
 }
 
 @media print {
@@ -3331,23 +3275,21 @@ a:hover {
   list-style: none;
 }
 
-/* HT-12: acción Volver común. Va siempre al inicio de la vista, fuera del
-   banner degradado, con texto y borde oscuros sobre superficie blanca. */
+/* HT-12: presentacion secundaria; contrato de retorno sin cambios. */
 .accion-volver-barra {
   margin-bottom: 16px;
 }
 .accion-volver {
   background: var(--bg-surface);
   color: var(--text-primary);
-  border: 2px solid var(--text-primary);
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  border: 1.5px solid var(--text-secondary);
+  font-weight: 600;
+  text-decoration: none;
 }
 .accion-volver:hover, .accion-volver:focus-visible {
   background: var(--bg-main);
   color: var(--text-primary);
-  text-decoration: underline;
+  text-decoration: none;
 }
 .accion-volver:focus-visible {
   outline: 3px solid var(--text-primary);
@@ -3449,8 +3391,6 @@ a:hover {
   overflow-wrap: anywhere;
 }
 
-
-
 .reporte-activos-container {
   width: 100%;
   max-width: 100%;
@@ -3474,8 +3414,6 @@ a:hover {
   word-break: normal;
   white-space: normal;
 }
-
-
 
 .reporte-activos-tabla tr > :nth-child(1) {
   width: 16%;
@@ -3513,16 +3451,12 @@ a:hover {
   width: 7%;
 }
 
-
-
 .reporte-activos-tabla .tabla-ayuda {
   display: block;
   max-width: 100%;
   overflow-wrap: anywhere;
   white-space: normal;
 }
-
-
 
 .reporte-activos-tabla .badge {
   max-width: 100%;
@@ -3537,8 +3471,6 @@ a:hover {
   overflow-wrap: anywhere;
   text-align: center;
 }
-
-
 
 @media (max-width: 768px) {
   .reporte-activos-tabla {
@@ -3809,3 +3741,39 @@ a:hover {
     padding: 10px 12px;
   }
 }
+
+/* Lote 1: parejas de lectura compartidas; sin efectos sobre formularios o documentos. */
+.detalle-campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(240px, calc((100% - 24px) / 2))), 1fr));
+  gap: 20px 24px;
+  margin: 16px 0 0;
+  min-width: 0;
+  width: 100%;
+}
+/* Hasta dos campos segun el ancho de la tarjeta. */
+.detalle-campos--compacto { grid-template-columns: minmax(0, 1fr); }
+.campo-lectura { min-width: 0; }
+.campo-lectura--amplio { grid-column: 1 / -1; }
+.campo-lectura dt {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.campo-lectura dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.detalle-secciones { display: grid; gap: 20px; min-width: 0; }
+.detalle-grupo + .detalle-grupo { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border-color); }
+.timeline-revision h3 { flex-wrap: wrap; justify-content: space-between; }
+.timeline-revision h4 { margin-top: 20px; }
+.historial-observacion > p, .historial-respuesta > p, .detalle-texto { white-space: pre-wrap; overflow-wrap: anywhere; }

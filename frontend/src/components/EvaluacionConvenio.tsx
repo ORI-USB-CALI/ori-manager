@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState, type FormEvent } from 'react'
 
+import { CampoLectura, DetalleCampos } from './DetalleCampos'
 import { ApiError } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
@@ -33,26 +34,21 @@ function etiquetaEstado(estado: string): string {
 
 function EvaluacionRegistrada({ evaluacion }: { evaluacion: DatosEvaluacion }) {
   return (
-    <dl className="proyecto-datos">
-      <dt>Fue funcional</dt>
-      <dd>
+    <DetalleCampos>
+      <CampoLectura etiqueta="Fue funcional">
         <span className={`badge ${evaluacion.fue_funcional ? 'badge-activo' : 'badge-inactivo'}`}>
           {evaluacion.fue_funcional ? 'Sí' : 'No'}
         </span>
-      </dd>
-      <dt>Calificación de cumplimiento</dt>
-      <dd>
+      </CampoLectura>
+      <CampoLectura etiqueta="Calificación de cumplimiento">
         {evaluacion.calificacion} de {CALIFICACION_MAXIMA}
         <br />
         <span className="texto-secundario">{LEYENDA_CALIFICACION}</span>
-      </dd>
-      <dt>Comentarios sobre la experiencia</dt>
-      <dd>{evaluacion.observaciones}</dd>
-      <dt>Registrada por</dt>
-      <dd>{evaluacion.evaluado_por.nombre_completo}</dd>
-      <dt>Fecha de registro</dt>
-      <dd>{fechaHora(evaluacion.creado_en)}</dd>
-    </dl>
+      </CampoLectura>
+      <CampoLectura etiqueta="Comentarios sobre la experiencia" amplio>{evaluacion.observaciones}</CampoLectura>
+      <CampoLectura etiqueta="Registrada por">{evaluacion.evaluado_por.nombre_completo}</CampoLectura>
+      <CampoLectura etiqueta="Fecha de registro">{fechaHora(evaluacion.creado_en)}</CampoLectura>
+    </DetalleCampos>
   )
 }
 

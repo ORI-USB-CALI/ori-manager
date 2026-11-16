@@ -175,7 +175,7 @@ describe('contraste de la acción Volver', () => {
     const cuerpo = regla('.accion-volver')
     expect(cuerpo).toMatch(/background:\s*var\(--bg-surface\)/)
     expect(cuerpo).toMatch(/color:\s*var\(--text-primary\)/)
-    expect(cuerpo).toMatch(/border:\s*2px solid var\(--text-primary\)/)
+    expect(cuerpo).toMatch(/border:\s*1.5px solid var\(--text-secondary\)/)
   })
 
   it.each(['--bg-surface', '--bg-main'])('cumple 4.5:1 sobre %s (reposo, hover y foco)', (fondo) => {
@@ -183,7 +183,7 @@ describe('contraste de la acción Volver', () => {
   })
 
   it('el borde se distingue del fondo de la página (3:1)', () => {
-    expect(contraste(variable('--text-primary'), variable('--bg-main'))).toBeGreaterThanOrEqual(3)
+    expect(contraste(variable('--text-secondary'), variable('--bg-main'))).toBeGreaterThanOrEqual(3)
   })
 
   it('mantiene un foco oscuro de 3px separado del borde, con contraste de al menos 3:1', () => {

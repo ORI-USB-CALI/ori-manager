@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
@@ -526,17 +527,16 @@ export function ConvenioElaboracionPage() {
           <aside className="elaboracion-panel">
             <section className="card proyecto-resumen">
               <h2>Proyecto de convenio</h2>
-              <dl className="proyecto-datos">
-                <dt>Etapa actual</dt><dd>{datos.etapa_actual?.nombre ?? '—'}</dd>
-                <dt>Versión formal</dt><dd>{datos.version_actual || 'Aún no tiene'}</dd>
-                <dt>Borrador</dt>
-                <dd>
+              <DetalleCampos compacto>
+                <CampoLectura etiqueta="Etapa actual">{datos.etapa_actual?.nombre ?? '—'}</CampoLectura>
+                <CampoLectura etiqueta="Versión formal">{datos.version_actual || 'Aún no tiene'}</CampoLectura>
+                <CampoLectura etiqueta="Borrador">
                   {datos.borrador_guardado_en
                     ? `Guardado el ${fechaHora(datos.borrador_guardado_en)}, pendiente de enviar a revisión`
                     : 'Sin avances guardados desde la versión formal'}
-                </dd>
-                <dt>Plantilla utilizada</dt><dd>{datos.plantilla_origen?.nombre ?? 'Sin plantilla asociada'}</dd>
-              </dl>
+                </CampoLectura>
+                <CampoLectura etiqueta="Plantilla utilizada">{datos.plantilla_origen?.nombre ?? 'Sin plantilla asociada'}</CampoLectura>
+              </DetalleCampos>
               {editable && (
                 <div className="acciones-verticales">
                   <button className="btn btn-outline" type="submit" disabled={guardar.isPending || recargar.isPending || !contenido}>

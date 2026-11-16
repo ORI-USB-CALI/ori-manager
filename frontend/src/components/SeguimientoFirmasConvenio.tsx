@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
+import { CampoLectura, DetalleCampos } from './DetalleCampos'
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { DocumentoPreviewModal } from './DocumentoPreviewModal'
@@ -328,16 +329,16 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
             <article className="firma-seguimiento" key={firma.id}>
               <div className="firma-seguimiento-cabecera"><strong>{firma.orden}. {etiqueta(firma.rol_firmante)}</strong><span className={`badge ${claseEstadoFirma(firma.estado)}`}>{etiqueta(firma.estado)}</span></div>
               {datos.estado === 'CONFIGURACION' ? <ConfiguracionFirma convenioId={convenioId} firma={firma} /> : (
-                <dl className="proyecto-datos">
-                  <dt>Nombre</dt><dd>{firma.nombre_firmante ?? '—'}</dd><dt>Cargo</dt><dd>{firma.cargo_firmante ?? '—'}</dd>
-                  <dt>Correo</dt><dd>{firma.correo_firmante ?? '—'}</dd><dt>Modalidad</dt><dd>{etiqueta(firma.modalidad)}</dd>
-                  <dt>Fecha de firma</dt><dd>{firma.modalidad === 'FISICA' ? fechaFisica(firma.fecha_firma) : fecha(firma.fecha_firma)}</dd>
+                <DetalleCampos>
+                  <CampoLectura etiqueta="Nombre">{firma.nombre_firmante ?? '—'}</CampoLectura><CampoLectura etiqueta="Cargo">{firma.cargo_firmante ?? '—'}</CampoLectura>
+                  <CampoLectura etiqueta="Correo">{firma.correo_firmante ?? '—'}</CampoLectura><CampoLectura etiqueta="Modalidad">{etiqueta(firma.modalidad)}</CampoLectura>
+                  <CampoLectura etiqueta="Fecha de firma">{firma.modalidad === 'FISICA' ? fechaFisica(firma.fecha_firma) : fecha(firma.fecha_firma)}</CampoLectura>
                   {firma.modalidad === 'FISICA' ? (
-                    <><dt>Evidencia</dt><dd>{firma.documento?.nombre_archivo ?? 'Pendiente de registro'}</dd></>
+                    <><CampoLectura etiqueta="Evidencia">{firma.documento?.nombre_archivo ?? 'Pendiente de registro'}</CampoLectura></>
                   ) : (
-                    <><dt>Invitación</dt><dd><span className={`badge ${claseEstadoInvitacion(invitacion?.estado ?? null)}`}>{invitacion ? etiqueta(invitacion.estado) : 'No disponible'}</span></dd></>
+                    <><CampoLectura etiqueta="Invitación"><span className={`badge ${claseEstadoInvitacion(invitacion?.estado ?? null)}`}>{invitacion ? etiqueta(invitacion.estado) : 'No disponible'}</span></CampoLectura></>
                   )}
-                </dl>
+                </DetalleCampos>
               )}
               {((firma.modalidad === 'ELECTRONICA' && firma.estado === 'FIRMADA' && firma.evidencia_electronica_disponible) || (firma.modalidad === 'FISICA' && firma.documento)) && (
                 <button className="btn btn-outline btn-small" type="button" onClick={() => setEvidenciaSeleccionada(firma)}>Ver evidencia</button>
@@ -394,12 +395,12 @@ export function SeguimientoFirmasConvenio({ convenioId }: { convenioId: number }
             ? `/api/convenios/${convenioId}/documentos/${evidenciaSeleccionada.documento!.id}/contenido?disposicion=inline`
             : `/api/convenios/${convenioId}/firmas/${evidenciaSeleccionada.id}/evidencia?disposicion=inline`}
           etiquetaDescarga={evidenciaSeleccionada.modalidad === 'FISICA' ? 'Descargar PDF' : 'Descargar PNG'}
-          resumen={<dl className="proyecto-datos">
-            <dt>Firmante</dt><dd>{evidenciaSeleccionada.nombre_firmante}</dd>
-            <dt>Rol</dt><dd>{etiqueta(evidenciaSeleccionada.rol_firmante)}</dd>
-            <dt>Modalidad</dt><dd>{etiqueta(evidenciaSeleccionada.modalidad)}</dd>
-            <dt>Fecha registrada</dt><dd>{evidenciaSeleccionada.modalidad === 'FISICA' ? fechaFisica(evidenciaSeleccionada.fecha_firma) : fecha(evidenciaSeleccionada.fecha_firma)}</dd>
-          </dl>}
+          resumen={<DetalleCampos>
+            <CampoLectura etiqueta="Firmante">{evidenciaSeleccionada.nombre_firmante}</CampoLectura>
+            <CampoLectura etiqueta="Rol">{etiqueta(evidenciaSeleccionada.rol_firmante)}</CampoLectura>
+            <CampoLectura etiqueta="Modalidad">{etiqueta(evidenciaSeleccionada.modalidad)}</CampoLectura>
+            <CampoLectura etiqueta="Fecha registrada">{evidenciaSeleccionada.modalidad === 'FISICA' ? fechaFisica(evidenciaSeleccionada.fecha_firma) : fecha(evidenciaSeleccionada.fecha_firma)}</CampoLectura>
+          </DetalleCampos>}
           onCerrar={() => setEvidenciaSeleccionada(null)}
         />
       )}
