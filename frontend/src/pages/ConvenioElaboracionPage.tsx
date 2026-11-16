@@ -8,6 +8,7 @@ import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
 import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { documentoTieneTexto, informacionSolicitudComoDocumento } from './informacionSolicitud'
 import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia, vencimientoEsperado } from './vigencia'
@@ -283,6 +284,9 @@ export function ConvenioElaboracionPage() {
         ? siguiente : null
     })
   }
+  const admiteBaseSolicitud = datos.origen === 'SOLICITUD' && datos.solicitud !== null && !datos.convenio_origen_id
+  const baseSolicitud = admiteBaseSolicitud && datos.solicitud
+    ? informacionSolicitudComoDocumento(datos.solicitud) : null
   const todasLasObservaciones = historial.data?.revisiones.flatMap((revision) => revision.observaciones) ?? []
   const observacionesJuridicas = todasLasObservaciones.filter((item) => item.origen === 'REVISOR_ORI')
   const observacionesContraparte = todasLasObservaciones.filter((item) => item.origen === 'CONTRAPARTE')
@@ -394,6 +398,20 @@ export function ConvenioElaboracionPage() {
                     Cargar el borrador más reciente
                   </button>
                 </div>
+              )}
+              {editable && admiteBaseSolicitud && (
+                <section aria-label="Información de la solicitud como base">
+                  <p>Usa objeto, justificación, actividades y metas como texto libre. Puedes editar, sustituir o eliminar cualquier sección. Define tipo, duración y vigencia definitivos en Datos clave.</p>
+                  <button type="button" className="btn btn-outline" disabled={!baseSolicitud || guardar.isPending || borradorDesactualizado} onClick={() => {
+                    if (!baseSolicitud) return
+                    if (documentoTieneTexto(contenido) && !window.confirm('Se reemplazará todo el contenido actual del documento, incluidos los cambios sin guardar. La solicitud original y los datos clave se conservarán. ¿Deseas continuar?')) return
+                    setCopiaAnterior(contenido)
+                    actualizarEdicion({ contenido: baseSolicitud })
+                    setEditorGeneracion((valor) => valor + 1)
+                    setLimpiezaAplicada(true)
+                  }}>Usar información de la solicitud como base</button>
+                  {!baseSolicitud && <p className="section-help">La solicitud no contiene texto para usar como base.</p>}
+                </section>
               )}
               {editable && datos.contiene_antecedentes_iniciales && !limpiezaAplicada && (
                 <section aria-label="Preparar documento contractual">

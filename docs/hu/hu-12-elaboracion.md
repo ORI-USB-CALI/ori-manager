@@ -31,6 +31,25 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+### CA-02: reutilización opcional como texto libre
+
+La acción «Usar información de la solicitud como base» copia objeto,
+justificación, actividades y metas al editor existente. Omite secciones vacías,
+no agrega variables pendientes ni los 23 bloques históricos. Los títulos y los
+párrafos se pueden editar, eliminar o sustituir libremente; no se imponen como
+requisitos para finalizar. Se confirma cualquier reemplazo de contenido escrito
+y se conserva una copia local del contenido anterior hasta salir de la pantalla.
+
+La acción solo está disponible con permiso de edición, en Elaboración, para un
+convenio de origen SOLICITUD que no sea renovación. Usa la solicitud original que
+ya entrega la API de Elaboración y conserva su consulta íntegra. Prepara cambios
+locales; Guardar avance y Finalizar siguen enviando `expected_revision`. No cambia
+la solicitud ni tipo, fechas o duración del formulario estructurado. No modifica
+el servicio de versiones, snapshots, revisiones, firmas ni la exportación oficial.
+
+Ver evidencia y escenarios pendientes de staging en
+[Reutilización libre de solicitud](../development/hu12-reutilizacion-libre-solicitud.md).
+
 ### Corrección bloqueante: antecedentes separados del documento contractual
 
 Esta corrección sustituye la prevención estructural del PR #186 y el ajuste de
