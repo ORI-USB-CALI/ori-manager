@@ -78,6 +78,28 @@ def test_revisor_edita_versionado_y_version_recibida_permanece_fija(
     assert conflicto.status_code == 409
 
 
+def test_revisor_guarda_contenido_identico_y_reutiliza_version(
+    client, db, gestor, revisor, convenio_listo, entrar_como
+) -> None:
+    revision = _abrir(db, convenio_listo, gestor)
+    entrar_como(revisor)
+    version = client.get(f"/api/convenios/{convenio_listo.id}/revision").json()[
+        "version_actual"
+    ]
+    historicas = deepcopy(list(db.execute(select(VersionConvenio.__table__)).all()))
+
+    respuesta = client.patch(
+        f"/api/convenios/{convenio_listo.id}/revisiones/{revision.id}/contenido",
+        json={"contenido": version["contenido"], "expected_version": version["numero"]},
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["numero"] == version["numero"]
+    db.refresh(convenio_listo)
+    assert convenio_listo.version_actual == version["numero"]
+    assert list(db.execute(select(VersionConvenio.__table__)).all()) == historicas
+
+
 def test_edicion_y_observacion_independiente_exigen_permiso_revisar(
     client, db, gestor, convenio_listo, entrar_como
 ) -> None:

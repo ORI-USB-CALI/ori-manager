@@ -11,6 +11,7 @@ import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEd
 import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
 import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia, vencimientoEsperado } from './vigencia'
+import './gestorConvenios.css'
 
 const ETAPA_ELABORACION = 'ELABORACION'
 const CAMPOS = [
@@ -272,8 +273,8 @@ export function ConvenioElaboracionPage() {
   const borradorDesactualizado = conflicto
     || (cambiosLocales !== null && (revisionBase !== datos.revision_borrador
       || edicion.base.version_actual !== datos.version_actual))
-  const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
-    && !recargar.isPending
+  const puedeEditarEtapa = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
+  const editable = puedeEditarEtapa && !recargar.isPending && !modalAbierto
 
   function actualizarEdicion(cambios: Partial<Pick<EdicionBorrador, 'contenido' | 'metadata'>>) {
     setCambiosLocales((actual) => {
@@ -343,16 +344,23 @@ export function ConvenioElaboracionPage() {
   }
 
   return (
-    <>
+    <div className="convenio-elaboracion">
       {accionVolver}
 
       <section className="header-banner">
-        <h1>Proyecto de convenio {referenciaConvenio(datos.codigo, datos.id)}</h1>
+        <h1>{datos.etapa_actual?.codigo === ETAPA_ELABORACION ? 'Elaboración' : 'Consulta'} · {referenciaConvenio(datos.codigo, datos.id)}</h1>
         <p>
           <span className="badge">{datos.etapa_actual?.nombre ?? datos.estado}</span>
           {' · '}{datos.version_actual ? `Versión formal ${datos.version_actual}` : 'Sin versión formal'} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
         </p>
       </section>
+
+      {!puedeEditarEtapa && (
+        <section className="card">
+          <p>Documento de solo lectura. Las acciones disponibles para la etapa actual están en el detalle del convenio.</p>
+          <Link className="btn btn-primary" to={`/convenios/${id}`}>Continuar trámite</Link>
+        </section>
+      )}
 
       <form onSubmit={enviar}>
         {datos.solicitud && puede('solicitudes.ver_recibidas') && (
@@ -364,7 +372,7 @@ export function ConvenioElaboracionPage() {
               <div className="editor-cabecera">
                 <div>
                   <h2>Documento jurídico</h2>
-                  <p className="section-help">Edita libremente el contenido del proyecto de convenio.</p>
+                  <p className="section-help">{puedeEditarEtapa ? 'Edita libremente el contenido del proyecto de convenio.' : 'Consulta el contenido del documento en esta etapa.'}</p>
                 </div>
                 {hayCambios ? (
                   <span className="badge badge-pendiente">
@@ -429,7 +437,7 @@ export function ConvenioElaboracionPage() {
             {juridicasPendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes">
                 <h2>Observaciones jurídicas pendientes</h2>
-                <p className="section-help">Corrige estos puntos antes de volver a enviar el proyecto a revisión jurídica.</p>
+                {puedeEditarEtapa && <p className="section-help">Corrige estos puntos antes de volver a enviar el proyecto a revisión jurídica.</p>}
                 {juridicasPendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
@@ -454,7 +462,7 @@ export function ConvenioElaboracionPage() {
             {contrapartePendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes observaciones-contraparte">
                 <h2>Observaciones de contraparte pendientes</h2>
-                <p className="section-help">Atiende las solicitudes de la contraparte y corrige el documento antes de iniciar una nueva ronda jurídica.</p>
+                {puedeEditarEtapa && <p className="section-help">Atiende las solicitudes de la contraparte y corrige el documento antes de iniciar una nueva ronda jurídica.</p>}
                 {contrapartePendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
@@ -477,7 +485,7 @@ export function ConvenioElaboracionPage() {
             {revisionFinalPendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes">
                 <h2>Observaciones de revisión final pendientes</h2>
-                <p className="section-help">Atiende la observación, corrige el proyecto y envíalo de nuevo: al enviarlo se crea la nueva versión que repite las revisiones.</p>
+                {puedeEditarEtapa && <p className="section-help">Atiende la observación, corrige el proyecto y envíalo de nuevo: al enviarlo se crea la nueva versión que repite las revisiones.</p>}
                 {revisionFinalPendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
@@ -544,7 +552,7 @@ export function ConvenioElaboracionPage() {
               )}
               <div className="datos-clave-campos">
                 {datos.origen === 'MANUAL_ORI' && (
-                  <label className="form-group">Aliado / contraparte (puedes definirlo durante la elaboración)
+                  <label className="form-group">{puedeEditarEtapa ? 'Aliado / contraparte (puedes definirlo durante la elaboración)' : 'Aliado / contraparte'}
                     <select className="form-control select" name="aliado_id" value={campos.aliado_id} onChange={(event) => actualizarEdicion({ metadata: { ...campos, aliado_id: event.target.value } })} disabled={!editable}>
                       <option value="">Por definir</option>
                       {aliados.data?.items.map((aliado) => <option key={aliado.id} value={aliado.id}>{aliado.nombre}</option>)}
@@ -662,13 +670,26 @@ export function ConvenioElaboracionPage() {
           valores={payloadFinal}
           tieneVersionFormal={datos.version_actual > 0}
           onCerrar={() => setModalAbierto(false)}
-          onErrorValidacion={(error) => setErrores(erroresServidor(error))}
-          onFinalizado={() => Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
-            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'versiones'] }),
-          ])}
+          onErrorValidacion={(error) => {
+            setErrores(erroresServidor(error))
+            if (esConflictoBorrador(error)) setConflicto(true)
+          }}
+          onFinalizado={async () => {
+            await queryClient.cancelQueries({ queryKey: ['convenios', id, 'elaboracion'], exact: true })
+            // La formalización elimina el borrador y cambia su revisión a cero.
+            // Esa transición propia ya confirmada no es un guardado concurrente.
+            setCambiosLocales(null)
+            setConflicto(false)
+            setErrores({})
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['convenios', id] }),
+              queryClient.invalidateQueries({ queryKey: ['convenio', id] }),
+              queryClient.invalidateQueries({ queryKey: ['convenios', 'tablero'] }),
+              queryClient.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] }),
+            ])
+          }}
         />
       )}
-    </>
+    </div>
   )
 }

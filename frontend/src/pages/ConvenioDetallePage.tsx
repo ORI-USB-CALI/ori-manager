@@ -19,6 +19,7 @@ import { RevisionFinalConvenio } from '../components/RevisionFinalConvenio'
 import { SeguimientoFirmasConvenio } from '../components/SeguimientoFirmasConvenio'
 import { SoportesConvenio } from '../components/SoportesConvenio'
 import { type Convenio, type ElaboracionConvenio, type HistorialConvenio, referenciaConvenio, useAliados } from './epica02'
+import './gestorConvenios.css'
 
 interface UsuarioResumen { id: number; nombre_completo: string }
 interface ObservacionRevision {
@@ -679,7 +680,7 @@ export function ConvenioDetallePage() {
               <div className="page-toolbar">
                 {puedeIrAElaboracion && <Link className="btn btn-primary" to={`/convenios/${datos.id}/elaboracion`} state={retorno}>Continuar elaboración</Link>}
               </div>
-              <section className="card"><h2>Información base</h2><dl><dt>Origen</dt><dd>{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</dd><dt>Creado el</dt><dd>{fecha(datos.creado_en)}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
+              <section className="card convenio-informacion"><h2>Información base</h2><dl><dt>Origen</dt><dd>{datos.origen === 'MANUAL_ORI' ? 'Creado directamente por ORI' : `Solicitud #${datos.solicitud_id}`}</dd><dt>Creado el</dt><dd>{fecha(datos.creado_en)}</dd><dt>Objeto</dt><dd>{datos.objeto ?? '—'}</dd><dt>Alcance</dt><dd>{datos.alcance ?? '—'}</dd><dt>Responsable</dt><dd>{datos.creado_por.nombre_completo}</dd></dl></section>
               <SoportesConvenio
                 convenioId={id}
                 estadoConvenio={datos.estado}
