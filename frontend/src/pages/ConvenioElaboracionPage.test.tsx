@@ -134,6 +134,61 @@ function preparar(
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
+describe('finalización y consulta de etapas posteriores', () => {
+  it.each(['REVISION_AVAL_JURIDICO', 'REVISION_CONTRAPARTE', 'REVISION_FINAL', 'APROBACION_FIRMAS', 'FIRMA_ARCHIVO_SEGUIMIENTO'])('muestra solo consulta en %s', async (codigo) => {
+    preparar(() => respuesta(200, elaboracion), {
+      ...elaboracion, etapa_actual: { id: 2, orden: 2, codigo, nombre: codigo },
+    })
+    expect(await screen.findByText(/Documento de solo lectura/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Continuar trámite' }).getAttribute('href')).toBe('/convenios/7')
+    expect(screen.queryByText(/Edita libremente/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Editar documento|Guardar avance|Finalizar elaboración/ })).toBeNull()
+    expect((screen.getByRole('textbox', { name: 'Objeto' }) as HTMLTextAreaElement).disabled).toBe(true)
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Consulta · Convenio provisional #7')
+  })
+
+  it.each([false, true])('actualiza el estado tras finalizar y conserva conflictos reales (409: %s)', async (conflicto) => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) }
+    const { usuario, actualizarServidor, notify, cliente } = preparar(() => respuesta(200, remotoCompleto), remotoCompleto)
+    cliente.setQueryData(['solicitudes', 'recibidas'], { items: [] })
+    cliente.setQueryData(['convenio', 7], elaboracion)
+    const original = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/elaboracion/finalizar')) {
+        if (conflicto) return Promise.resolve(respuesta(409, { detail: { expected_revision: 1, current_revision: 2 } }))
+        const finalizado = { ...remotoCompleto, contenido: DOCUMENTO_EDITADO,
+          version_actual: 2, revision_borrador: 0, borrador_guardado_en: null,
+          etapa_actual: { id: 2, orden: 2, codigo: 'REVISION_AVAL_JURIDICO', nombre: 'Revisión jurídica' },
+        }
+        actualizarServidor(finalizado)
+        return Promise.resolve(respuesta(200, finalizado))
+      }
+      return original(url, init)
+    }))
+    await usuario.click(await screen.findByRole('button', { name: 'Editar documento' }))
+    await usuario.click(screen.getByRole('button', { name: 'Finalizar elaboración' }))
+    expect(screen.queryByRole('button', { name: 'Editar documento' })).toBeNull()
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar y enviar a Jurídica' }))
+    if (conflicto) {
+      expect(await screen.findByRole('button', { name: 'Cargar el borrador más reciente' })).toBeTruthy()
+      expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_EDITADO))
+      comprobarMetadatos(METADATOS_REMOTOS)
+      expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'success' }))
+    } else {
+      await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'success' })))
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.queryByText('Cambios sin guardar')).toBeNull()
+      expect(screen.queryByText('Borrador guardado')).toBeNull()
+      expect(screen.queryByText(/Edita libremente/)).toBeNull()
+      expect(screen.getByTestId('copia-documento').textContent).toBe(JSON.stringify(DOCUMENTO_EDITADO))
+      expect(screen.getByRole('link', { name: 'Continuar trámite' })).toBeTruthy()
+      expect(cliente.getQueryState(['solicitudes', 'recibidas'])?.isInvalidated).toBe(true)
+      expect(cliente.getQueryState(['convenio', 7])?.isInvalidated).toBe(true)
+    }
+  })
+})
+
 describe('recuperación explícita de antecedentes antiguos', () => {
   it('permite redactar y finalizar después del reemplazo explícito', async () => {
     HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }

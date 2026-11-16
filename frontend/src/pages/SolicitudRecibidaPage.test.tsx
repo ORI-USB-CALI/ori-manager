@@ -44,7 +44,7 @@ const solicitud: SolicitudRecibida = {
 const gestor: Sesion = {
   id: 1, correo: 'gestor@example.com', nombre_completo: 'Gestor ORI', activo: true,
   tipo_usuario: 'INTERNO', rol: { codigo: 'GESTOR_ORI', nombre: 'Gestor ORI' },
-  permisos: ['solicitudes.ver_recibidas', 'solicitudes.gestionar_recibidas'],
+  permisos: ['solicitudes.ver_recibidas', 'solicitudes.gestionar_recibidas', 'convenios.ver', 'convenios.editar'],
 }
 
 const solicitante: Sesion = {
@@ -93,6 +93,70 @@ function montar(ruta = '/ori/solicitudes/41', sesion = gestor) {
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+describe('acceso contextual al convenio desde solicitudes', () => {
+  const autorizada: Sesion = { ...gestor, permisos: [
+    ...gestor.permisos, 'convenios.ver', 'convenios.editar',
+    'convenios.gestionar_revision_contraparte', 'convenios.gestionar_firmas',
+  ] }
+
+  it.each([
+    ['ELABORACION', 'Continuar elaboración', '/convenios/7/elaboracion'],
+    ['REVISION_AVAL_JURIDICO', 'Consultar revisión', '/convenios/7'],
+    ['REVISION_CONTRAPARTE', 'Continuar trámite', '/convenios/7'],
+    ['REVISION_FINAL', 'Continuar trámite', '/convenios/7'],
+    ['APROBACION_FIRMAS', 'Gestionar firmas', '/convenios/7'],
+    ['FIRMA_ARCHIVO_SEGUIMIENTO', 'Gestionar firmas', '/convenios/7'],
+    ['FORMALIZADO', 'Ver convenio', '/convenios/7'],
+    ['ETAPA_DESCONOCIDA', 'Ver convenio', '/convenios/7'],
+  ])('usa el mismo destino en tabla y detalle para %s', async (codigo, texto, destino) => {
+    const aprobada = { ...solicitud, estado: 'APROBADA', convenio_id: 7, convenio_etapa: { codigo, nombre: codigo } }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => respuesta(200,
+      url === '/api/solicitudes/recibidas' ? { items: [aprobada], total: 1 } : aprobada)))
+    montar('/ori/solicitudes', autorizada)
+    const accion = await screen.findByRole('link', { name: texto })
+    expect(accion.getAttribute('href')).toBe(destino)
+    await userEvent.setup().click(screen.getByRole('link', { name: 'Ver' }))
+    expect((await screen.findByRole('link', { name: texto })).getAttribute('href')).toBe(destino)
+  })
+
+  it('ofrece iniciar desde el detalle cuando aún no existe convenio', async () => {
+    const aprobada = { ...solicitud, estado: 'APROBADA' }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => respuesta(200,
+      url === '/api/solicitudes/recibidas' ? { items: [aprobada], total: 1 } : aprobada)))
+    montar('/ori/solicitudes', autorizada)
+    await userEvent.setup().click(await screen.findByRole('link', { name: 'Iniciar elaboración' }))
+    expect(await screen.findByRole('button', { name: 'Iniciar elaboración' })).toBeTruthy()
+  })
+
+  it.each(['/ori/solicitudes', '/ori/solicitudes/41'])('no ofrece acciones de convenio sin su permiso de consulta en %s', async (ruta) => {
+    const aprobada = { ...solicitud, estado: 'APROBADA', convenio_id: 7, convenio_etapa: { codigo: 'ELABORACION', nombre: 'Elaboración' } }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => respuesta(200,
+      url === '/api/solicitudes/recibidas' ? { items: [aprobada], total: 1 } : aprobada)))
+    montar(ruta, { ...gestor, permisos: ['solicitudes.ver_recibidas', 'solicitudes.gestionar_recibidas'] })
+    await screen.findByText(solicitud.consecutivo)
+    expect(screen.queryByRole('link', { name: /Continuar|Gestionar|Ver convenio|Consultar revisión/ })).toBeNull()
+  })
+
+  it.each(['ELABORACION', 'REVISION_CONTRAPARTE', 'REVISION_FINAL', 'APROBACION_FIRMAS', 'FIRMA_ARCHIVO_SEGUIMIENTO'])('ofrece consulta sin gestión para %s', async (codigo) => {
+    vi.stubGlobal('fetch', vi.fn(async () => respuesta(200, {
+      ...solicitud, estado: 'APROBADA', convenio_id: 7, convenio_etapa: { codigo, nombre: codigo },
+    })))
+    montar('/ori/solicitudes/41', { ...gestor, permisos: ['solicitudes.ver_recibidas', 'convenios.ver'] })
+    expect((await screen.findByRole('link', { name: 'Ver convenio' })).getAttribute('href')).toBe('/convenios/7')
+    expect(screen.queryByRole('link', { name: /Continuar|Gestionar/ })).toBeNull()
+  })
+
+  it('ofrece ver el convenio ya formalizado en la etapa de seguimiento', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => respuesta(200, {
+      ...solicitud, estado: 'APROBADA', convenio_estado: 'VIGENTE', convenio_id: 7,
+      convenio_etapa: { codigo: 'FIRMA_ARCHIVO_SEGUIMIENTO', nombre: 'Firma, archivo y seguimiento' },
+    })))
+    montar('/ori/solicitudes/41', autorizada)
+    expect(await screen.findByRole('link', { name: 'Ver convenio' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Gestionar firmas' })).toBeNull()
+  })
+})
 
 it('identifica las observaciones del solicitante conservando su valor y acceso al historial', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => respuesta(200, { ...solicitud, observaciones: 'Aclaración aportada por el solicitante' })))
