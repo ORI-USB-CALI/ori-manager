@@ -2444,9 +2444,9 @@ class ServicioConvenios:
                     CampoFaltante(
                         campo="contenido",
                         motivo=(
-                            "Debe elaborar el texto contractual definitivo antes de enviarlo "
-                            "a revisión jurídica. El documento conserva la precarga "
-                            "completa de antecedentes de la solicitud HU-12."
+                            "El documento todavía contiene información inicial de la solicitud. "
+                            "Debes reemplazarla por el texto definitivo del convenio antes "
+                            "de enviarlo a revisión jurídica"
                         ),
                     )
                 )
