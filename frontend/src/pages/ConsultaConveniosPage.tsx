@@ -338,26 +338,26 @@ export function ConsultaConveniosPage() {
   }
 
   const columns: DataTableColumn<ConvenioConsulta>[] = [
-    { id: 'codigo', header: 'Código', render: (convenio) => referenciaConvenio(convenio.codigo, convenio.id) },
+    { id: 'codigo', className: 'tabla-col-referencia', header: 'Código', render: (convenio) => referenciaConvenio(convenio.codigo, convenio.id) },
     {
-      id: 'objeto',
+      id: 'objeto', className: 'tabla-col-descripcion',
       header: 'Objeto',
-      render: (convenio) => <span className="convenio-objeto">{convenio.objeto ?? '—'}</span>,
+      render: (convenio) => <span className="tabla-texto-completo">{convenio.objeto ?? '—'}</span>,
     },
-    { id: 'contraparte', header: 'Contraparte', render: contraparte },
+    { id: 'contraparte', className: 'tabla-col-texto', header: 'Contraparte', render: contraparte },
     {
-      id: 'tipo_convenio',
+      id: 'tipo_convenio', className: 'tabla-col-texto',
       header: 'Tipo de convenio',
       render: (convenio) => convenio.tipo_convenio?.nombre ?? '—',
     },
     {
-      id: 'estado',
+      id: 'estado', className: 'tabla-col-estado',
       header: 'Estado',
       render: (convenio) => <StatusBadge value={convenio.estado} />,
     },
-    { id: 'etapa', header: 'Etapa', render: (convenio) => convenio.etapa?.nombre ?? 'Sin etapa asignada' },
+    { id: 'etapa', className: 'tabla-col-texto', header: 'Etapa', render: (convenio) => convenio.etapa?.nombre ?? 'Sin etapa asignada' },
     {
-      id: 'formalizacion',
+      id: 'formalizacion', className: 'tabla-col-fecha',
       header: 'Formalización',
       // La regla de qué cuenta como formalizado vive solo en el backend
       // (HU-27 BE-2): aquí simplemente se muestra null como "Sin formalizar".
@@ -365,7 +365,7 @@ export function ConsultaConveniosPage() {
         convenio.fecha_formalizacion ? formatDate(convenio.fecha_formalizacion) : 'Sin formalizar',
     },
     {
-      id: 'vigencia',
+      id: 'vigencia', className: 'tabla-col-texto',
       header: 'Vigencia',
       render: (convenio) =>
         convenio.fecha_inicio
@@ -375,7 +375,7 @@ export function ConsultaConveniosPage() {
           : 'Sin definir',
     },
     {
-      id: 'acciones',
+      id: 'acciones', className: 'tabla-col-acciones',
       header: 'Acciones',
       render: (convenio) => (
         <Link
@@ -506,7 +506,7 @@ export function ConsultaConveniosPage() {
       {consulta.data && total > 0 && (
         <>
           <ResultsCount count={total} />
-          <DataTable columns={columns} rows={consulta.data.items} rowKey={(convenio) => convenio.id} label="Convenios" />
+          <DataTable containerClassName="tabla-densa-region" tableClassName="tabla-densa" columns={columns} rows={consulta.data.items} rowKey={(convenio) => convenio.id} label="Convenios" />
           <div className="table-pagination">
             <button
               type="button"

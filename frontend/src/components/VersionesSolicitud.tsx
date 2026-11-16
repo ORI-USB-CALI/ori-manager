@@ -73,21 +73,21 @@ function Comparacion({ comparacion }: { comparacion: ComparacionVersiones }) {
   return (
     <>
       {campos.length > 0 && (
-        <div className="table-container">
-          <table className="table" aria-label="Campos modificados">
+        <div className="table-container tabla-densa-region" role="region" aria-label="Campos modificados" tabIndex={0}>
+          <table className="table tabla-densa" aria-label="Campos modificados">
             <thead>
               <tr>
-                <th scope="col">Campo</th>
-                <th scope="col">Antes</th>
-                <th scope="col">Después</th>
+                <th scope="col" className="tabla-col-texto">Campo</th>
+                <th scope="col" className="tabla-col-descripcion">Antes</th>
+                <th scope="col" className="tabla-col-descripcion">Después</th>
               </tr>
             </thead>
             <tbody>
               {campos.map((cambio) => (
                 <tr key={cambio.campo}>
-                  <th scope="row">{cambio.etiqueta}</th>
-                  <td>{valor(cambio.valor_anterior)}</td>
-                  <td>{valor(cambio.valor_nuevo)}</td>
+                  <th scope="row" className="tabla-col-texto">{cambio.etiqueta}</th>
+                  <td className="tabla-col-descripcion">{valor(cambio.valor_anterior)}</td>
+                  <td className="tabla-col-descripcion">{valor(cambio.valor_nuevo)}</td>
                 </tr>
               ))}
             </tbody>
@@ -142,7 +142,7 @@ export function VersionesSolicitud({
   if (historial.error instanceof ApiError && [403, 404].includes(historial.error.status)) return null
 
   return (
-    <section className="card" aria-labelledby="versiones-solicitud-titulo">
+    <section className="card tabla-seccion" aria-labelledby="versiones-solicitud-titulo">
       <h2 id="versiones-solicitud-titulo">Versiones de la solicitud</h2>
       {historial.isPending && <p className="estado-pagina">Cargando versiones de la solicitud…</p>}
       {historial.isError && (

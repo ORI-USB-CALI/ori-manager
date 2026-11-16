@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -104,6 +104,29 @@ describe('RevisionesJuridicasPage identifica los convenios (HT-06 FE-02, CA-01)'
 })
 
 describe('HT-12: filtros jurídicos persistentes en URL', () => {
+  it('conserva las diez columnas, datos completos y una región desplazable enfocable', async () => {
+    const objeto = 'Cooperación académica extensa\nSegunda línea del objeto completo'
+    preparar([{ ...SIN_CODIGO, objeto }, { ...CON_CODIGO, instancia_juridica: 2, numero_ronda: 3, version_numero: 5 }])
+    const tabla = await screen.findByRole('table', { name: 'Revisiones jurídicas' })
+    expect(within(tabla).getAllByRole('columnheader').map((celda) => celda.textContent)).toEqual([
+      'Convenio', 'Solicitud origen', 'Objeto', 'Tipo convenio', 'Revisión', 'Ronda', 'Versión', 'Responsable', 'Fecha de recepción', 'Acciones',
+    ])
+    for (const encabezado of within(tabla).getAllByRole('columnheader')) expect(encabezado.getAttribute('scope')).toBe('col')
+    const filas = within(tabla).getAllByRole('row').slice(1)
+    expect(filas.map((fila) => within(fila).getAllByRole('cell').length)).toEqual([10, 10])
+    expect(filas[0].children[2].textContent).toBe(objeto)
+    expect(filas[0].children[7].textContent).toContain(SIN_CODIGO.responsable.correo)
+    expect(filas[0].children[4].textContent).toBe('1 de 2')
+    expect(filas[1].children[4].textContent).toBe('2 de 2')
+    expect(filas[1].children[5].textContent).toBe('3')
+    expect(filas[1].children[6].textContent).toBe('5')
+    expect(tabla.classList.contains('tabla-densa')).toBe(true)
+    const region = screen.getByRole('region', { name: 'Revisiones jurídicas' })
+    expect(region.tabIndex).toBe(0)
+    expect(region.classList.contains('table-container')).toBe(true)
+    expect(region.contains(tabla)).toBe(true)
+  })
+
   it('actualiza y limpia solo sus filtros sin perder parámetros ajenos', async () => {
     const usuario = preparar([SIN_CODIGO, CON_CODIGO], '/revisiones-juridicas?extra=conservar')
     await screen.findByText('Convenio provisional #41')

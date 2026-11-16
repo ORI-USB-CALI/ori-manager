@@ -48,7 +48,7 @@ export function SoportesConvenio({
   }
 
   return (
-    <section className="card soportes-convenio-card" aria-labelledby="soportes-convenio-titulo">
+    <section className="card soportes-convenio-card tabla-seccion" aria-labelledby="soportes-convenio-titulo">
       <div className="soportes-cabecera">
         <h2 id="soportes-convenio-titulo">Documentos de soporte</h2>
         {puedeCargar && (
@@ -78,29 +78,29 @@ export function SoportesConvenio({
       )}
 
       {!isPending && !isError && soportes && soportes.length > 0 && (
-        <div className="table-container">
-          <table className="table" data-testid="tabla-soportes">
+        <div className="table-container tabla-densa-region" role="region" aria-label="Documentos de soporte" tabIndex={0}>
+          <table className="table tabla-densa" data-testid="tabla-soportes">
             <thead>
               <tr>
-                <th>Documento</th>
-                <th>Tamaño</th>
-                <th>Fecha de carga</th>
-                <th>Usuario responsable</th>
-                <th>Acciones</th>
+                <th scope="col" className="tabla-col-descripcion">Documento</th>
+                <th scope="col" className="tabla-col-numero">Tamaño</th>
+                <th scope="col" className="tabla-col-fecha">Fecha de carga</th>
+                <th scope="col" className="tabla-col-persona">Usuario responsable</th>
+                <th scope="col" className="tabla-col-acciones">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {soportes.map((soporte: SoporteConvenio) => (
                 <tr key={soporte.id}>
-                  <td>
+                  <td className="tabla-col-descripcion">
                     <span className="soporte-nombre">
                       <span aria-hidden="true">📄</span> {soporte.nombre_original}
                     </span>
                   </td>
-                  <td>{tamanoLegible(soporte.tamano_bytes)}</td>
-                  <td>{formatearFechaSoporte(soporte.fecha_creacion)}</td>
-                  <td>{soporte.usuario_nombre ?? '—'}</td>
-                  <td>
+                  <td className="tabla-col-numero">{tamanoLegible(soporte.tamano_bytes)}</td>
+                  <td className="tabla-col-fecha">{formatearFechaSoporte(soporte.fecha_creacion)}</td>
+                  <td className="tabla-col-persona">{soporte.usuario_nombre ?? '—'}</td>
+                  <td className="tabla-col-acciones">
                     <div className="soportes-acciones">
                       <a
                         className="btn btn-outline btn-small"

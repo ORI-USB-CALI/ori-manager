@@ -1494,15 +1494,6 @@ a:hover {
   margin-top: 16px;
 }
 
-.convenio-objeto {
-  display: -webkit-box;
-  min-width: 200px;
-  max-width: 320px;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 .table-pagination {
   display: flex;
   align-items: center;
@@ -1705,10 +1696,6 @@ a:hover {
 
 .table tbody tr:hover {
   background: #fffaf7;
-}
-
-.table-cell-wide {
-  min-width: 260px;
 }
 
 .tabla-ayuda {
@@ -3777,3 +3764,59 @@ a:hover {
 .timeline-revision h3 { flex-wrap: wrap; justify-content: space-between; }
 .timeline-revision h4 { margin-top: 20px; }
 .historial-observacion > p, .historial-respuesta > p, .detalle-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Lote 2: variante optativa; HT-18 y los reportes mantienen su distribución propia.
+   Los mínimos responden al contenido: prosa y personas reciben más espacio que
+   rondas/versiones. La suma de columnas activa scroll en el contenedor existente. */
+.tabla-seccion {
+  min-width: 0;
+}
+
+.tabla-densa-region:focus-visible {
+  outline: 3px solid var(--text-primary);
+  outline-offset: -3px;
+}
+
+.tabla-densa th,
+.tabla-densa td {
+  vertical-align: top;
+  word-break: normal;
+}
+
+.tabla-densa .tabla-col-referencia { min-width: 11rem; }
+.tabla-densa .tabla-col-texto { min-width: 12rem; }
+.tabla-densa .tabla-col-descripcion { min-width: 20rem; }
+.tabla-densa .tabla-col-persona { min-width: 17rem; }
+.tabla-densa .tabla-col-estado { min-width: 12rem; }
+
+.tabla-densa .tabla-col-fecha {
+  min-width: 11rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.tabla-densa .tabla-col-numero {
+  min-width: 5.5rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.tabla-densa .tabla-col-acciones {
+  min-width: 9rem;
+}
+
+.tabla-densa .badge,
+.tabla-densa .btn {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.tabla-densa .tabla-col-acciones .btn {
+  margin: 0 4px 4px 0;
+}
+
+.tabla-densa .tabla-col-descripcion,
+.tabla-texto-completo {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

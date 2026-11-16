@@ -73,14 +73,14 @@ export function AliadoDetallePage() {
   if (aliado.isPending) return <p className="estado-pagina">Cargando perfil…</p>
   if (aliado.isError) {
     const error = aliado.error
-    return <section className="card estado-vacio"><h1>{error instanceof ApiError && error.status === 404 ? 'Aliado no encontrado' : error instanceof ApiError && error.status === 403 ? 'Acceso denegado' : 'No se pudo cargar el aliado'}</h1><Link to="/aliados">Volver a aliados</Link></section>
+    return <section className="card estado-vacio"><h1>{error instanceof ApiError && error.status === 404 ? 'Aliado no encontrado' : error instanceof ApiError && error.status === 403 ? 'Acceso denegado' : 'No se pudo cargar el aliado'}</h1><Link className="btn accion-volver" to="/aliados">Volver a aliados</Link></section>
   }
   if (!aliado.data) return null
   const datos = aliado.data
 
   return (
     <div className="detalle-secciones">
-      <div className="page-toolbar"><div><Link to="/aliados">← Aliados</Link><h1>{datos.nombre}</h1></div><span className={`badge ${datos.activo ? 'badge-activo' : 'badge-inactivo'}`}>{datos.activo ? 'ACTIVO' : 'INACTIVO'}</span></div>
+      <div className="page-toolbar"><div><Link className="btn accion-volver" to="/aliados">← Aliados</Link><h1>{datos.nombre}</h1></div><span className={`badge ${datos.activo ? 'badge-activo' : 'badge-inactivo'}`}>{datos.activo ? 'ACTIVO' : 'INACTIVO'}</span></div>
       <section className="card">
         <h2>Información del aliado</h2>
         {editando ? (
@@ -101,10 +101,10 @@ export function AliadoDetallePage() {
           {puede('aliados.cambiar_estado') && <button className={datos.activo ? 'btn btn-danger' : 'btn btn-primary'} disabled={estado.isPending} onClick={() => estado.mutate(!datos.activo)}>{datos.activo ? 'Inactivar' : 'Reactivar'}</button>}
         </div>
       </section>
-      <section className="card">
+      <section className="card tabla-seccion">
         <h2>Convenios asociados</h2>
         {datos.convenios.length === 0 ? <p className="texto-secundario">Actualmente no existen convenios asociados</p> : (
-          <div className="table-container"><table className="table"><thead><tr><th>Código</th><th>Objeto</th><th>Estado</th><th>Inicio</th><th>Vencimiento</th></tr></thead><tbody>{datos.convenios.map((convenio) => <tr key={convenio.id}><td><Link to={`/convenios/${convenio.id}`} state={retorno}>{referenciaConvenio(convenio.codigo, convenio.id)}</Link></td><td>{convenio.objeto ?? '—'}</td><td><span className="badge">{convenio.estado}</span></td><td>{fecha(convenio.fecha_inicio)}</td><td>{fecha(convenio.fecha_vencimiento)}</td></tr>)}</tbody></table></div>
+          <div className="table-container tabla-densa-region" role="region" aria-label="Convenios asociados" tabIndex={0}><table className="table tabla-densa"><thead><tr><th scope="col" className="tabla-col-referencia">Código</th><th scope="col" className="tabla-col-descripcion">Objeto</th><th scope="col" className="tabla-col-estado">Estado</th><th scope="col" className="tabla-col-fecha">Inicio</th><th scope="col" className="tabla-col-fecha">Vencimiento</th></tr></thead><tbody>{datos.convenios.map((convenio) => <tr key={convenio.id}><td className="tabla-col-referencia"><Link to={`/convenios/${convenio.id}`} state={retorno}>{referenciaConvenio(convenio.codigo, convenio.id)}</Link></td><td className="tabla-col-descripcion">{convenio.objeto ?? '—'}</td><td className="tabla-col-estado"><span className="badge">{convenio.estado}</span></td><td className="tabla-col-fecha">{fecha(convenio.fecha_inicio)}</td><td className="tabla-col-fecha">{fecha(convenio.fecha_vencimiento)}</td></tr>)}</tbody></table></div>
         )}
       </section>
     </div>

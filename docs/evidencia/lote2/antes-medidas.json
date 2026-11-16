@@ -1,0 +1,439 @@
+{
+  "browser": "157.0.8103.52",
+  "syntheticData": true,
+  "results": [
+    {
+      "name": "juridicas",
+      "width": 1440,
+      "height": 900,
+      "viewport": 1440,
+      "page": 1440,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 10,
+          "width": 1281.84375,
+          "containerWidth": 1130,
+          "scrollWidth": 1282,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "juridicas",
+      "width": 1280,
+      "height": 800,
+      "viewport": 1280,
+      "page": 1280,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 10,
+          "width": 1281.84375,
+          "containerWidth": 1130,
+          "scrollWidth": 1282,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "juridicas",
+      "width": 768,
+      "height": 1024,
+      "viewport": 768,
+      "page": 768,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 10,
+          "width": 1281.84375,
+          "containerWidth": 734,
+          "scrollWidth": 1282,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "juridicas",
+      "width": 390,
+      "height": 844,
+      "viewport": 390,
+      "page": 390,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 10,
+          "width": 1281.84375,
+          "containerWidth": 356,
+          "scrollWidth": 1282,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "juridicas",
+      "width": 360,
+      "height": 740,
+      "viewport": 360,
+      "page": 360,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 10,
+          "width": 1281.84375,
+          "containerWidth": 326,
+          "scrollWidth": 1282,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "juridicas",
+      "width": 320,
+      "height": 740,
+      "viewport": 320,
+      "page": 320,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 10,
+          "width": 1281.84375,
+          "containerWidth": 286,
+          "scrollWidth": 1282,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "contraparte",
+      "width": 1440,
+      "height": 900,
+      "viewport": 1440,
+      "page": 1440,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 6,
+          "width": 1082,
+          "containerWidth": 1082,
+          "scrollWidth": 1082,
+          "overflow": "visible",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "contraparte",
+      "width": 1280,
+      "height": 800,
+      "viewport": 1280,
+      "page": 1280,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 6,
+          "width": 1082,
+          "containerWidth": 1082,
+          "scrollWidth": 1082,
+          "overflow": "visible",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "contraparte",
+      "width": 768,
+      "height": 1024,
+      "viewport": 768,
+      "page": 768,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 6,
+          "width": 686,
+          "containerWidth": 686,
+          "scrollWidth": 686,
+          "overflow": "visible",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "contraparte",
+      "width": 390,
+      "height": 844,
+      "viewport": 390,
+      "page": 520,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 6,
+          "width": 478.9375,
+          "containerWidth": 308,
+          "scrollWidth": 479,
+          "overflow": "visible",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "contraparte",
+      "width": 360,
+      "height": 740,
+      "viewport": 360,
+      "page": 520,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 6,
+          "width": 478.9375,
+          "containerWidth": 278,
+          "scrollWidth": 479,
+          "overflow": "visible",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "contraparte",
+      "width": 320,
+      "height": 740,
+      "viewport": 320,
+      "page": 520,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 6,
+          "width": 478.9375,
+          "containerWidth": 238,
+          "scrollWidth": 479,
+          "overflow": "visible",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "consulta",
+      "width": 1440,
+      "height": 900,
+      "viewport": 1440,
+      "page": 1440,
+      "layout": "page page-wide",
+      "tables": [
+        {
+          "columns": 9,
+          "width": 1390,
+          "containerWidth": 1390,
+          "scrollWidth": 1390,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "consulta",
+      "width": 1280,
+      "height": 800,
+      "viewport": 1280,
+      "page": 1280,
+      "layout": "page page-wide",
+      "tables": [
+        {
+          "columns": 9,
+          "width": 1230,
+          "containerWidth": 1230,
+          "scrollWidth": 1230,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "consulta",
+      "width": 768,
+      "height": 1024,
+      "viewport": 768,
+      "page": 768,
+      "layout": "page page-wide",
+      "tables": [
+        {
+          "columns": 9,
+          "width": 1159.296875,
+          "containerWidth": 734,
+          "scrollWidth": 1159,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "consulta",
+      "width": 390,
+      "height": 844,
+      "viewport": 390,
+      "page": 390,
+      "layout": "page page-wide",
+      "tables": [
+        {
+          "columns": 9,
+          "width": 1159.296875,
+          "containerWidth": 356,
+          "scrollWidth": 1159,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "consulta",
+      "width": 360,
+      "height": 740,
+      "viewport": 360,
+      "page": 360,
+      "layout": "page page-wide",
+      "tables": [
+        {
+          "columns": 9,
+          "width": 1159.296875,
+          "containerWidth": 326,
+          "scrollWidth": 1159,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "consulta",
+      "width": 320,
+      "height": 740,
+      "viewport": 320,
+      "page": 320,
+      "layout": "page page-wide",
+      "tables": [
+        {
+          "columns": 9,
+          "width": 1159.296875,
+          "containerWidth": 286,
+          "scrollWidth": 1159,
+          "overflow": "auto",
+          "focusable": 0
+        }
+      ]
+    },
+    {
+      "name": "aliado",
+      "width": 1440,
+      "height": 900,
+      "viewport": 1440,
+      "page": 1440,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 5,
+          "width": 1080,
+          "containerWidth": 1080,
+          "scrollWidth": 1080,
+          "overflow": "auto",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "aliado",
+      "width": 1280,
+      "height": 800,
+      "viewport": 1280,
+      "page": 1280,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 5,
+          "width": 1080,
+          "containerWidth": 1080,
+          "scrollWidth": 1080,
+          "overflow": "auto",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "aliado",
+      "width": 768,
+      "height": 1024,
+      "viewport": 768,
+      "page": 768,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 5,
+          "width": 684,
+          "containerWidth": 684,
+          "scrollWidth": 684,
+          "overflow": "auto",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "aliado",
+      "width": 390,
+      "height": 844,
+      "viewport": 390,
+      "page": 641,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 5,
+          "width": 573.109375,
+          "containerWidth": 573,
+          "scrollWidth": 573,
+          "overflow": "auto",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "aliado",
+      "width": 360,
+      "height": 740,
+      "viewport": 360,
+      "page": 641,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 5,
+          "width": 573.109375,
+          "containerWidth": 573,
+          "scrollWidth": 573,
+          "overflow": "auto",
+          "focusable": -1
+        }
+      ]
+    },
+    {
+      "name": "aliado",
+      "width": 320,
+      "height": 740,
+      "viewport": 320,
+      "page": 641,
+      "layout": "page",
+      "tables": [
+        {
+          "columns": 5,
+          "width": 573.109375,
+          "containerWidth": 573,
+          "scrollWidth": 573,
+          "overflow": "auto",
+          "focusable": -1
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

@@ -55,12 +55,12 @@ export function AliadosPage() {
   }
 
   const columns: DataTableColumn<Aliado>[] = [
-    { id: 'nombre', header: 'Nombre', render: (aliado) => <strong>{aliado.nombre}</strong> },
-    { id: 'identificacion', header: 'NIT / documento', render: (aliado) => aliado.identificacion },
-    { id: 'pais', header: 'País', render: (aliado) => aliado.pais_id == null ? 'Sin país' : paises.data?.find((pais) => pais.id === aliado.pais_id)?.nombre ?? 'País no disponible' },
-    { id: 'tipo', header: 'Tipo de aliado', render: (aliado) => ETIQUETA_TIPO[aliado.tipo] },
-    { id: 'estado', header: 'Estado', render: (aliado) => <StatusBadge value={aliado.activo ? 'ACTIVO' : 'INACTIVO'} label={aliado.activo ? 'Activo' : 'Inactivo'} /> },
-    { id: 'acciones', header: 'Acciones', render: (aliado) => <Link className="btn btn-outline btn-small" to={`/aliados/${aliado.id}`}>Ver perfil</Link> },
+    { id: 'nombre', className: 'tabla-col-persona', header: 'Nombre', render: (aliado) => <strong>{aliado.nombre}</strong> },
+    { id: 'identificacion', className: 'tabla-col-referencia', header: 'NIT / documento', render: (aliado) => aliado.identificacion },
+    { id: 'pais', className: 'tabla-col-texto', header: 'País', render: (aliado) => aliado.pais_id == null ? 'Sin país' : paises.data?.find((pais) => pais.id === aliado.pais_id)?.nombre ?? 'País no disponible' },
+    { id: 'tipo', className: 'tabla-col-texto', header: 'Tipo de aliado', render: (aliado) => ETIQUETA_TIPO[aliado.tipo] },
+    { id: 'estado', className: 'tabla-col-estado', header: 'Estado', render: (aliado) => <StatusBadge value={aliado.activo ? 'ACTIVO' : 'INACTIVO'} label={aliado.activo ? 'Activo' : 'Inactivo'} /> },
+    { id: 'acciones', className: 'tabla-col-acciones', header: 'Acciones', render: (aliado) => <Link className="btn btn-outline btn-small" to={`/aliados/${aliado.id}`}>Ver perfil</Link> },
   ]
 
   return (
@@ -93,7 +93,7 @@ export function AliadosPage() {
       {aliados.data && (
         <>
           <ResultsCount count={aliados.data.total} />
-          <DataTable columns={columns} rows={items} rowKey={(aliado) => aliado.id} label="Aliados"
+          <DataTable containerClassName="tabla-densa-region" tableClassName="tabla-densa" columns={columns} rows={items} rowKey={(aliado) => aliado.id} label="Aliados"
             emptyMessage={hayFiltros ? 'No se encontraron resultados con los filtros seleccionados.' : 'No hay aliados.'}
             onClearEmpty={hayFiltros ? limpiarFiltros : undefined} />
           <nav className="table-filters-actions" aria-label="Paginación de aliados">

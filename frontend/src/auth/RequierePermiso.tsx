@@ -12,7 +12,7 @@ export function RequierePermiso({ permiso }: { permiso: Permiso }) {
       <section className="card estado-vacio">
         <h1>Acceso denegado</h1>
         <p>No tiene permiso para consultar esta sección.</p>
-        <Link to="/" className="btn btn-outline">
+        <Link to="/" className="btn accion-volver">
           Volver al inicio
         </Link>
       </section>

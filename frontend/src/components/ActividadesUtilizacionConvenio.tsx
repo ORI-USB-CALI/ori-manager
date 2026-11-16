@@ -50,7 +50,7 @@ export function ActividadesUtilizacionConvenio({ convenioId, estado }: { conveni
   }
 
   return (
-    <section className="card">
+    <section className="card tabla-seccion">
       <h2>Actividades de utilización</h2>
       <p className="section-help">Actividades ya realizadas que evidencian el uso del convenio.</p>
 
@@ -58,17 +58,17 @@ export function ActividadesUtilizacionConvenio({ convenioId, estado }: { conveni
       {actividades.isError && <p className="alert-error" role="alert">No se pudieron consultar las actividades de utilización.</p>}
       {actividades.data && actividades.data.length === 0 && <p className="section-help">No hay actividades de utilización registradas.</p>}
       {actividades.data && actividades.data.length > 0 && (
-        <div className="table-container">
-          <table className="table">
-            <thead><tr><th>Fecha</th><th>Actividad</th><th>Descripción</th><th>Responsable</th><th>Observaciones</th></tr></thead>
+        <div className="table-container tabla-densa-region" role="region" aria-label="Actividades de utilización" tabIndex={0}>
+          <table className="table tabla-densa">
+            <thead><tr><th scope="col" className="tabla-col-fecha">Fecha</th><th scope="col" className="tabla-col-texto">Actividad</th><th scope="col" className="tabla-col-descripcion">Descripción</th><th scope="col" className="tabla-col-persona">Responsable</th><th scope="col" className="tabla-col-descripcion">Observaciones</th></tr></thead>
             <tbody>
               {actividades.data.map((item) => (
                 <tr key={item.id}>
-                  <td>{fechaActividad(item.fecha_ejecucion)}</td>
-                  <td>{item.titulo}</td>
-                  <td>{item.descripcion}</td>
-                  <td>{item.responsable_nombre ?? '—'}</td>
-                  <td>{item.observaciones ?? '—'}</td>
+                  <td className="tabla-col-fecha">{fechaActividad(item.fecha_ejecucion)}</td>
+                  <td className="tabla-col-texto">{item.titulo}</td>
+                  <td className="tabla-col-descripcion">{item.descripcion}</td>
+                  <td className="tabla-col-persona">{item.responsable_nombre ?? '—'}</td>
+                  <td className="tabla-col-descripcion">{item.observaciones ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

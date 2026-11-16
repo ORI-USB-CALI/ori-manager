@@ -156,7 +156,7 @@ export function OnboardingSolicitantes({ sesion }: Props) {
         </>
       )}
       {origen && !activo && !manual && ubicacion.pathname === '/' && (
-        <Link className="btn btn-outline btn-small" to={origen.to} state={origen.estado} onClick={() => setOrigen(null)}>Volver a la pantalla anterior</Link>
+        <Link className="btn accion-volver btn-small" to={origen.to} state={origen.estado} onClick={() => setOrigen(null)}>Volver a la pantalla anterior</Link>
       )}
     </div>
   )

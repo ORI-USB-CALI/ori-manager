@@ -21,7 +21,7 @@ export function SolicitudHistorialPage({ alcance }: { alcance: AlcanceHistorialS
     return (
       <section className="card estado-vacio">
         <h1>{noEncontrada ? 'Solicitud no encontrada' : 'No se pudo consultar el historial'}</h1>
-        <Link className="btn btn-outline" to={volver.to}>{volver.texto}</Link>
+        <Link className="btn accion-volver" to={volver.to}>{volver.texto}</Link>
       </section>
     )
   }
@@ -40,7 +40,7 @@ export function SolicitudHistorialPage({ alcance }: { alcance: AlcanceHistorialS
       <VersionesSolicitud solicitudId={id} alcance={alcance} />
 
       <div className="page-toolbar">
-        <Link className="btn btn-outline" to={volver.to}>{volver.texto}</Link>
+        <Link className="btn accion-volver" to={volver.to}>{volver.texto}</Link>
       </div>
     </>
   )

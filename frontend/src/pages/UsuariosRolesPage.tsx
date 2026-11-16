@@ -87,7 +87,7 @@ export function UsuariosRolesPage() {
 
   const columns: DataTableColumn<Usuario>[] = [
     {
-      id: 'nombre',
+      id: 'nombre', className: 'tabla-col-persona',
       header: 'Nombre',
       render: (usuario) => (
         <>
@@ -96,12 +96,12 @@ export function UsuariosRolesPage() {
         </>
       ),
     },
-    { id: 'correo', header: 'Correo', render: (usuario) => usuario.correo },
-    { id: 'tipo', header: 'Tipo', render: (usuario) => etiquetaTipo(usuario.tipo_usuario) },
-    { id: 'rol', header: 'Rol', render: (usuario) => <StatusBadge value={usuario.rol.codigo} label={usuario.rol.nombre} /> },
-    { id: 'estado', header: 'Estado', render: (usuario) => <StatusBadge value={usuario.activo ? 'ACTIVO' : 'INACTIVO'} label={usuario.activo ? 'Activo' : 'Inactivo'} /> },
+    { id: 'correo', className: 'tabla-col-persona', header: 'Correo', render: (usuario) => usuario.correo },
+    { id: 'tipo', className: 'tabla-col-numero', header: 'Tipo', render: (usuario) => etiquetaTipo(usuario.tipo_usuario) },
+    { id: 'rol', className: 'tabla-col-estado', header: 'Rol', render: (usuario) => <StatusBadge value={usuario.rol.codigo} label={usuario.rol.nombre} /> },
+    { id: 'estado', className: 'tabla-col-estado', header: 'Estado', render: (usuario) => <StatusBadge value={usuario.activo ? 'ACTIVO' : 'INACTIVO'} label={usuario.activo ? 'Activo' : 'Inactivo'} /> },
     {
-      id: 'acciones',
+      id: 'acciones', className: 'tabla-col-acciones',
       header: 'Acciones',
       render: (usuario) => puedeGestionar ? (
         <button type="button" className="btn btn-outline btn-small" onClick={() => setModal(usuario)}>Gestionar</button>
@@ -195,7 +195,7 @@ export function UsuariosRolesPage() {
               onClear={limpiarFiltros}
             />
           ) : (
-            <DataTable
+            <DataTable containerClassName="tabla-densa-region" tableClassName="tabla-densa"
               columns={columns}
               rows={usuariosFiltrados}
               rowKey={(usuario) => usuario.id}
