@@ -48,6 +48,10 @@ aprobadas (Elaboración, generador, confirmación y vigencia). TypeScript, ESLin
 Ruff, build y `git diff --check` aprobados. Se mantienen los avisos de tamaño del
 bundle y deprecaciones de dependencias (20 en backend).
 
+Compatibilidad con el PR #192: integración temporal local sin conflictos de Git;
+1055 pruebas frontend, TypeScript, ESLint y build aprobados con ambos cambios.
+La comprobación no integra ninguna rama en `develop`.
+
 No se agregan/aplican migraciones ni se accede a datos de staging/producción.
 
 ## Escenarios manuales pendientes de staging tras despliegue
