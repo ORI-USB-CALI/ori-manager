@@ -2046,6 +2046,23 @@ def test_segunda_formalizacion_es_rechazada(client, db, escenario_final):
     assert _formalizar(client, escenario_final).status_code == 409
 
 
+@pytest.mark.parametrize("formato", ["pdf", "excel"])
+def test_contrato_limpio_formalizado_exporta_sin_antecedentes(client, db, escenario_final, formato):
+    from backend.services.pdf_convenio import ServicioPdfConvenio
+
+    convenio = escenario_final["convenio"]
+    contenido = deepcopy(escenario_final["version"].contenido)
+    assert convenio.plantilla_origen_id is None
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    assert _formalizar(client, escenario_final).status_code == 200
+    respuesta = client.get(f"/api/convenios/{convenio.id}/exportar?formato={formato}")
+    assert respuesta.status_code == 200, respuesta.text
+    db.expire_all()
+    assert escenario_final["version"].contenido == contenido
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio.id, db)
+    assert dto.objeto == escenario_final["version"].snapshot_metadata["objeto"]
+
+
 def test_formalizacion_crea_y_asocia_aliado(client, db, escenario_final):
     identificacion = str(900000000 + uuid4().int % 99999999)
     _proceso_listo_para_formalizar(

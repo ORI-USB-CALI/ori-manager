@@ -69,7 +69,7 @@ def test_snapshots_historicos_sin_origen_se_leen_y_no_se_reescriben(
     assert db.get(RevisionConvenio, revision.id).snapshot_datos == snapshot_revision
 
 
-def test_iniciar_precarga_la_plantilla_como_borrador_sin_tocar_solicitud(
+def test_iniciar_documento_limpio_sin_tocar_solicitud(
     client, db, gestor, crear_convenio
 ) -> None:
     convenio = crear_convenio(gestor)
@@ -79,11 +79,10 @@ def test_iniciar_precarga_la_plantilla_como_borrador_sin_tocar_solicitud(
     cuerpo = _elaboracion(client, convenio.id)
     assert cuerpo["version_actual"] == 0
     assert cuerpo["revision_borrador"] == 1
-    assert cuerpo["plantilla_origen"]["codigo"] == "BASE_HU12"
-    texto = _texto(cuerpo["contenido"])
-    assert solicitud.objeto in texto
-    assert solicitud.justificacion in texto
-    assert solicitud.nombre_aliado_propuesto in texto
+    assert cuerpo["plantilla_origen"] is None
+    assert cuerpo["contenido"] == {"type": "doc", "content": [{"type": "paragraph"}]}
+    assert cuerpo["contiene_antecedentes_iniciales"] is False
+    assert cuerpo["solicitud"]["id"] == solicitud.id
 
     assert db.scalar(
         select(func.count())

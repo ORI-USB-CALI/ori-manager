@@ -10,13 +10,14 @@ import { ConvenioElaboracionPage } from './ConvenioElaboracionPage'
 import type { ElaboracionConvenio } from './epica02'
 
 vi.mock('../components/ConvenioEditor', () => ({
-  ConvenioEditor: ({ contenido, onChange }: {
+  ConvenioEditor: ({ contenido, onChange, editable }: {
     contenido: Record<string, unknown>
+    editable: boolean
     onChange: (nuevo: Record<string, unknown>) => void
   }) => (
     <div>
-      <output data-testid="documento">{JSON.stringify(contenido)}</output>
-      <button type="button" onClick={() => onChange(DOCUMENTO_EDITADO)}>Editar documento</button>
+      <output data-testid={editable ? 'documento' : 'copia-documento'}>{JSON.stringify(contenido)}</output>
+      {editable && <button type="button" onClick={() => onChange(DOCUMENTO_EDITADO)}>Editar documento</button>}
     </div>
   ),
 }))
@@ -130,6 +131,62 @@ function preparar(
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+describe('recuperación explícita de antecedentes antiguos', () => {
+  it('permite redactar y finalizar después del reemplazo explícito', async () => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) }
+    const inicial = { ...remotoCompleto, contiene_antecedentes_iniciales: true }
+    const { usuario, notify } = preparar(() => respuesta(200, inicial), inicial)
+    const original = globalThis.fetch
+    const enviados: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/elaboracion/finalizar')) {
+        enviados.push(JSON.parse(String(init?.body)))
+        return Promise.resolve(respuesta(200, inicial))
+      }
+      return original(url, init)
+    }))
+    await usuario.click(await screen.findByRole('button', { name: 'Empezar documento contractual limpio' }))
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar reemplazo del documento' }))
+    await usuario.click(screen.getByRole('button', { name: 'Editar documento' }))
+    await usuario.click(screen.getByRole('button', { name: 'Finalizar elaboración' }))
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar y enviar a Jurídica' }))
+    await waitFor(() => expect(notify).toHaveBeenCalledWith({ type: 'success', message: 'Elaboración finalizada. El convenio quedó en revisión jurídica.' }))
+    expect(enviados).toEqual([expect.objectContaining({ contenido: DOCUMENTO_EDITADO, expected_revision: 1 })])
+    expect(screen.getByTestId('copia-documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+  })
+
+  it.each([false, true])('conserva copia y revisión al reemplazar (conflicto: %s)', async (conflicto) => {
+    const inicial = { ...remotoCompleto, contiene_antecedentes_iniciales: true }
+    const vacio = { type: 'doc', content: [{ type: 'paragraph' }] }
+    const { usuario, guardados } = preparar(() => conflicto
+      ? respuesta(409, { detail: { expected_revision: 1, current_revision: 2 } })
+      : respuesta(200, { ...inicial, contenido: vacio, revision_borrador: 2, contiene_antecedentes_iniciales: false }), inicial)
+    const empezar = await screen.findByRole('button', { name: 'Empezar documento contractual limpio' })
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+    expect(guardados).toHaveLength(0)
+    await usuario.click(empezar)
+    await usuario.click(screen.getByRole('button', { name: 'Conservar documento actual' }))
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+    await usuario.click(empezar)
+    expect(screen.getByText(/Se reemplazará todo el contenido editable actual/)).toBeTruthy()
+    await usuario.click(screen.getByRole('button', { name: 'Confirmar reemplazo del documento' }))
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(vacio))
+    expect(screen.getByTestId('copia-documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+    expect(guardados).toHaveLength(0)
+    await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+    await waitFor(() => expect(guardados).toHaveLength(1))
+    expect(guardados[0]).toMatchObject({ contenido: vacio, expected_revision: 1 })
+    if (conflicto) {
+      expect(await screen.findByRole('button', { name: 'Cargar el borrador más reciente' })).toBeTruthy()
+      expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(vacio))
+    } else {
+      await screen.findByText('Borrador guardado')
+    }
+    expect(screen.getByTestId('copia-documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
+  })
+})
 
 describe('HT-15, Tarea 7 - marca "obliga a corregir" en el editor', () => {
   it('muestra si cada observación jurídica pendiente obliga o no a corregir', async () => {
@@ -448,12 +505,12 @@ it('HT17 conserva el vencimiento historico al abrir y calcula solo al editar', a
 })
 
 
-it.each([false, true])('orienta al rechazar el contenido inicial y conserva otros errores (otros campos: %s)', async (otrosCampos) => {
+it.each([false, true])('muestra el rechazo de documento vacío y conserva otros errores (otros campos: %s)', async (otrosCampos) => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')) }
   const { usuario, guardados, notify } = preparar(() => respuesta(200, remotoCompleto), remotoCompleto)
   const peticionOriginal = globalThis.fetch
-  const motivo = 'El documento todavía contiene información inicial de la solicitud. Debes reemplazarla por el texto definitivo del convenio antes de enviarlo a revisión jurídica'
+  const motivo = 'El documento no puede estar vacío'
   const faltantes = [
     { campo: 'contenido', motivo },
     ...(otrosCampos ? [

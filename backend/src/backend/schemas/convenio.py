@@ -289,6 +289,7 @@ class ConvenioElaboracionLeer(ConvenioLeer):
     plantilla_origen: PlantillaConvenioResumen | None
     contenido: dict[str, Any] | None
     # Estado del borrador de trabajo, independiente de version_actual (HT-13).
+    contiene_antecedentes_iniciales: bool = False
     revision_borrador: int = 0
     borrador_guardado_en: datetime | None = None
 

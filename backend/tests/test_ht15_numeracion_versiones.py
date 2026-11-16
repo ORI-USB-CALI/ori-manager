@@ -106,14 +106,14 @@ def test_convenio_manual_nace_sin_version_y_con_documento_vacio_como_borrador(
     assert client.get(f"/api/convenios/{convenio_manual.id}/versiones").json() == []
 
 
-def test_convenio_desde_solicitud_nace_sin_version_y_con_la_plantilla_como_borrador(
+def test_convenio_desde_solicitud_nace_sin_version_y_con_documento_limpio(
     client, db, gestor, crear_convenio
 ) -> None:
     convenio_listo = crear_convenio(gestor)
     assert convenio_listo.version_actual == 0
     assert _versiones(db, convenio_listo.id) == []
     borrador = _borrador(db, convenio_listo.id)
-    assert "Objeto solicitado originalmente" in str(borrador.contenido)
+    assert borrador.contenido == DOCUMENTO_VACIO
     assert client.get(_ruta(convenio_listo.id)).json()["contenido"] == borrador.contenido
 
 

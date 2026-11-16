@@ -162,6 +162,10 @@ export function ConvenioElaboracionPage() {
   const [conflicto, setConflicto] = useState(false)
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [modalAbierto, setModalAbierto] = useState(false)
+  const [limpiezaAbierta, setLimpiezaAbierta] = useState(false)
+  const [copiaAnterior, setCopiaAnterior] = useState<DocumentoConvenio | null>(null)
+  const [editorGeneracion, setEditorGeneracion] = useState(0)
+  const [limpiezaAplicada, setLimpiezaAplicada] = useState(false)
   const [payloadFinal, setPayloadFinal] = useState<Record<string, unknown>>({})
   const [respuestas, setRespuestas] = useState<Record<number, string>>({})
 
@@ -225,6 +229,8 @@ export function ConvenioElaboracionPage() {
       setCambiosLocales(null)
       setConflicto(false)
       setErrores({})
+      setLimpiezaAplicada(false)
+      setLimpiezaAbierta(false)
     },
     onError: () => notify({
       type: 'error', message: 'No fue posible cargar el borrador más reciente. Tus cambios siguen en pantalla.',
@@ -349,6 +355,9 @@ export function ConvenioElaboracionPage() {
       </section>
 
       <form onSubmit={enviar}>
+        {datos.solicitud && puede('solicitudes.ver_recibidas') && (
+          <p><Link to={`/ori/solicitudes/${datos.solicitud.id}`}>Consultar solicitud original {datos.solicitud.consecutivo}</Link>. Sus antecedentes son información de consulta; el documento jurídico se elabora por separado.</p>
+        )}
         <div className="elaboracion-workspace">
           <main className="elaboracion-principal">
             <section className="elaboracion-documento card">
@@ -378,9 +387,34 @@ export function ConvenioElaboracionPage() {
                   </button>
                 </div>
               )}
+              {editable && datos.contiene_antecedentes_iniciales && !limpiezaAplicada && (
+                <section aria-label="Preparar documento contractual">
+                  <p>Este documento conserva antecedentes de la solicitud. Puedes consultarlos por separado y empezar un texto contractual limpio. Si los conservas, la exportación oficial podría requerir una nueva versión revisada.</p>
+                  <button type="button" className="btn btn-outline" disabled={guardar.isPending || borradorDesactualizado} onClick={() => setLimpiezaAbierta(true)}>Empezar documento contractual limpio</button>
+                  {limpiezaAbierta && (
+                    <div role="alert">
+                      <p>Se reemplazará todo el contenido editable actual, incluidos tus cambios. Revisa o copia el documento en el editor antes de continuar. Se conservará una copia en esta pantalla hasta que salgas; el reemplazo solo se guarda al guardar avance o finalizar.</p>
+                      <button type="button" onClick={() => setLimpiezaAbierta(false)}>Conservar documento actual</button>
+                      <button type="button" disabled={guardar.isPending || borradorDesactualizado} onClick={() => {
+                        setCopiaAnterior(contenido)
+                        actualizarEdicion({ contenido: { type: 'doc', content: [{ type: 'paragraph' }] } })
+                        setEditorGeneracion((valor) => valor + 1)
+                        setLimpiezaAplicada(true)
+                        setLimpiezaAbierta(false)
+                      }}>Confirmar reemplazo del documento</button>
+                    </div>
+                  )}
+                </section>
+              )}
+              {copiaAnterior && (
+                <details>
+                  <summary>Consultar y copiar contenido anterior (disponible hasta salir)</summary>
+                  <ConvenioEditor key={`copia-${editorGeneracion}`} contenido={copiaAnterior} editable={false} />
+                </details>
+              )}
               {contenido ? (
                 <ConvenioEditor
-                  key={`${id}-${edicion.base.version_actual}-${revisionBase}-${recargar.isPending}`}
+                  key={`${id}-${edicion.base.version_actual}-${revisionBase}-${recargar.isPending}-${editorGeneracion}`}
                   contenido={contenido}
                   editable={editable}
                   onChange={(nuevo) => {

@@ -31,6 +31,56 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+### Corrección bloqueante: antecedentes separados del documento contractual
+
+Esta corrección sustituye la prevención estructural del PR #186 y el ajuste de
+mensaje del PR #190 descrito abajo. La solicitud es referencia; sus antecedentes
+no se convierten automáticamente en cláusulas. Al iniciar un convenio nuevo desde
+solicitud se crea un documento vacío válido, o se copia la única plantilla activa
+si es válida, no contiene variables de solicitud ni la estructura de antecedentes.
+Los datos clave siguen disponibles y la solicitud conserva su relación y acceso.
+Los convenios manuales y las renovaciones mantienen su inicialización anterior.
+
+La lectura de Elaboración añade `contiene_antecedentes_iniciales`, calculado sin
+escrituras. En un borrador antiguo habilita «Empezar documento contractual limpio».
+La confirmación advierte que reemplaza todo el contenido local y permite cancelar.
+Antes de confirmar se puede revisar/copiar el editor; después se conserva una copia
+consultable en pantalla hasta salir. El reemplazo remonta el editor y se guarda
+solo mediante las acciones existentes y su `expected_revision`. Un 409 conserva
+los cambios locales. No se reescriben versiones ni se sustituye contenido al abrir.
+
+Finalizar valida datos obligatorios, texto válido no vacío, etapa, permisos,
+observaciones y concurrencia. Los títulos o la estructura de antecedentes no son
+una regla semántica de aceptación jurídica. La revisión jurídica existente decide
+el contenido. La exportación oficial sigue rechazando la estructura histórica
+ambigua, incluso si llegó a revisión: para emitirla se requiere una nueva versión
+contractual revisada; nunca se corrige una versión aprobada en el sitio.
+
+QA en staging, después de desplegar el PR: abrir #97, comprobar que conserva todo
+el texto y sus párrafos adicionales; copiar lo que deba conservarse; iniciar la
+acción, cancelar y verificar que nada cambió. Repetir y confirmar, redactar el
+contrato, guardar avance y finalizar. Debe pasar a Jurídica. En otra sesión,
+guardar antes de la primera debe producir conflicto, sin sobrescribir ese avance.
+Para un convenio nuevo, iniciar desde una solicitud aceptada: editor vacío,
+antecedentes accesibles por «Consultar solicitud original», datos clave separados.
+Completar el contrato, recorrer las revisiones y firmas habituales y verificar
+PDF/Excel contra los datos aprobados. Un documento vacío debe seguir rechazándose.
+
+No se agregan migraciones ni se cambian solicitudes, contenido firmado o históricos.
+Las pruebas de recuperación y concurrencia están en
+`test_obs003_prevencion_elaboracion.py` y `ConvenioElaboracionPage.test.tsx`;
+HU-15 cubre formalización y exportación del contrato limpio.
+
+Verificación local de esta corrección: 553 pruebas backend aprobadas (HU-12,
+HU-10, HU-15, HT-13, HT-15, HU-24, OBS-S3-003, integración de solicitud,
+exportación API y acciones de renovación HU-31); 57 frontend aprobadas
+(Elaboración, confirmación y vigencia). Ruff, TypeScript, ESLint y
+`git diff --check` aprobados. La base local anterior carecía de la columna de
+observaciones obligatorias: se creó `ori_contractual_test` en Docker y se aplicaron
+las migraciones ya existentes exclusivamente allí. No se crearon migraciones ni
+se accedió a staging/producción. Las advertencias restantes son deprecaciones de
+dependencias (20 backend), sin pruebas omitidas ni xfail en esta selección.
+
 ### Corrección del mensaje de contenido inicial en Elaboración
 
 Al finalizar con información inicial de la solicitud sin sustituir, se conserva

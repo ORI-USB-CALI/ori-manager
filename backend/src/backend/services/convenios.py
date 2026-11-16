@@ -69,7 +69,7 @@ from backend.services.bitacora import (
 from backend.services.contenido_convenio import (
     ContenidoConvenioInvalido,
     documento_tiene_texto,
-    expandir_plantilla,
+    plantilla_contractual_neutra,
     validar_contenido,
 )
 from backend.services.contraparte_externa import (
@@ -666,19 +666,14 @@ class ServicioConvenios:
             contenido_inicial = deepcopy(renovacion.version_base.contenido)
             convenio.plantilla_origen_id = renovacion.version_base.plantilla_id
         else:
-            plantilla = self._plantilla_base_activa()
-            tipo_nombre = self.db.scalar(
-                select(TipoConvenio.nombre).where(
-                    TipoConvenio.id == solicitud.tipo_convenio_id
-                )
-            )
-            try:
-                contenido_inicial = expandir_plantilla(
-                    plantilla.contenido_base, solicitud, tipo_nombre
-                )
-            except ContenidoConvenioInvalido as exc:
-                raise ConfiguracionConvenioInvalida(str(exc)) from exc
-            convenio.plantilla_origen_id = plantilla.id
+            # Los antecedentes se consultan en la solicitud, no son clausulas.
+            contenido_inicial = {"type": "doc", "content": [{"type": "paragraph"}]}
+            plantillas = list(self.db.scalars(
+                select(PlantillaConvenio).where(PlantillaConvenio.activa.is_(True))
+            ))
+            if len(plantillas) == 1 and plantilla_contractual_neutra(plantillas[0].contenido_base):
+                contenido_inicial = deepcopy(plantillas[0].contenido_base)
+                convenio.plantilla_origen_id = plantillas[0].id
         self._crear_borrador_inicial(convenio, contenido_inicial, usuario)
         return convenio
 
@@ -2398,6 +2393,7 @@ class ServicioConvenios:
         else:
             version = self._version_actual(convenio)
             convenio.contenido = version.contenido if version is not None else None
+        convenio.contiene_antecedentes_iniciales = precarga_hu12_reconocible(convenio.contenido)
         convenio.revision_borrador = borrador.revision if borrador is not None else 0
         convenio.borrador_guardado_en = (
             borrador.actualizado_en if borrador is not None else None
@@ -2437,17 +2433,6 @@ class ServicioConvenios:
                     CampoFaltante(
                         campo="contenido",
                         motivo="El documento no puede estar vacío",
-                    )
-                )
-            elif precarga_hu12_reconocible(version.contenido):
-                faltantes.append(
-                    CampoFaltante(
-                        campo="contenido",
-                        motivo=(
-                            "El documento todavía contiene información inicial de la solicitud. "
-                            "Debes reemplazarla por el texto definitivo del convenio antes "
-                            "de enviarlo a revisión jurídica"
-                        ),
                     )
                 )
         return faltantes
