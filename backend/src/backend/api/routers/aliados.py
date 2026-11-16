@@ -52,11 +52,12 @@ def listar_aliados(
     buscar: Annotated[str | None, Query(max_length=200)] = None,
     tipo: TipoAliado | None = None,
     activo: bool | None = None,
+    pais_id: Annotated[int | None, Query(ge=1)] = None,
     limite: Annotated[int, Query(ge=1, le=100)] = 20,
     desplazamiento: Annotated[int, Query(ge=0)] = 0,
 ) -> AliadoListado:
     items, total = ServicioAliados(db).listar(
-        FiltrosAliado(buscar, tipo, activo, limite, desplazamiento)
+        FiltrosAliado(buscar, tipo, activo, limite, desplazamiento, pais_id=pais_id)
     )
     return AliadoListado(
         items=[AliadoLeer.model_validate(item) for item in items], total=total

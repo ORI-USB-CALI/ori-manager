@@ -844,3 +844,38 @@ def test_hu06_rutas_sin_sesion_responden_401(client) -> None:
     assert client.post("/api/convenios", json=_payload_convenio(1)).status_code == 401
     assert client.get("/api/convenios/1").status_code == 401
     assert client.patch("/api/convenios/1", json={"objeto": "X"}).status_code == 401
+
+def test_listado_paginado_con_filtros_combinados(
+    db, client, crear_usuario, entrar_como, crear_aliado
+):
+    from backend.models.pais import Pais
+
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    paises = db.scalars(select(Pais).limit(2)).all()
+    assert len(paises) == 2
+    prefijo = uuid4().hex
+    esperados = []
+    for numero in range(105):
+        aliado = crear_aliado(
+            nombre=f"{prefijo} {numero:03}", pais_id=paises[0].id,
+            identificacion=f"{prefijo}{numero:08}",
+            tipo_identificacion=TipoIdentificacion.OTRO.value,
+        )
+        esperados.append(aliado.id)
+    crear_aliado(nombre=prefijo, pais_id=paises[1].id)
+    crear_aliado(nombre=prefijo, pais_id=paises[0].id, activo=False)
+    crear_aliado(nombre=prefijo, pais_id=paises[0].id, tipo=TipoAliado.COLEGIO.value)
+    filtros = {"buscar": prefijo, "pais_id": paises[0].id, "tipo": "UNIVERSIDAD", "activo": "true"}
+    recibidos = []
+    for desplazamiento in range(0, 105, 20):
+        respuesta = client.get('/api/aliados', params={**filtros, 'limite': 20, 'desplazamiento': desplazamiento})
+        assert respuesta.status_code == 200
+        datos = respuesta.json()
+        assert datos['total'] == 105
+        recibidos.extend(item['id'] for item in datos['items'])
+    assert recibidos == esperados
+    respuesta = client.get('/api/aliados', params={**filtros, 'buscar': f'{prefijo}00000104'})
+    assert respuesta.json()['total'] == 1
+    assert respuesta.json()['items'][0]['id'] == esperados[-1]
+    assert client.get('/api/aliados', params={**filtros, 'pais_id': 2147483647}).json() == {'items': [], 'total': 0}
+    assert client.get('/api/aliados', params={**filtros, 'pais_id': 0}).status_code == 422

@@ -1,18 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../app/api'
 import {
   DataTable,
   ResultsCount,
-  TableEmptyState,
   type DataTableColumn,
 } from '../components/DataTable'
 import { Select } from '../components/Select'
 import { TableFilters } from '../components/TableFilters'
 import { StatusBadge } from '../components/tablePresentation'
-import { ETIQUETA_TIPO, type Aliado, type TipoAliado } from './epica02'
+import { ETIQUETA_TIPO, type Aliado, type TipoAliado, usePaises } from './epica02'
 
 type FiltroEstado = '' | 'activo' | 'inactivo'
 
@@ -21,39 +20,44 @@ export function AliadosPage() {
   const [consulta, setConsulta] = useState('')
   const [tipo, setTipo] = useState<TipoAliado | ''>('')
   const [estado, setEstado] = useState<FiltroEstado>('')
+  const [pais, setPais] = useState('')
+  const [pagina, setPagina] = useState(0)
+  const paises = usePaises()
+  const limite = 20
+  const parametros = new URLSearchParams({ limite: String(limite), desplazamiento: String(pagina * limite) })
+  if (consulta) parametros.set('buscar', consulta)
+  if (tipo) parametros.set('tipo', tipo)
+  if (estado) parametros.set('activo', String(estado === 'activo'))
+  if (pais) parametros.set('pais_id', pais)
   const aliados = useQuery({
-    queryKey: ['aliados', consulta],
+    queryKey: ['aliados', 'listado', consulta, tipo, estado, pais, pagina],
     queryFn: () =>
-      apiFetch<{ items: Aliado[]; total: number }>(`/aliados?limite=100${consulta}`),
+      apiFetch<{ items: Aliado[]; total: number }>(`/aliados?${parametros}`),
     retry: false,
   })
 
   function filtrar(evento: FormEvent) {
     evento.preventDefault()
-    setConsulta(buscar.trim() ? `&buscar=${encodeURIComponent(buscar.trim())}` : '')
+    setConsulta(buscar.trim())
+    setPagina(0)
   }
 
-  const hayFiltros = Boolean(consulta || tipo || estado)
-  const items = useMemo(
-    () =>
-      (aliados.data?.items ?? []).filter(
-        (aliado) =>
-          (!tipo || aliado.tipo === tipo) &&
-          (!estado || aliado.activo === (estado === 'activo')),
-      ),
-    [aliados.data, estado, tipo],
-  )
+  const hayFiltros = Boolean(consulta || tipo || estado || pais)
+  const items = aliados.data?.items ?? []
 
   function limpiarFiltros() {
     setBuscar('')
     setConsulta('')
     setTipo('')
     setEstado('')
+    setPais('')
+    setPagina(0)
   }
 
   const columns: DataTableColumn<Aliado>[] = [
     { id: 'nombre', header: 'Nombre', render: (aliado) => <strong>{aliado.nombre}</strong> },
     { id: 'identificacion', header: 'NIT / documento', render: (aliado) => aliado.identificacion },
+    { id: 'pais', header: 'País', render: (aliado) => aliado.pais_id == null ? 'Sin país' : paises.data?.find((pais) => pais.id === aliado.pais_id)?.nombre ?? 'País no disponible' },
     { id: 'tipo', header: 'Tipo de aliado', render: (aliado) => ETIQUETA_TIPO[aliado.tipo] },
     { id: 'estado', header: 'Estado', render: (aliado) => <StatusBadge value={aliado.activo ? 'ACTIVO' : 'INACTIVO'} label={aliado.activo ? 'Activo' : 'Inactivo'} /> },
     { id: 'acciones', header: 'Acciones', render: (aliado) => <Link className="btn btn-outline btn-small" to={`/aliados/${aliado.id}`}>Ver perfil</Link> },
@@ -71,36 +75,32 @@ export function AliadosPage() {
             <label className="form-label" htmlFor="buscar-aliado">Nombre o NIT/documento</label>
             <input id="buscar-aliado" type="search" className="form-control" value={buscar} onChange={(event) => setBuscar(event.target.value)} />
           </div>
-          <Select id="aliados-tipo" label="Tipo de aliado" value={tipo} opciones={[{ value: '', label: 'Todos' }, ...Object.entries(ETIQUETA_TIPO).map(([value, label]) => ({ value, label }))]} onChange={(event) => setTipo(event.target.value as TipoAliado | '')} />
-          <Select id="aliados-estado" label="Estado" value={estado} opciones={[{ value: '', label: 'Todos' }, { value: 'activo', label: 'Activo' }, { value: 'inactivo', label: 'Inactivo' }]} onChange={(event) => setEstado(event.target.value as FiltroEstado)} />
+          <Select id="aliados-tipo" label="Tipo de aliado" value={tipo} opciones={[{ value: '', label: 'Todos' }, ...Object.entries(ETIQUETA_TIPO).map(([value, label]) => ({ value, label }))]} onChange={(event) => { setTipo(event.target.value as TipoAliado | ''); setPagina(0) }} />
+          <Select id="aliados-estado" label="Estado" value={estado} opciones={[{ value: '', label: 'Todos' }, { value: 'activo', label: 'Activo' }, { value: 'inactivo', label: 'Inactivo' }]} onChange={(event) => { setEstado(event.target.value as FiltroEstado); setPagina(0) }} />
+          <Select id="aliados-pais" label="País" value={pais} opciones={[{ value: '', label: 'Todos' }, ...(paises.data ?? []).map((pais) => ({ value: String(pais.id), label: pais.nombre }))]} onChange={(event) => { setPais(event.target.value); setPagina(0) }} />
           <div className="form-group table-filter-submit">
             <button className="btn btn-primary" type="submit">Buscar</button>
           </div>
         </TableFilters>
       </form>
+      {paises.isError && <p className="alert-error" role="alert">No se pudo cargar el catálogo de países.</p>}
       {aliados.isPending && <p className="estado-pagina">Cargando aliados…</p>}
       {aliados.isError && (
         <p className="alert-error" role="alert">
           {aliados.error instanceof ApiError ? aliados.error.message : 'No se pudo cargar el listado.'}
         </p>
       )}
-      {aliados.data?.items.length === 0 && (
+      {aliados.data && (
         <>
-          <ResultsCount count={0} />
-          <TableEmptyState
-            message={hayFiltros ? 'No se encontraron resultados con los filtros seleccionados.' : 'No hay aliados.'}
-            onClear={hayFiltros ? limpiarFiltros : undefined}
-          />
-        </>
-      )}
-      {aliados.data && aliados.data.items.length > 0 && (
-        <>
-          <ResultsCount count={items.length} />
-          {items.length > 0 ? (
-            <DataTable columns={columns} rows={items} rowKey={(aliado) => aliado.id} label="Aliados" />
-          ) : (
-            <TableEmptyState message="No se encontraron resultados con los filtros seleccionados." onClear={limpiarFiltros} />
-          )}
+          <ResultsCount count={aliados.data.total} />
+          <DataTable columns={columns} rows={items} rowKey={(aliado) => aliado.id} label="Aliados"
+            emptyMessage={hayFiltros ? 'No se encontraron resultados con los filtros seleccionados.' : 'No hay aliados.'}
+            onClearEmpty={hayFiltros ? limpiarFiltros : undefined} />
+          <nav className="table-filters-actions" aria-label="Paginación de aliados">
+            <button type="button" className="btn btn-outline btn-small" disabled={pagina === 0 || aliados.isFetching} onClick={() => setPagina(pagina - 1)}>Anterior</button>
+            <span aria-live="polite">Página {pagina + 1} de {Math.max(1, Math.ceil(aliados.data.total / limite))}</span>
+            <button type="button" className="btn btn-outline btn-small" disabled={(pagina + 1) * limite >= aliados.data.total || aliados.isFetching} onClick={() => setPagina(pagina + 1)}>Siguiente</button>
+          </nav>
         </>
       )}
     </>
