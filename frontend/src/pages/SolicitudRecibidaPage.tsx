@@ -8,6 +8,8 @@ import { useSesion } from '../auth/sesion'
 import { DocumentoPreviewModal } from '../components/DocumentoPreviewModal'
 import type { Convenio } from './epica02'
 import { type SolicitudRecibida, useSolicitudRecibida } from './solicitudes'
+import { accionConvenioSolicitud } from './accionConvenioSolicitud'
+import './gestorConvenios.css'
 
 function valor(dato: string | null | undefined) {
   return dato || '—'
@@ -81,9 +83,10 @@ export function SolicitudRecibidaPage() {
   const pendiente = ['RADICADA', 'EN_ESTUDIO'].includes(solicitud.estado)
   const gestiona = puede('solicitudes.gestionar_recibidas')
   const ocupado = aceptar.isPending || rechazar.isPending || devolver.isPending
+  const accionConvenio = accionConvenioSolicitud(solicitud, puede)
 
   return (
-    <>
+    <div className="solicitud-recibida">
       <section className="header-banner">
         <h1>{solicitud.consecutivo}</h1>
         <p><span className="badge">{solicitud.estado.replaceAll('_', ' ')}</span> · Radicada {solicitud.fecha_radicacion ? new Date(solicitud.fecha_radicacion).toLocaleString() : '—'}</p>
@@ -219,8 +222,9 @@ export function SolicitudRecibidaPage() {
           <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setDevolviendo(true)}>Devolver</button>
           <button className="btn btn-primary" type="button" disabled={ocupado} onClick={() => window.confirm('¿Confirma que aprueba esta solicitud?') && aceptar.mutate()}>Aprobar</button>
         </>}
-        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && gestiona && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
-        {solicitud.estado === 'APROBADA' && !solicitud.convenio_id && gestiona && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
+        {accionConvenio && (solicitud.convenio_id
+          ? <Link className="btn btn-primary" to={accionConvenio.to}>{accionConvenio.texto}</Link>
+          : <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>{accionConvenio.texto}</button>)}
       </div>
 
       {documentoPreview && (
@@ -232,6 +236,6 @@ export function SolicitudRecibidaPage() {
           onCerrar={() => setDocumentoPreview(null)}
         />
       )}
-    </>
+    </div>
   )
 }

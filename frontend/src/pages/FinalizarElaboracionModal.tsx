@@ -46,10 +46,12 @@ export function FinalizarElaboracionModal({ convenioId, valores, tieneVersionFor
   })
 
   return (
-    <dialog ref={dialogo} className="modal" onClose={onCerrar} aria-labelledby="finalizar-modal-titulo">
+    <dialog ref={dialogo} className="modal" onClose={onCerrar} onCancel={(event) => {
+      if (finalizar.isPending) event.preventDefault()
+    }} aria-labelledby="finalizar-modal-titulo">
       <div className="modal-header">
         <h2 id="finalizar-modal-titulo">Finalizar elaboración del proyecto</h2>
-        <button type="button" className="btn-icon" aria-label="Cerrar" onClick={() => dialogo.current?.close()}>
+        <button type="button" className="btn-icon" aria-label="Cerrar" disabled={finalizar.isPending} onClick={() => dialogo.current?.close()}>
           ×
         </button>
       </div>

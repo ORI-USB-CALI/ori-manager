@@ -13,12 +13,15 @@ import { Select } from '../components/Select'
 import { TableFilters } from '../components/TableFilters'
 import { enumLabel, formatDateTime } from '../components/tableFormatters'
 import { StatusBadge } from '../components/tablePresentation'
-import type { TipoUsuario } from '../auth/sesion'
+import { useSesion, type TipoUsuario } from '../auth/sesion'
 import type { EstadoSolicitud, SolicitudRecibida } from './solicitudes'
+import { accionConvenioSolicitud } from './accionConvenioSolicitud'
+import './gestorConvenios.css'
 
 const ESTADOS: EstadoSolicitud[] = ['RADICADA', 'EN_ESTUDIO', 'APROBADA', 'DEVUELTA', 'RECHAZADA']
 
 export function SolicitudesRecibidasPage() {
+  const { puede } = useSesion()
   const [busqueda, setBusqueda] = useState('')
   const [estado, setEstado] = useState<EstadoSolicitud | ''>('')
   const [etapa, setEtapa] = useState('')
@@ -97,7 +100,13 @@ export function SolicitudesRecibidasPage() {
     },
     { id: 'estado-convenio', header: 'Estado convenio', render: (item) => item.convenio_estado ? <StatusBadge value={item.convenio_estado} /> : '—' },
     { id: 'radicacion', header: 'Radicación', render: (item) => formatDateTime(item.fecha_radicacion) },
-    { id: 'acciones', header: 'Acciones', render: (item) => <Link className="btn btn-outline btn-small" to={`/ori/solicitudes/${item.id}`}>Ver</Link> },
+    { id: 'acciones', header: 'Acciones', render: (item) => {
+      const accion = accionConvenioSolicitud(item, puede)
+      return <div className="solicitudes-recibidas-acciones">
+        <Link className="btn btn-outline btn-small" to={`/ori/solicitudes/${item.id}`}>Ver</Link>
+        {accion && <Link className="btn btn-outline btn-small" to={accion.to}>{accion.texto}</Link>}
+      </div>
+    } },
   ]
 
   return (
