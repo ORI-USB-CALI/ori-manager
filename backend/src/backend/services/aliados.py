@@ -42,6 +42,7 @@ class FiltrosAliado:
     activo: bool | None = None
     limite: int = 20
     desplazamiento: int = 0
+    pais_id: int | None = None
 
 
 def _validar_sector(tipo: str, sector: str | None) -> None:
@@ -71,6 +72,8 @@ class ServicioAliados:
             condiciones.append(Aliado.tipo == filtros.tipo.value)
         if filtros.activo is not None:
             condiciones.append(Aliado.activo == filtros.activo)
+        if filtros.pais_id is not None:
+            condiciones.append(Aliado.pais_id == filtros.pais_id)
         total = self.db.scalar(
             select(func.count()).select_from(Aliado).where(*condiciones)
         ) or 0
