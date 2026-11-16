@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 
+import { IdentidadInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { CLAVE_SESION, useSesion } from '../auth/sesion'
 import { PasswordInput } from '../components/PasswordInput'
@@ -56,7 +57,7 @@ export function LoginPage() {
   return (
     <main className="login-page">
       <section className="card card-auth">
-        <div className="login-brand">ORI Manager</div>
+        <IdentidadInstitucional acceso />
         <h1>Iniciar sesión</h1>
         <p className="texto-secundario">Ingrese con su cuenta institucional.</p>
 

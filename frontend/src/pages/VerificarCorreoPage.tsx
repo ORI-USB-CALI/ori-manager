@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { IdentidadInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { ReenviarVerificacion } from './ReenviarVerificacion'
 
@@ -55,7 +56,7 @@ export function VerificarCorreoPage() {
   return (
     <main className="login-page">
       <section className="card card-auth">
-        <div className="login-brand">ORI Manager</div>
+        <IdentidadInstitucional acceso />
         <h1>{titulo}</h1>
         <p
           className={verificacion.isSuccess ? 'alert-success' : 'texto-secundario'}

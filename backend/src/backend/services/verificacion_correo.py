@@ -15,9 +15,10 @@ from backend.services.correo import (
     ErrorEnvioCorreo,
     MensajeCorreo,
 )
+from backend.services.plantillas_correo import correo_institucional
 
 VIGENCIA_TOKEN_VERIFICACION = timedelta(hours=24)
-ASUNTO_VERIFICACION = "Verifica tu cuenta de ORI USB Cali"
+ASUNTO_VERIFICACION = "Verifica tu cuenta de ORI Manager"
 MENSAJE_REENVIO = (
     "Si existe una cuenta pendiente de verificación, enviaremos un nuevo enlace "
     "al correo indicado."
@@ -69,16 +70,17 @@ class ServicioVerificacionCorreo:
                 destinatario=usuario.correo,
                 asunto=ASUNTO_VERIFICACION,
                 texto=(
-                    "Se creó una cuenta en ORI USB Cali. Verifique su correo en: "
+                    "Se creó una cuenta en ORI Manager. Verifique su correo en: "
                     f"{enlace}\nEl enlace vence en 24 horas. Si no realizó el "
                     "registro, puede ignorar este mensaje."
                 ),
-                html=(
-                    "<h1>Verifica tu cuenta</h1>"
-                    "<p>Se creó una cuenta en ORI USB Cali.</p>"
-                    f'<p><a href="{enlace}">Verificar mi correo</a></p>'
-                    "<p>Este enlace vence en 24 horas.</p>"
-                    "<p>Si no realizó el registro, puede ignorar este mensaje.</p>"
+                html=correo_institucional(
+                    titulo="Verifica tu cuenta",
+                    contenido="Se creó una cuenta en ORI Manager.",
+                    enlace=enlace,
+                    accion="Verificar mi correo",
+                    vigencia="Este enlace vence en 24 horas.",
+                    seguridad="Si no realizó el registro, puede ignorar este mensaje.",
                 ),
             )
         )

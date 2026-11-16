@@ -91,7 +91,7 @@ export function AppLayout() {
       </main>
 
       <footer className="footer-internal">
-        <span>© Universidad de San Buenaventura Cali — Sistema de Gestión ORI</span>
+        <span>© Universidad de San Buenaventura Cali · ORI Manager · Oficina de Relaciones Interinstitucionales</span>
         <span>v0.1.0</span>
       </footer>
     </div>

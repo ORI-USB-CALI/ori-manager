@@ -2,7 +2,6 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from html import escape
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -35,6 +34,7 @@ from backend.services.firma_png import (
     decodificar_firma_png,
 )
 from backend.services.identidad_aliado import identidad_autorizada_para_revision
+from backend.services.plantillas_correo import correo_institucional
 
 __all__ = ["MAX_FIRMA_PNG_BYTES", "ServicioContraparteExterna"]
 
@@ -111,13 +111,14 @@ def enviar_invitacion_contraparte(
                 f"Acceda mediante este enlace: {enlace}\n"
                 "El enlace vence en 1 hora."
             ),
-            html=(
-                "<h1>Revisión de elaboración de convenio</h1>"
-                "<p>La ORI solicita revisar la elaboración de convenio "
-                f"{escape(identificador)}.</p>"
-                f'<p><a href="{escape(enlace)}">'
-                "Revisar elaboración de convenio</a></p>"
-                "<p>El enlace vence en 1 hora.</p>"
+            html=correo_institucional(
+                titulo="Revisión de elaboración de convenio",
+                contenido="La ORI solicita revisar la elaboración del convenio indicado.",
+                contexto=(("Convenio", identificador),),
+                enlace=enlace,
+                accion="Revisar elaboración de convenio",
+                vigencia="El enlace vence en 1 hora.",
+                seguridad="Este enlace es individual. No lo comparta con otras personas.",
             ),
         )
     )

@@ -1273,16 +1273,6 @@ a:hover {
   margin-bottom: 24px;
 }
 
-.login-brand {
-  width: fit-content;
-  margin-bottom: 20px;
-  background: var(--gradiente-ori);
-  background-clip: text;
-  color: transparent;
-  font-size: 22px;
-  font-weight: 800;
-}
-
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -2212,38 +2202,6 @@ a:hover {
     var(--bg-main);
 }
 
-.revision-publica-header {
-  display: flex;
-  min-height: 72px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 14px max(24px, calc((100vw - 1120px) / 2));
-  border-bottom: 1px solid var(--border-color);
-  background: white;
-}
-
-.revision-publica-header > div {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.revision-publica-header strong {
-  display: inline-grid;
-  width: 46px;
-  height: 46px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--color-rojo);
-  color: white;
-  letter-spacing: .04em;
-}
-
-.revision-publica-header span {
-  color: var(--text-secondary);
-}
-
 .revision-publica-main {
   display: grid;
   width: min(1120px, calc(100% - 32px));
@@ -2314,15 +2272,6 @@ a:hover {
 .revision-publica-exito {
   background: #166534;
   font-size: 28px;
-}
-
-.revision-publica-footer {
-  padding: 18px 24px;
-  border-top: 1px solid var(--border-color);
-  background: white;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-align: center;
 }
 
 .modal-decision-contraparte {
@@ -2837,17 +2786,6 @@ a:hover {
     align-items: flex-start;
     flex-direction: column;
     padding: 14px 16px;
-  }
-
-  .revision-publica-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-  }
-
-  .revision-publica-header > div {
-    align-items: flex-start;
   }
 
   .revision-publica-main {
@@ -3820,3 +3758,45 @@ a:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Lote 3: identidad tipográfica compartida, sin alterar componentes operativos. */
+.identidad-institucional {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.identidad-institucional strong { color: var(--color-rojo); font-size: 22px; }
+.identidad-institucional span { font-size: 13px; }
+.identidad-institucional .identidad-area { color: var(--text-secondary); }
+.identidad-institucional--acceso { margin-bottom: 24px; }
+.cabecera-institucional {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 20px max(16px, calc((100vw - 1440px) / 2));
+  border-top: 4px solid var(--color-rojo);
+  border-image: var(--gradiente-ori) 1;
+  background: var(--bg-surface);
+}
+.pie-institucional {
+  padding: 20px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+.directorio-main { width: min(1440px, calc(100% - 32px)); }
+.directorio-contexto { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.directorio-estado { text-align: left; }
+.directorio-main .table-filters-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.cabecera-institucional .btn:focus-visible { outline: 3px solid var(--text-primary); outline-offset: 3px; }

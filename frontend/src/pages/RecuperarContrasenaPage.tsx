@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 
+import { IdentidadInstitucional } from '../components/IdentidadInstitucional'
 import { apiFetch } from '../app/api'
 
 interface MensajePublico {
@@ -29,7 +30,7 @@ export function RecuperarContrasenaPage() {
   return (
     <main className="login-page">
       <section className="card card-auth">
-        <div className="login-brand">ORI Manager</div>
+        <IdentidadInstitucional acceso />
         <h1>Recuperar contraseña</h1>
         <p className="texto-secundario">
           Recibirá instrucciones para continuar con la recuperación de acceso.

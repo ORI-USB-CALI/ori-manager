@@ -11,10 +11,11 @@ from backend.core.security import hash_contrasena, verificar_contrasena
 from backend.models.token_credencial import TipoTokenCredencial, TokenCredencial
 from backend.models.usuario import Usuario
 from backend.services.correo import EnviadorCorreo, ErrorEnvioCorreo, MensajeCorreo
+from backend.services.plantillas_correo import correo_institucional
 from backend.services.sesiones import RepositorioSesiones
 
 VIGENCIA_TOKEN_RECUPERACION = timedelta(minutes=30)
-ASUNTO_RECUPERACION = "Restablece tu contraseña de ORI USB Cali"
+ASUNTO_RECUPERACION = "Restablece tu contraseña de ORI Manager"
 MENSAJE_RECUPERACION = (
     "Si existe una cuenta habilitada asociada a este correo, enviaremos "
     "instrucciones para restablecer la contraseña."
@@ -149,18 +150,18 @@ class ServicioRecuperacionContrasena:
                 destinatario=usuario.correo,
                 asunto=ASUNTO_RECUPERACION,
                 texto=(
-                    "Se solicitó restablecer la contraseña de su cuenta de ORI USB "
-                    f"Cali. Restablezca su contraseña en: {enlace}\n"
+                    "Se solicitó restablecer la contraseña de su cuenta de ORI "
+                    f"Manager. Restablezca su contraseña en: {enlace}\n"
                     "El enlace vence en 30 minutos. Si no realizó esta solicitud, "
                     "puede ignorar este mensaje."
                 ),
-                html=(
-                    "<h1>Restablece tu contraseña</h1>"
-                    "<p>Se solicitó restablecer la contraseña de su cuenta de "
-                    "ORI USB Cali.</p>"
-                    f'<p><a href="{enlace}">Restablecer contraseña</a></p>'
-                    "<p>Este enlace vence en 30 minutos.</p>"
-                    "<p>Si no realizó esta solicitud, puede ignorar este mensaje.</p>"
+                html=correo_institucional(
+                    titulo="Restablece tu contraseña",
+                    contenido="Se solicitó restablecer la contraseña de su cuenta de ORI Manager.",
+                    enlace=enlace,
+                    accion="Restablecer contraseña",
+                    vigencia="Este enlace vence en 30 minutos.",
+                    seguridad="Si no realizó esta solicitud, puede ignorar este mensaje.",
                 ),
             )
         )

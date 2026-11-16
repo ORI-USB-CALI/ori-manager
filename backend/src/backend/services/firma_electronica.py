@@ -2,7 +2,6 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from html import escape
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -27,6 +26,7 @@ from backend.services.convenios import (
 from backend.services.correo import EnviadorCorreo, ErrorEnvioCorreo, MensajeCorreo
 from backend.services.firma_png import FirmaPngInvalida, decodificar_firma_png
 from backend.services.firmas import CODIGO_ETAPA_APROBACION_FIRMAS, ROLES_FIRMANTES
+from backend.services.plantillas_correo import correo_institucional
 
 VIGENCIA_INVITACION_FIRMA = timedelta(hours=1)
 
@@ -202,15 +202,18 @@ class ServicioFirmaElectronica:
                     f"Acceda mediante este enlace individual: {enlace}\n"
                     "El enlace vence en 1 hora."
                 ),
-                html=(
-                    "<h1>Firma electrónica de elaboración de convenio</h1>"
-                    "<p>La ORI solicita su firma electrónica para la elaboración "
-                    f"de convenio {escape(identificador)}.</p>"
-                    f"<p><strong>Rol esperado:</strong> {escape(rol)}<br>"
-                    f"<strong>Cargo:</strong> {escape(cargo)}</p>"
-                    f'<p><a href="{escape(enlace)}">Revisar y firmar elaboración '
-                    "de convenio</a></p>"
-                    "<p>El enlace vence en 1 hora.</p>"
+                html=correo_institucional(
+                    titulo="Firma electrónica de elaboración de convenio",
+                    contenido="La ORI solicita su firma electrónica para la elaboración del convenio indicado.",
+                    contexto=(
+                        ("Convenio", identificador),
+                        ("Rol esperado", rol),
+                        ("Cargo", cargo),
+                    ),
+                    enlace=enlace,
+                    accion="Revisar y firmar",
+                    vigencia="El enlace vence en 1 hora.",
+                    seguridad="Este enlace es individual. No lo comparta con otras personas.",
                 ),
             )
         )

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { apiFetch } from '../app/api'
+import { CabeceraPublica, PieInstitucional } from '../components/IdentidadInstitucional'
 
 export interface ConvenioPublico {
   codigo: string
@@ -42,37 +43,37 @@ export function DirectorioConveniosPage() {
 
   let contenido
   if (directorio.isPending) {
-    contenido = <p className="estado-pagina">Cargando convenios vigentes…</p>
+    contenido = <p className="card directorio-estado estado-pagina" role="status">Cargando convenios vigentes…</p>
   } else if (directorio.isError) {
-    contenido = <p className="estado-pagina" role="alert">No se pudo cargar el directorio. Intenta nuevamente más tarde.</p>
+    contenido = <p className="card directorio-estado estado-pagina" role="alert">No se pudo cargar el directorio. Intenta nuevamente más tarde.</p>
   } else if (directorio.data.items.length === 0) {
     contenido = <section className="card estado-vacio"><p>No hay convenios vigentes disponibles en este momento.</p></section>
   } else {
     contenido = (
       <>
-        <div className="table-container" role="region" aria-label="Convenios vigentes" tabIndex={0}>
-          <table className="table">
+        <div className="table-container tabla-densa-region" role="region" aria-label="Convenios vigentes" tabIndex={0}>
+          <table className="table tabla-densa">
             <thead>
               <tr>
-                <th scope="col">Convenio</th>
-                <th scope="col">Institución o aliado</th>
-                <th scope="col">Tipo</th>
-                <th scope="col">Objeto</th>
-                <th scope="col">Inicio</th>
-                <th scope="col">Finalización</th>
-                <th scope="col">Estado</th>
+                <th scope="col" className="tabla-col-referencia">Convenio</th>
+                <th scope="col" className="tabla-col-persona">Institución o aliado</th>
+                <th scope="col" className="tabla-col-texto">Tipo</th>
+                <th scope="col" className="tabla-col-descripcion">Objeto</th>
+                <th scope="col" className="tabla-col-fecha">Inicio</th>
+                <th scope="col" className="tabla-col-fecha">Finalización</th>
+                <th scope="col" className="tabla-col-estado">Estado</th>
               </tr>
             </thead>
             <tbody>
               {directorio.data.items.map((convenio) => (
                 <tr key={convenio.codigo}>
-                  <td>{convenio.codigo}</td>
-                  <td>{convenio.aliado}</td>
-                  <td>{convenio.tipo_convenio ?? '—'}</td>
-                  <td>{convenio.objeto ?? '—'}</td>
-                  <td>{formatearFecha(convenio.fecha_inicio)}</td>
-                  <td>{formatearFecha(convenio.fecha_vencimiento)}</td>
-                  <td><span className="badge badge-success">Vigente</span></td>
+                  <td className="tabla-col-referencia">{convenio.codigo}</td>
+                  <td className="tabla-col-persona">{convenio.aliado}</td>
+                  <td className="tabla-col-texto">{convenio.tipo_convenio ?? '—'}</td>
+                  <td className="tabla-col-descripcion">{convenio.objeto ?? '—'}</td>
+                  <td className="tabla-col-fecha">{formatearFecha(convenio.fecha_inicio)}</td>
+                  <td className="tabla-col-fecha">{formatearFecha(convenio.fecha_vencimiento)}</td>
+                  <td className="tabla-col-estado"><span className="badge badge-success">Vigente</span></td>
                 </tr>
               ))}
             </tbody>
@@ -91,21 +92,16 @@ export function DirectorioConveniosPage() {
 
   return (
     <div className="revision-publica-shell">
-      <header className="revision-publica-header">
-        <div>
-          <strong>ORI</strong>
-          <span>Oficina de Relaciones Interinstitucionales</span>
-        </div>
-        <Link to="/login">Iniciar sesión</Link>
-      </header>
-      <main className="revision-publica-main">
+      <CabeceraPublica><Link className="btn btn-outline" to="/login">Iniciar sesión</Link></CabeceraPublica>
+      <main className="revision-publica-main directorio-main">
         <section className="revision-publica-presentacion">
+          <p className="directorio-contexto">Consulta pública</p>
           <h1>Directorio de convenios vigentes</h1>
           <p>Consulta los convenios que la universidad tiene vigentes con otras instituciones.</p>
         </section>
         {contenido}
       </main>
-      <footer className="revision-publica-footer">Universidad de San Buenaventura · Gestión de convenios</footer>
+      <PieInstitucional />
     </div>
   )
 }
