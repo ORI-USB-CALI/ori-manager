@@ -8,6 +8,7 @@ import { NotificationsContext } from '../app/notifications/useNotifications'
 import { CLAVE_SESION, type Sesion } from '../auth/sesion'
 import { ConvenioElaboracionPage } from './ConvenioElaboracionPage'
 import type { ElaboracionConvenio } from './epica02'
+import ejemploBase from '../../../backend/tests/fixtures/hu12_base_solicitud.json'
 
 vi.mock('../components/ConvenioEditor', () => ({
   ConvenioEditor: ({ contenido, onChange, editable }: {
@@ -56,7 +57,7 @@ const remotoCompleto: ElaboracionConvenio = {
   revision_borrador: 1, borrador_guardado_en: '2026-10-24T15:00:00Z',
 }
 
-function comprobarMetadatos(valores: Record<string, string | number | null>) {
+function comprobarMetadatos(valores: Record<string, string | number | null>, incluirAliado = true) {
   const etiquetas = {
     aliado_id: /Aliado \/ contraparte/, tipo_convenio_id: 'Tipo de convenio', objeto: 'Objeto',
     alcance: 'Alcance', unidad_organizacional_id: 'Unidad / programa',
@@ -64,6 +65,7 @@ function comprobarMetadatos(valores: Record<string, string | number | null>) {
     fecha_inicio: 'Fecha de inicio', fecha_vencimiento: 'Fecha de vencimiento',
   }
   for (const [campo, etiqueta] of Object.entries(etiquetas)) {
+    if (campo === 'aliado_id' && !incluirAliado) continue
     expect((screen.getByLabelText(etiqueta) as HTMLInputElement).value, campo).toBe(String(valores[campo] ?? ''))
   }
 }
@@ -543,4 +545,104 @@ it.each([false, true])('muestra el rechazo de documento vacío y conserva otros 
   expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_REMOTO))
   expect(campos.map((campo) => campo.value)).toEqual(valoresAntes)
   expect(guardados).toHaveLength(0)
+})
+
+describe('HU-12 CA-02: usar información de solicitud como texto libre', () => {
+  afterEach(() => vi.restoreAllMocks())
+  const solicitud: NonNullable<ElaboracionConvenio['solicitud']> = {
+    ...ejemploBase.solicitud,
+    id: 41, consecutivo: 'SOL-41', tipo_solicitante: 'INTERNO', estado: 'APROBADA',
+    implicacion_financiera: null, requisitos_renovacion: null, observaciones: null, fecha_radicacion: null,
+    solicitante_nombre: null, solicitante_correo: null, solicitante_cargo: null, solicitante_unidad: null,
+    solicitante_programa: null, solicitante_entidad: null, nombre_aliado_propuesto: null,
+    identificacion_aliado_propuesto: null, tipo_aliado_propuesto: null, correo_aliado_propuesto: null,
+    pais_aliado_propuesto: null, ciudad_aliado_propuesto: null, contacto_contraparte_nombre: null,
+    contacto_contraparte_cargo: null, contacto_contraparte_telefono: null, contacto_contraparte_correo: null,
+    supervisor_usb_nombre: null, supervisor_usb_cargo: null, supervisor_usb_telefono: null, supervisor_usb_correo: null,
+    supervisor_contraparte_nombre: null, supervisor_contraparte_cargo: null, supervisor_contraparte_telefono: null, supervisor_contraparte_correo: null,
+  }
+  const inicial: ElaboracionConvenio = {
+    ...remotoCompleto, origen: 'SOLICITUD', solicitud_id: 41, solicitud,
+    contenido: { type: 'doc', content: [{ type: 'paragraph' }] },
+  }
+  const nombre = 'Usar información de la solicitud como base'
+
+  it.each([false, true])('permite usar la base, redactar libremente y guardar por el mecanismo actual (editar: %s)', async (editar) => {
+    const contenido = editar ? DOCUMENTO_EDITADO : ejemploBase.documento
+    const { usuario, guardados } = preparar(() => respuesta(200, { ...inicial, contenido, revision_borrador: 2 }), inicial)
+    const original = structuredClone(solicitud)
+    const confirm = vi.spyOn(window, 'confirm')
+    await usuario.click(await screen.findByRole('button', { name: nombre }))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(ejemploBase.documento))
+    comprobarMetadatos(METADATOS_REMOTOS, false)
+    expect(guardados).toHaveLength(0)
+    if (editar) await usuario.click(screen.getByRole('button', { name: 'Editar documento' }))
+    await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+    await screen.findByText('Borrador guardado')
+    const metadatos = Object.fromEntries(Object.entries(METADATOS_REMOTOS).filter(([campo]) => campo !== 'aliado_id'))
+    expect(guardados).toEqual([{ contenido, expected_revision: 1, ...metadatos }])
+    expect(solicitud).toEqual(original)
+  })
+
+  it('conserva texto y metadatos locales si cancela el reemplazo y solicita confirmación al reintentar', async () => {
+    const { usuario, guardados } = preparar(() => respuesta(200, inicial), inicial)
+    await usuario.click(await screen.findByRole('button', { name: 'Editar documento' }))
+    const objeto = screen.getByRole('textbox', { name: 'Objeto' })
+    await usuario.clear(objeto)
+    await usuario.type(objeto, 'Decisión definitiva del Gestor')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    await usuario.click(screen.getByRole('button', { name: nombre }))
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(DOCUMENTO_EDITADO))
+    expect(guardados).toHaveLength(0)
+    await usuario.click(screen.getByRole('button', { name: nombre }))
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(ejemploBase.documento))
+    expect(screen.getByTestId('copia-documento').textContent).toBe(JSON.stringify(DOCUMENTO_EDITADO))
+    expect((objeto as HTMLTextAreaElement).value).toBe('Decisión definitiva del Gestor')
+    expect(guardados).toHaveLength(0)
+  })
+
+  it('conserva la base local y expected_revision ante un 409 real', async () => {
+    const { usuario, guardados } = preparar(() => respuesta(409, { detail: { expected_revision: 1, current_revision: 2 } }), inicial)
+    await usuario.click(await screen.findByRole('button', { name: nombre }))
+    await usuario.click(screen.getByRole('button', { name: 'Guardar avance' }))
+    await screen.findByRole('button', { name: 'Cargar el borrador más reciente' })
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(ejemploBase.documento))
+    comprobarMetadatos(METADATOS_REMOTOS, false)
+    expect(guardados[0]).toMatchObject({ contenido: ejemploBase.documento, expected_revision: 1 })
+    expect((screen.getByRole('button', { name: nombre }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('retira la advertencia de precarga antigua cuando se sustituye por la base libre', async () => {
+    const { usuario } = preparar(() => respuesta(200, inicial), { ...inicial, contiene_antecedentes_iniciales: true })
+    await screen.findByRole('button', { name: 'Empezar documento contractual limpio' })
+    await usuario.click(screen.getByRole('button', { name: nombre }))
+    expect(screen.queryByRole('button', { name: 'Empezar documento contractual limpio' })).toBeNull()
+    expect(screen.getByTestId('documento').textContent).toBe(JSON.stringify(ejemploBase.documento))
+  })
+
+  it.each([
+    { ...inicial, origen: 'MANUAL_ORI' as const, solicitud: null, solicitud_id: null },
+    { ...inicial, convenio_origen_id: 99, numero_renovacion: 1 },
+    { ...inicial, etapa_actual: { id: 2, orden: 2, codigo: 'REVISION_CONTRAPARTE', nombre: 'Contraparte' } },
+  ])('no ofrece la acción a manuales, renovaciones o etapas de consulta (%#)', async (datos) => {
+    preparar(() => respuesta(200, datos), datos)
+    await screen.findByRole('heading', { name: 'Documento jurídico' })
+    expect(screen.queryByRole('button', { name: nombre })).toBeNull()
+  })
+
+  it('no ofrece la acción sin permiso de edición', async () => {
+    const { cliente } = preparar(() => respuesta(200, inicial), inicial)
+    await act(async () => cliente.setQueryData(CLAVE_SESION, { ...sesion, permisos: ['convenios.ver'] }))
+    await screen.findByRole('heading', { name: 'Documento jurídico' })
+    expect(screen.queryByRole('button', { name: nombre })).toBeNull()
+  })
+
+  it('explica la ausencia de narrativas sin insertar textos pendientes', async () => {
+    const datos = { ...inicial, solicitud: { ...solicitud, objeto: null, justificacion: null, actividades_por_parte: null, metas_esperadas: null } }
+    preparar(() => respuesta(200, datos), datos)
+    expect(await screen.findByText('La solicitud no contiene texto para usar como base.')).toBeTruthy()
+    expect((screen.getByRole('button', { name: nombre }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })

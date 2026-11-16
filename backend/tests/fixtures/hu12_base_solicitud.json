@@ -1,0 +1,25 @@
+{
+  "solicitud": {
+    "objeto": "Cooperación académica propuesta",
+    "justificacion": "Fortalecer la movilidad",
+    "actividades_por_parte": "Intercambios docentes\nProyectos conjuntos",
+    "metas_esperadas": "Dos proyectos",
+    "tipo_convenio_nombre": "Tipo propuesto de la solicitud",
+    "vigencia_estimada": "36 meses propuestos",
+    "duracion_meses": 36
+  },
+  "documento": {
+    "type": "doc",
+    "content": [
+      { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Objeto propuesto" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Cooperación académica propuesta" }] },
+      { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Justificación" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Fortalecer la movilidad" }] },
+      { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Actividades propuestas" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Intercambios docentes" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Proyectos conjuntos" }] },
+      { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Metas propuestas" }] },
+      { "type": "paragraph", "content": [{ "type": "text", "text": "Dos proyectos" }] }
+    ]
+  }
+}
