@@ -4,6 +4,8 @@
 |---|---|
 | [Production Release Runbook](production-release.md) | Flujo aprobado de promoción `develop` → `main` y recuperación |
 | [Supabase](supabase.md) | Privilegios, TLS, conexiones y migraciones |
+| [Manual técnico e instalación desde cero](manual-tecnico-instalacion.md) | Instalación local, variables de entorno (solo nombres), despliegue en Render y problemas frecuentes |
+| [Script de base de datos](base-de-datos/README.md) | Estructura sin datos en SQL (revisión `0b2fb1bed5b2`), uso y regeneración |
 | [Conciliación de convenios](conciliacion-convenios.md) | Propuesta de CLI y estrategia de scheduler; **no confundir con job en ejecución** |
 | [Ejemplo de workflow de conciliación](conciliacion-convenios.workflow.yml.example) | Archivo `.example`, no ejecutado por GitHub Actions |
 | [Regularización de códigos de convenio](regularizacion-codigos-convenio.md) | Procedimiento de HT-06 CA-08; **implementado y probado, sin autorización para datos reales** |
