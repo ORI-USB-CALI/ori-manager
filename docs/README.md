@@ -6,7 +6,7 @@
 |---|---|
 | Estado de HU y HT | [Inventario 13/10/2026](product/estado-hu-2026-10-13.md) |
 | Sprints | [Sprint 1](sprints/sprint-01.md) · [Sprint 2](sprints/sprint-02.md) · [Sprint 3 en curso](sprints/sprint-03.md) |
-| Manual de usuario | [Manual de usuario](manual-usuario.md): navegación, guía de bienvenida, ayuda del formulario, validaciones, radicación y acción Volver (Sprint 4) |
+| Manual de usuario | [Manual de usuario](manual-usuario.md): uso de toda la plataforma por rol, desde el registro y las solicitudes hasta la elaboración, revisiones, firmas, renovaciones, reportes y administración |
 | Arquitectura, entornos y acceso | [Arquitectura](architecture/overview.md) |
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Formatos y normalización de solicitudes | [HT-14 — Validación de formatos](hu/ht-14-validacion-formatos-solicitud.md), identificaciones/DV, teléfonos idempotentes, direcciones y rollback conservador |
