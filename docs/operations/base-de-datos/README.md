@@ -3,6 +3,8 @@
 **Revisión Alembic:** `0b2fb1bed5b2` (head de `main` al 12/11/2026, commit `e94e97b`)
 **Motor:** PostgreSQL 18
 
+> **Alcance temporal (17/11/2026):** este archivo SQL representa únicamente el esquema de `main` en la revisión `0b2fb1bed5b2`. La rama `develop` ya contiene las migraciones `c17a20261115` y `3816fbbdff1a`, que **no están incluidas** en el volcado. No debe presentarse como el esquema final de Sprint 5 ni como una exportación actualizada de Staging. Se deberá regenerar desde una base desechable, con el `head` efectivamente liberado, para la entrega definitiva.
+
 | Archivo | Qué contiene |
 |---|---|
 | [`ori_manager_schema.sql`](ori_manager_schema.sql) | **Estructura sin datos.** Esquemas, tablas, índices, restricciones, funciones y triggers. Todas las tablas quedan vacías. |
