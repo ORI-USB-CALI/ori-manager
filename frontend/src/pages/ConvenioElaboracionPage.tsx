@@ -2,15 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
 import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
+import { documentoTieneTexto, informacionSolicitudComoDocumento } from './informacionSolicitud'
 import { contextoVersion, type ElaboracionConvenio, referenciaConvenio, useAliados, useCatalogosElaboracion, useElaboracionConvenio, useVersionesConvenio } from './epica02'
 import { FinalizarElaboracionModal } from './FinalizarElaboracionModal'
-import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia } from './vigencia'
+import { fechaHoyLocal, mensajeVigenciaServidor, validarVigencia, vencimientoEsperado } from './vigencia'
+import './gestorConvenios.css'
 
 const ETAPA_ELABORACION = 'ELABORACION'
 const CAMPOS = [
@@ -22,6 +25,7 @@ interface Observacion {
   id: number
   origen: string
   descripcion: string
+  requiere_correccion: boolean
   respuesta: string | null
   estado: 'PENDIENTE' | 'ATENDIDA'
   creado_en: string
@@ -103,7 +107,8 @@ function metadataModificada(edicion: EdicionBorrador) {
 function erroresVigencia(metadata: Record<string, string | number | null>) {
   const inicio = typeof metadata.fecha_inicio === 'string' ? metadata.fecha_inicio : null
   const vencimiento = typeof metadata.fecha_vencimiento === 'string' ? metadata.fecha_vencimiento : null
-  return validarVigencia(inicio, vencimiento, fechaHoyLocal())
+  const duracion = typeof metadata.duracion_meses === 'number' ? metadata.duracion_meses : null
+  return validarVigencia(inicio, vencimiento, fechaHoyLocal(), duracion)
 }
 
 function erroresServidor(error: unknown): Record<string, string> {
@@ -160,6 +165,10 @@ export function ConvenioElaboracionPage() {
   const [conflicto, setConflicto] = useState(false)
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [modalAbierto, setModalAbierto] = useState(false)
+  const [limpiezaAbierta, setLimpiezaAbierta] = useState(false)
+  const [copiaAnterior, setCopiaAnterior] = useState<DocumentoConvenio | null>(null)
+  const [editorGeneracion, setEditorGeneracion] = useState(0)
+  const [limpiezaAplicada, setLimpiezaAplicada] = useState(false)
   const [payloadFinal, setPayloadFinal] = useState<Record<string, unknown>>({})
   const [respuestas, setRespuestas] = useState<Record<number, string>>({})
 
@@ -223,6 +232,8 @@ export function ConvenioElaboracionPage() {
       setCambiosLocales(null)
       setConflicto(false)
       setErrores({})
+      setLimpiezaAplicada(false)
+      setLimpiezaAbierta(false)
     },
     onError: () => notify({
       type: 'error', message: 'No fue posible cargar el borrador más reciente. Tus cambios siguen en pantalla.',
@@ -264,8 +275,8 @@ export function ConvenioElaboracionPage() {
   const borradorDesactualizado = conflicto
     || (cambiosLocales !== null && (revisionBase !== datos.revision_borrador
       || edicion.base.version_actual !== datos.version_actual))
-  const editable = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
-    && !recargar.isPending
+  const puedeEditarEtapa = puede('convenios.editar') && datos.etapa_actual?.codigo === ETAPA_ELABORACION
+  const editable = puedeEditarEtapa && !recargar.isPending && !modalAbierto
 
   function actualizarEdicion(cambios: Partial<Pick<EdicionBorrador, 'contenido' | 'metadata'>>) {
     setCambiosLocales((actual) => {
@@ -274,6 +285,9 @@ export function ConvenioElaboracionPage() {
         ? siguiente : null
     })
   }
+  const admiteBaseSolicitud = datos.origen === 'SOLICITUD' && datos.solicitud !== null && !datos.convenio_origen_id
+  const baseSolicitud = admiteBaseSolicitud && datos.solicitud
+    ? informacionSolicitudComoDocumento(datos.solicitud) : null
   const todasLasObservaciones = historial.data?.revisiones.flatMap((revision) => revision.observaciones) ?? []
   const observacionesJuridicas = todasLasObservaciones.filter((item) => item.origen === 'REVISOR_ORI')
   const observacionesContraparte = todasLasObservaciones.filter((item) => item.origen === 'CONTRAPARTE')
@@ -287,13 +301,22 @@ export function ConvenioElaboracionPage() {
     || contrapartePendientes.length > 0
     || revisionFinalPendientes.length > 0
 
+  function cambiarVigencia(campo: 'fecha_inicio' | 'duracion_meses', valor: string) {
+    const siguiente = { ...campos, [campo]: valor }
+    siguiente.fecha_vencimiento = siguiente.fecha_inicio && Number(siguiente.duracion_meses) >= 4
+      ? vencimientoEsperado(siguiente.fecha_inicio, Number(siguiente.duracion_meses)) : ''
+    actualizarEdicion({ metadata: siguiente })
+  }
+
   function enviar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!contenido) return
     const metadata = valoresMetadata(campos, datos.origen)
-    // Igual que el backend: al guardar solo se valida si cambió alguna fecha.
+    // Igual que el backend: al guardar solo se valida si cambió alguna fecha o
+    // la duración (HT-17).
     const cambioVigencia = metadata.fecha_inicio !== (fechaInput(edicion.base.fecha_inicio) || null)
       || metadata.fecha_vencimiento !== (fechaInput(edicion.base.fecha_vencimiento) || null)
+      || metadata.duracion_meses !== (edicion.base.duracion_meses ?? null)
     const invalidas = cambioVigencia ? erroresVigencia(metadata) : {}
     if (Object.keys(invalidas).length > 0) {
       setErrores(invalidas)
@@ -309,7 +332,9 @@ export function ConvenioElaboracionPage() {
   function prepararFinalizacion() {
     if (!contenido) return
     const metadata = valoresMetadata(campos, datos.origen)
-    const invalidas = erroresVigencia(metadata)
+    const cambioVigencia = metadata.fecha_inicio !== (fechaInput(edicion.base.fecha_inicio) || null)
+      || metadata.duracion_meses !== (edicion.base.duracion_meses ?? null)
+    const invalidas = cambioVigencia ? erroresVigencia(metadata) : {}
     setErrores(invalidas)
     if (Object.keys(invalidas).length > 0) {
       notify({ type: 'error', message: 'Revisa las fechas de vigencia antes de finalizar.' })
@@ -324,25 +349,35 @@ export function ConvenioElaboracionPage() {
   }
 
   return (
-    <>
+    <div className="convenio-elaboracion">
       {accionVolver}
 
       <section className="header-banner">
-        <h1>Proyecto de convenio {referenciaConvenio(datos.codigo, datos.id)}</h1>
+        <h1>{datos.etapa_actual?.codigo === ETAPA_ELABORACION ? 'Elaboración' : 'Consulta'} · {referenciaConvenio(datos.codigo, datos.id)}</h1>
         <p>
           <span className="badge">{datos.etapa_actual?.nombre ?? datos.estado}</span>
-          {' · '}Versión formal {datos.version_actual} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
+          {' · '}{datos.version_actual ? `Versión formal ${datos.version_actual}` : 'Sin versión formal'} · {datos.solicitud ? `Solicitud ${datos.solicitud.consecutivo}` : 'Creación directa de ORI'}
         </p>
       </section>
 
+      {!puedeEditarEtapa && (
+        <section className="card">
+          <p>Documento de solo lectura. Las acciones disponibles para la etapa actual están en el detalle del convenio.</p>
+          <Link className="btn btn-primary" to={`/convenios/${id}`}>Continuar trámite</Link>
+        </section>
+      )}
+
       <form onSubmit={enviar}>
+        {datos.solicitud && puede('solicitudes.ver_recibidas') && (
+          <p><Link to={`/ori/solicitudes/${datos.solicitud.id}`}>Consultar solicitud original {datos.solicitud.consecutivo}</Link>. Sus antecedentes son información de consulta; el documento jurídico se elabora por separado.</p>
+        )}
         <div className="elaboracion-workspace">
           <main className="elaboracion-principal">
             <section className="elaboracion-documento card">
               <div className="editor-cabecera">
                 <div>
                   <h2>Documento jurídico</h2>
-                  <p className="section-help">Edita libremente el contenido del proyecto de convenio.</p>
+                  <p className="section-help">{puedeEditarEtapa ? 'Edita libremente el contenido del proyecto de convenio.' : 'Consulta el contenido del documento en esta etapa.'}</p>
                 </div>
                 {hayCambios ? (
                   <span className="badge badge-pendiente">
@@ -365,9 +400,48 @@ export function ConvenioElaboracionPage() {
                   </button>
                 </div>
               )}
+              {editable && admiteBaseSolicitud && (
+                <section aria-label="Información de la solicitud como base">
+                  <p>Usa objeto, justificación, actividades y metas como texto libre. Puedes editar, sustituir o eliminar cualquier sección. Define tipo, duración y vigencia definitivos en Datos clave.</p>
+                  <button type="button" className="btn btn-outline" disabled={!baseSolicitud || guardar.isPending || borradorDesactualizado} onClick={() => {
+                    if (!baseSolicitud) return
+                    if (documentoTieneTexto(contenido) && !window.confirm('Se reemplazará todo el contenido actual del documento, incluidos los cambios sin guardar. La solicitud original y los datos clave se conservarán. ¿Deseas continuar?')) return
+                    setCopiaAnterior(contenido)
+                    actualizarEdicion({ contenido: baseSolicitud })
+                    setEditorGeneracion((valor) => valor + 1)
+                    setLimpiezaAplicada(true)
+                  }}>Usar información de la solicitud como base</button>
+                  {!baseSolicitud && <p className="section-help">La solicitud no contiene texto para usar como base.</p>}
+                </section>
+              )}
+              {editable && datos.contiene_antecedentes_iniciales && !limpiezaAplicada && (
+                <section aria-label="Preparar documento contractual">
+                  <p>Este documento conserva antecedentes de la solicitud. Puedes consultarlos por separado y empezar un texto contractual limpio. Si los conservas, la exportación oficial podría requerir una nueva versión revisada.</p>
+                  <button type="button" className="btn btn-outline" disabled={guardar.isPending || borradorDesactualizado} onClick={() => setLimpiezaAbierta(true)}>Empezar documento contractual limpio</button>
+                  {limpiezaAbierta && (
+                    <div role="alert">
+                      <p>Se reemplazará todo el contenido editable actual, incluidos tus cambios. Revisa o copia el documento en el editor antes de continuar. Se conservará una copia en esta pantalla hasta que salgas; el reemplazo solo se guarda al guardar avance o finalizar.</p>
+                      <button type="button" onClick={() => setLimpiezaAbierta(false)}>Conservar documento actual</button>
+                      <button type="button" disabled={guardar.isPending || borradorDesactualizado} onClick={() => {
+                        setCopiaAnterior(contenido)
+                        actualizarEdicion({ contenido: { type: 'doc', content: [{ type: 'paragraph' }] } })
+                        setEditorGeneracion((valor) => valor + 1)
+                        setLimpiezaAplicada(true)
+                        setLimpiezaAbierta(false)
+                      }}>Confirmar reemplazo del documento</button>
+                    </div>
+                  )}
+                </section>
+              )}
+              {copiaAnterior && (
+                <details>
+                  <summary>Consultar y copiar contenido anterior (disponible hasta salir)</summary>
+                  <ConvenioEditor key={`copia-${editorGeneracion}`} contenido={copiaAnterior} editable={false} />
+                </details>
+              )}
               {contenido ? (
                 <ConvenioEditor
-                  key={`${id}-${edicion.base.version_actual}-${revisionBase}-${recargar.isPending}`}
+                  key={`${id}-${edicion.base.version_actual}-${revisionBase}-${recargar.isPending}-${editorGeneracion}`}
                   contenido={contenido}
                   editable={editable}
                   onChange={(nuevo) => {
@@ -382,12 +456,15 @@ export function ConvenioElaboracionPage() {
             {juridicasPendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes">
                 <h2>Observaciones jurídicas pendientes</h2>
-                <p className="section-help">Corrige estos puntos antes de volver a enviar el proyecto a revisión jurídica.</p>
+                {puedeEditarEtapa && <p className="section-help">Corrige estos puntos antes de volver a enviar el proyecto a revisión jurídica.</p>}
                 {juridicasPendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
                       <h3>{observacion.descripcion}</h3>
                       <span className="badge badge-pendiente">Pendiente</span>
+                      <span className={observacion.requiere_correccion ? 'badge badge-pendiente' : 'badge badge-neutral'}>
+                        {observacion.requiere_correccion ? 'Obliga a corregir' : 'No obliga a corregir'}
+                      </span>
                     </div>
                     <p className="texto-secundario">Registrada el {fechaHora(observacion.creado_en)}</p>
                     {editable && (
@@ -404,7 +481,7 @@ export function ConvenioElaboracionPage() {
             {contrapartePendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes observaciones-contraparte">
                 <h2>Observaciones de contraparte pendientes</h2>
-                <p className="section-help">Atiende las solicitudes de la contraparte y corrige el documento antes de iniciar una nueva ronda jurídica.</p>
+                {puedeEditarEtapa && <p className="section-help">Atiende las solicitudes de la contraparte y corrige el documento antes de iniciar una nueva ronda jurídica.</p>}
                 {contrapartePendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
@@ -427,7 +504,7 @@ export function ConvenioElaboracionPage() {
             {revisionFinalPendientes.length > 0 && (
               <section className="card observaciones-elaboracion observaciones-pendientes">
                 <h2>Observaciones de revisión final pendientes</h2>
-                <p className="section-help">Atiende la observación, corrige el proyecto y envíalo de nuevo: al enviarlo se crea la nueva versión que repite las revisiones.</p>
+                {puedeEditarEtapa && <p className="section-help">Atiende la observación, corrige el proyecto y envíalo de nuevo: al enviarlo se crea la nueva versión que repite las revisiones.</p>}
                 {revisionFinalPendientes.map((observacion) => (
                   <article className="observacion-elaboracion" key={observacion.id}>
                     <div className="observacion-cabecera">
@@ -450,17 +527,16 @@ export function ConvenioElaboracionPage() {
           <aside className="elaboracion-panel">
             <section className="card proyecto-resumen">
               <h2>Proyecto de convenio</h2>
-              <dl className="proyecto-datos">
-                <dt>Etapa actual</dt><dd>{datos.etapa_actual?.nombre ?? '—'}</dd>
-                <dt>Versión formal</dt><dd>{datos.version_actual || 'Sin versión'}</dd>
-                <dt>Borrador</dt>
-                <dd>
+              <DetalleCampos compacto>
+                <CampoLectura etiqueta="Etapa actual">{datos.etapa_actual?.nombre ?? '—'}</CampoLectura>
+                <CampoLectura etiqueta="Versión formal">{datos.version_actual || 'Aún no tiene'}</CampoLectura>
+                <CampoLectura etiqueta="Borrador">
                   {datos.borrador_guardado_en
                     ? `Guardado el ${fechaHora(datos.borrador_guardado_en)}, pendiente de enviar a revisión`
                     : 'Sin avances guardados desde la versión formal'}
-                </dd>
-                <dt>Plantilla utilizada</dt><dd>{datos.plantilla_origen?.nombre ?? 'Sin plantilla asociada'}</dd>
-              </dl>
+                </CampoLectura>
+                <CampoLectura etiqueta="Plantilla utilizada">{datos.plantilla_origen?.nombre ?? 'Sin plantilla asociada'}</CampoLectura>
+              </DetalleCampos>
               {editable && (
                 <div className="acciones-verticales">
                   <button className="btn btn-outline" type="submit" disabled={guardar.isPending || recargar.isPending || !contenido}>
@@ -483,7 +559,7 @@ export function ConvenioElaboracionPage() {
               <p className="section-help">Estos datos ayudan a identificar y gestionar el convenio dentro del sistema.</p>
               {Object.keys(errores).length > 0 && (
                 <div className="resumen-pendientes" role="alert">
-                  <strong>Completa estos datos antes de finalizar:</strong>
+                  <strong>Revisa lo siguiente antes de finalizar:</strong>
                   <ul>
                     {Object.entries(errores).map(([campo, mensaje]) => <li key={campo}>{mensaje}</li>)}
                   </ul>
@@ -494,7 +570,7 @@ export function ConvenioElaboracionPage() {
               )}
               <div className="datos-clave-campos">
                 {datos.origen === 'MANUAL_ORI' && (
-                  <label className="form-group">Aliado / contraparte (puedes definirlo durante la elaboración)
+                  <label className="form-group">{puedeEditarEtapa ? 'Aliado / contraparte (puedes definirlo durante la elaboración)' : 'Aliado / contraparte'}
                     <select className="form-control select" name="aliado_id" value={campos.aliado_id} onChange={(event) => actualizarEdicion({ metadata: { ...campos, aliado_id: event.target.value } })} disabled={!editable}>
                       <option value="">Por definir</option>
                       {aliados.data?.items.map((aliado) => <option key={aliado.id} value={aliado.id}>{aliado.nombre}</option>)}
@@ -534,15 +610,15 @@ export function ConvenioElaboracionPage() {
                   {errores.implicacion_financiera && <span className="form-error">{errores.implicacion_financiera}</span>}
                 </label>
                 <label className="form-group">Duración (meses)
-                  <input className="form-control" name="duracion_meses" type="number" min="0" value={campos.duracion_meses} onChange={(event) => actualizarEdicion({ metadata: { ...campos, duracion_meses: event.target.value } })} disabled={!editable} />
+                  <input className="form-control" name="duracion_meses" type="number" min={Number(campos.duracion_meses) === edicion.base.duracion_meses && Number(campos.duracion_meses) < 4 ? undefined : 4} value={campos.duracion_meses} onChange={(event) => cambiarVigencia('duracion_meses', event.target.value)} disabled={!editable} />
                   {errores.duracion_meses && <span className="form-error">{errores.duracion_meses}</span>}
                 </label>
                 <label className="form-group">Fecha de inicio
-                  <input className="form-control" name="fecha_inicio" type="date" value={campos.fecha_inicio} onChange={(event) => actualizarEdicion({ metadata: { ...campos, fecha_inicio: event.target.value } })} disabled={!editable} />
+                  <input className="form-control" name="fecha_inicio" type="date" value={campos.fecha_inicio} onChange={(event) => cambiarVigencia('fecha_inicio', event.target.value)} disabled={!editable} />
                   {errores.fecha_inicio && <span className="form-error">{errores.fecha_inicio}</span>}
                 </label>
                 <label className="form-group">Fecha de vencimiento
-                  <input className="form-control" name="fecha_vencimiento" type="date" value={campos.fecha_vencimiento} onChange={(event) => actualizarEdicion({ metadata: { ...campos, fecha_vencimiento: event.target.value } })} disabled={!editable} />
+                  <input className="form-control" name="fecha_vencimiento" type="date" value={campos.fecha_vencimiento} readOnly disabled={!editable} />
                   {errores.fecha_vencimiento && <span className="form-error">{errores.fecha_vencimiento}</span>}
                 </label>
               </div>
@@ -551,6 +627,9 @@ export function ConvenioElaboracionPage() {
             <section className="card historial-versiones">
               <h2>Historial de versiones</h2>
               <p className="section-help">Solo incluye versiones formales; guardar avances no agrega versiones.</p>
+              {versiones.data?.length === 0 && (
+                <p>Aún no hay versiones formales. La primera se crea al enviar el proyecto a revisión jurídica.</p>
+              )}
               <div className="version-lista">
                 {versiones.data?.map((version) => (
                   <article className={version.numero === datos.version_actual ? 'version-actual' : undefined} key={version.numero}>
@@ -607,14 +686,28 @@ export function ConvenioElaboracionPage() {
         <FinalizarElaboracionModal
           convenioId={id}
           valores={payloadFinal}
+          tieneVersionFormal={datos.version_actual > 0}
           onCerrar={() => setModalAbierto(false)}
-          onErrorValidacion={(error) => setErrores(erroresServidor(error))}
-          onFinalizado={() => Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'elaboracion'] }),
-            queryClient.invalidateQueries({ queryKey: ['convenios', id, 'versiones'] }),
-          ])}
+          onErrorValidacion={(error) => {
+            setErrores(erroresServidor(error))
+            if (esConflictoBorrador(error)) setConflicto(true)
+          }}
+          onFinalizado={async () => {
+            await queryClient.cancelQueries({ queryKey: ['convenios', id, 'elaboracion'], exact: true })
+            // La formalización elimina el borrador y cambia su revisión a cero.
+            // Esa transición propia ya confirmada no es un guardado concurrente.
+            setCambiosLocales(null)
+            setConflicto(false)
+            setErrores({})
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['convenios', id] }),
+              queryClient.invalidateQueries({ queryKey: ['convenio', id] }),
+              queryClient.invalidateQueries({ queryKey: ['convenios', 'tablero'] }),
+              queryClient.invalidateQueries({ queryKey: ['solicitudes', 'recibidas'] }),
+            ])
+          }}
         />
       )}
-    </>
+    </div>
   )
 }

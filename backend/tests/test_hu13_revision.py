@@ -3,6 +3,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
+from helpers_revision import revision_actual
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -14,7 +15,7 @@ from backend.services.documentos import AlmacenDocumentosLocal
 def test_usuario_sin_permiso_no_puede_acceder_a_la_revision(
     client, solicitante, entrar_como, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     entrar_como(solicitante)
     assert client.get(f"/api/convenios/{convenio_listo.id}/revision").status_code == 403
 
@@ -24,7 +25,7 @@ def test_bandeja_juridica_refleja_solo_revisiones_pendientes(
 ) -> None:
     entrar_como(gestor)
     assert client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     ).status_code == 200
     revision = db.scalar(
         select(RevisionConvenio).where(
@@ -90,7 +91,7 @@ def test_revisor_consulta_revision_y_documento_de_solicitud(
     )
     db.add(documento)
     db.commit()
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     entrar_como(revisor)
 
     respuesta = client.get(f"/api/convenios/{convenio_listo.id}/revision")
@@ -127,7 +128,7 @@ def test_revisor_consulta_revision_y_documento_de_solicitud(
 def test_segunda_ronda_muestra_solo_la_revision_pendiente_vigente(
     client, db, gestor, revisor, entrar_como, convenio_listo
 ) -> None:
-    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
     primera = db.scalar(
         select(RevisionConvenio).where(
             RevisionConvenio.convenio_id == convenio_listo.id
@@ -162,7 +163,7 @@ def test_segunda_ronda_muestra_solo_la_revision_pendiente_vigente(
         json={"contenido": contenido, "expected_revision": elaboracion["revision_borrador"]},
     ).status_code == 200
     assert client.post(
-        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar"
+        f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")}
     ).status_code == 200
     entrar_como(revisor)
 

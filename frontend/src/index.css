@@ -1273,16 +1273,6 @@ a:hover {
   margin-bottom: 24px;
 }
 
-.login-brand {
-  width: fit-content;
-  margin-bottom: 20px;
-  background: var(--gradiente-ori);
-  background-clip: text;
-  color: transparent;
-  font-size: 22px;
-  font-weight: 800;
-}
-
 .page-toolbar {
   display: flex;
   align-items: center;
@@ -1422,6 +1412,14 @@ a:hover {
   font-weight: 500;
 }
 
+.observacion-obliga {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
 .filtros-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1484,15 +1482,6 @@ a:hover {
 
 .estado-vacio .btn {
   margin-top: 16px;
-}
-
-.convenio-objeto {
-  display: -webkit-box;
-  min-width: 200px;
-  max-width: 320px;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .table-pagination {
@@ -1697,10 +1686,6 @@ a:hover {
 
 .table tbody tr:hover {
   background: #fffaf7;
-}
-
-.table-cell-wide {
-  min-width: 260px;
 }
 
 .tabla-ayuda {
@@ -2087,15 +2072,11 @@ a:hover {
 }
 
 .firma-seguimiento-cabecera strong,
-.firma-seguimiento .proyecto-datos,
-.firma-seguimiento .proyecto-datos dd,
+.firma-seguimiento .detalle-campos,
+.firma-seguimiento .detalle-campos dd,
 .firma-seguimiento a {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.firma-seguimiento .proyecto-datos {
-  grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
 }
 
 .firma-fisica-resumen {
@@ -2221,38 +2202,6 @@ a:hover {
     var(--bg-main);
 }
 
-.revision-publica-header {
-  display: flex;
-  min-height: 72px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 14px max(24px, calc((100vw - 1120px) / 2));
-  border-bottom: 1px solid var(--border-color);
-  background: white;
-}
-
-.revision-publica-header > div {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.revision-publica-header strong {
-  display: inline-grid;
-  width: 46px;
-  height: 46px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--color-rojo);
-  color: white;
-  letter-spacing: .04em;
-}
-
-.revision-publica-header span {
-  color: var(--text-secondary);
-}
-
 .revision-publica-main {
   display: grid;
   width: min(1120px, calc(100% - 32px));
@@ -2323,15 +2272,6 @@ a:hover {
 .revision-publica-exito {
   background: #166534;
   font-size: 28px;
-}
-
-.revision-publica-footer {
-  padding: 18px 24px;
-  border-top: 1px solid var(--border-color);
-  background: white;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-align: center;
 }
 
 .modal-decision-contraparte {
@@ -2408,21 +2348,6 @@ a:hover {
 .timeline-respuesta-contraparte h4,
 .timeline-invitaciones h4 {
   margin-bottom: 12px;
-}
-
-.timeline-respuesta-contraparte dl,
-.invitacion-trazabilidad dl {
-  display: grid;
-  grid-template-columns: minmax(130px, auto) minmax(0, 1fr);
-  gap: 7px 16px;
-  width: 100%;
-}
-
-.timeline-respuesta-contraparte dd,
-.invitacion-trazabilidad dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
 }
 
 .texto-hash {
@@ -2544,24 +2469,6 @@ a:hover {
   border-top: 4px solid var(--color-magenta);
 }
 
-.proyecto-datos {
-  display: grid;
-  grid-template-columns: minmax(110px, auto) 1fr;
-  gap: 10px 16px;
-  margin-top: 18px;
-}
-
-.proyecto-datos dt {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.proyecto-datos dd {
-  margin: 0;
-  font-weight: 650;
-  text-align: right;
-}
-
 .datos-clave-campos {
   padding-top: 18px;
   margin-top: 18px;
@@ -2629,20 +2536,11 @@ a:hover {
   cursor: default;
 }
 
-.snapshot-campo {
-  display: contents;
-}
-
 .version-lista .version-enlace {
   justify-self: start;
   margin-top: 4px;
   color: var(--color-naranja);
   font-weight: 650;
-}
-
-.snapshot-campo dd {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .resumen-pendientes {
@@ -2890,17 +2788,6 @@ a:hover {
     padding: 14px 16px;
   }
 
-  .revision-publica-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-  }
-
-  .revision-publica-header > div {
-    align-items: flex-start;
-  }
-
   .revision-publica-main {
     width: min(100% - 24px, 1120px);
     padding-top: 24px;
@@ -2917,16 +2804,6 @@ a:hover {
     flex-direction: column;
   }
 
-  .timeline-respuesta-contraparte dl,
-  .invitacion-trazabilidad dl {
-    grid-template-columns: 1fr;
-    gap: 3px;
-  }
-
-  .timeline-respuesta-contraparte dd,
-  .invitacion-trazabilidad dd {
-    margin-bottom: 8px;
-  }
 }
 
 @media print {
@@ -3323,23 +3200,21 @@ a:hover {
   list-style: none;
 }
 
-/* HT-12: acción Volver común. Va siempre al inicio de la vista, fuera del
-   banner degradado, con texto y borde oscuros sobre superficie blanca. */
+/* HT-12: presentacion secundaria; contrato de retorno sin cambios. */
 .accion-volver-barra {
   margin-bottom: 16px;
 }
 .accion-volver {
   background: var(--bg-surface);
   color: var(--text-primary);
-  border: 2px solid var(--text-primary);
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  border: 1.5px solid var(--text-secondary);
+  font-weight: 600;
+  text-decoration: none;
 }
 .accion-volver:hover, .accion-volver:focus-visible {
   background: var(--bg-main);
   color: var(--text-primary);
-  text-decoration: underline;
+  text-decoration: none;
 }
 .accion-volver:focus-visible {
   outline: 3px solid var(--text-primary);
@@ -3441,8 +3316,6 @@ a:hover {
   overflow-wrap: anywhere;
 }
 
-
-
 .reporte-activos-container {
   width: 100%;
   max-width: 100%;
@@ -3466,8 +3339,6 @@ a:hover {
   word-break: normal;
   white-space: normal;
 }
-
-
 
 .reporte-activos-tabla tr > :nth-child(1) {
   width: 16%;
@@ -3505,16 +3376,12 @@ a:hover {
   width: 7%;
 }
 
-
-
 .reporte-activos-tabla .tabla-ayuda {
   display: block;
   max-width: 100%;
   overflow-wrap: anywhere;
   white-space: normal;
 }
-
-
 
 .reporte-activos-tabla .badge {
   max-width: 100%;
@@ -3529,8 +3396,6 @@ a:hover {
   overflow-wrap: anywhere;
   text-align: center;
 }
-
-
 
 @media (max-width: 768px) {
   .reporte-activos-tabla {
@@ -3686,3 +3551,252 @@ a:hover {
     justify-content: flex-end;
   }
 }
+
+/* Bitácora de auditoría (HU-18 / HT-09 / Issue #167): legibilidad de naturaleza y eventos extensos */
+.bitacora-tabla-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bitacora-tabla {
+  width: 100%;
+  min-width: 1720px;
+  border-collapse: collapse;
+}
+
+.bitacora-tabla th,
+.bitacora-tabla td {
+  box-sizing: border-box;
+  padding: 12px 14px;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.bitacora-tabla thead th {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.bitacora-tabla .bitacora-col-fecha {
+  min-width: 10rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.bitacora-tabla .bitacora-col-originador {
+  min-width: 13rem;
+}
+
+.bitacora-tabla .bitacora-col-originador .tabla-ayuda {
+  overflow-wrap: anywhere;
+}
+
+.bitacora-tabla .bitacora-col-rol {
+  min-width: 9.5rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.bitacora-tabla .bitacora-col-naturaleza {
+  min-width: 8.5rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.bitacora-tabla .bitacora-col-responsable {
+  min-width: 11rem;
+}
+
+.bitacora-tabla .bitacora-col-accion {
+  min-width: 8rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.bitacora-tabla .bitacora-col-evento {
+  min-width: 14rem;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.bitacora-tabla .bitacora-col-etapa {
+  min-width: 14rem;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.bitacora-tabla .bitacora-col-registro {
+  min-width: 9.5rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.bitacora-tabla .bitacora-col-campo {
+  min-width: 10rem;
+  overflow-wrap: break-word;
+}
+
+.bitacora-tabla .bitacora-col-valor {
+  min-width: 11rem;
+  overflow-wrap: break-word;
+}
+
+.bitacora-tabla .bitacora-col-contexto {
+  min-width: 15rem;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 1024px) {
+  .bitacora-tabla {
+    min-width: 1640px;
+  }
+}
+
+@media (max-width: 768px) {
+  .bitacora-tabla {
+    min-width: 1560px;
+  }
+
+  .bitacora-tabla th,
+  .bitacora-tabla td {
+    padding: 10px 12px;
+  }
+}
+
+/* Lote 1: parejas de lectura compartidas; sin efectos sobre formularios o documentos. */
+.detalle-campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(240px, calc((100% - 24px) / 2))), 1fr));
+  gap: 20px 24px;
+  margin: 16px 0 0;
+  min-width: 0;
+  width: 100%;
+}
+/* Hasta dos campos segun el ancho de la tarjeta. */
+.detalle-campos--compacto { grid-template-columns: minmax(0, 1fr); }
+.campo-lectura { min-width: 0; }
+.campo-lectura--amplio { grid-column: 1 / -1; }
+.campo-lectura dt {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.campo-lectura dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.detalle-secciones { display: grid; gap: 20px; min-width: 0; }
+.detalle-grupo + .detalle-grupo { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border-color); }
+.timeline-revision h3 { flex-wrap: wrap; justify-content: space-between; }
+.timeline-revision h4 { margin-top: 20px; }
+.historial-observacion > p, .historial-respuesta > p, .detalle-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Lote 2: variante optativa; HT-18 y los reportes mantienen su distribución propia.
+   Los mínimos responden al contenido: prosa y personas reciben más espacio que
+   rondas/versiones. La suma de columnas activa scroll en el contenedor existente. */
+.tabla-seccion {
+  min-width: 0;
+}
+
+.tabla-densa-region:focus-visible {
+  outline: 3px solid var(--text-primary);
+  outline-offset: -3px;
+}
+
+.tabla-densa th,
+.tabla-densa td {
+  vertical-align: top;
+  word-break: normal;
+}
+
+.tabla-densa .tabla-col-referencia { min-width: 11rem; }
+.tabla-densa .tabla-col-texto { min-width: 12rem; }
+.tabla-densa .tabla-col-descripcion { min-width: 20rem; }
+.tabla-densa .tabla-col-persona { min-width: 17rem; }
+.tabla-densa .tabla-col-estado { min-width: 12rem; }
+
+.tabla-densa .tabla-col-fecha {
+  min-width: 11rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.tabla-densa .tabla-col-numero {
+  min-width: 5.5rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.tabla-densa .tabla-col-acciones {
+  min-width: 9rem;
+}
+
+.tabla-densa .badge,
+.tabla-densa .btn {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.tabla-densa .tabla-col-acciones .btn {
+  margin: 0 4px 4px 0;
+}
+
+.tabla-densa .tabla-col-descripcion,
+.tabla-texto-completo {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Lote 3: identidad tipográfica compartida, sin alterar componentes operativos. */
+.identidad-institucional {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.identidad-institucional strong { color: var(--color-rojo); font-size: 22px; }
+.identidad-institucional span { font-size: 13px; }
+.identidad-institucional .identidad-area { color: var(--text-secondary); }
+.identidad-institucional--acceso { margin-bottom: 24px; }
+.cabecera-institucional {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 20px max(16px, calc((100vw - 1440px) / 2));
+  border-top: 4px solid var(--color-rojo);
+  border-image: var(--gradiente-ori) 1;
+  background: var(--bg-surface);
+}
+.pie-institucional {
+  padding: 20px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+.directorio-main { width: min(1440px, calc(100% - 32px)); }
+.directorio-contexto { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.directorio-estado { text-align: left; }
+.directorio-main .table-filters-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.cabecera-institucional .btn:focus-visible { outline: 3px solid var(--text-primary); outline-offset: 3px; }

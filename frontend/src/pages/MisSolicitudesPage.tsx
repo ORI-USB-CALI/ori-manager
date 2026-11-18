@@ -74,17 +74,17 @@ export function MisSolicitudesPage() {
 
   const columns: DataTableColumn<Solicitud>[] = [
     {
-      id: 'consecutivo',
+      id: 'consecutivo', className: 'tabla-col-referencia',
       header: 'Consecutivo',
       render: (item) => <strong>{item.consecutivo}</strong>,
     },
     {
-      id: 'contraparte',
+      id: 'contraparte', className: 'tabla-col-texto',
       header: 'Contraparte',
       render: (item) => item.nombre_aliado_propuesto ?? '—',
     },
     {
-      id: 'tipo',
+      id: 'tipo', className: 'tabla-col-texto',
       header: 'Tipo de convenio',
       render: (item) =>
         item.tipo_convenio_id
@@ -92,17 +92,17 @@ export function MisSolicitudesPage() {
           : '—',
     },
     {
-      id: 'estado',
+      id: 'estado', className: 'tabla-col-estado',
       header: 'Estado solicitud',
       render: (item) => <StatusBadge value={item.estado} />,
     },
     {
-      id: 'radicacion',
+      id: 'radicacion', className: 'tabla-col-fecha',
       header: 'Radicación',
       render: (item) => formatDateTime(item.fecha_radicacion),
     },
     {
-      id: 'acciones',
+      id: 'acciones', className: 'tabla-col-acciones',
       header: 'Acciones',
       render: (item) => (
         <>
@@ -203,7 +203,7 @@ export function MisSolicitudesPage() {
           </TableFilters>
           <ResultsCount count={items.length} />
           {items.length > 0 ? (
-            <DataTable
+            <DataTable containerClassName="tabla-densa-region" tableClassName="tabla-densa"
               columns={columns}
               rows={items}
               rowKey={(item) => item.id}

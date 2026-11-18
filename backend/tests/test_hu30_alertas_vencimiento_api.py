@@ -34,7 +34,7 @@ def autor_convenios(crear_usuario) -> Usuario:
 
 @pytest.fixture
 def crear_alerta(
-    db: Session, autor_convenios: Usuario, crear_convenio
+    db: Session, autor_convenios: Usuario, crear_convenio, formalizar_version
 ) -> Callable[..., Convenio]:
     def _crear(
         *,
@@ -44,11 +44,12 @@ def crear_alerta(
         objeto: str = "Convenio de cooperación HU-30",
     ) -> Convenio:
         convenio = crear_convenio(
-            autor_convenios,
+            autor_convenios, historico=True,
             codigo=codigo,
             objeto=objeto,
             fecha_vencimiento=FECHA_REFERENCIA + timedelta(days=dias),
         )
+        formalizar_version(convenio, autor_convenios)
         convenio.estado = estado.value
         db.commit()
         db.refresh(convenio)

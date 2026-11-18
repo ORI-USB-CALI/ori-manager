@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -66,6 +67,8 @@ class Convenio(Base):
         Index("ix_convenio_fecha_firma", "fecha_firma"),
         Index("ix_convenio_vigencia", "fecha_inicio", "fecha_vencimiento"),
     )
+
+    vigencia_ht17: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     codigo: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)

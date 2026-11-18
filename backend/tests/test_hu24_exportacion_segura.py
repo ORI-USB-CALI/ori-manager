@@ -314,6 +314,9 @@ def test_el_mapeo_usa_el_contenido_de_la_version_actual(
 def test_el_mapeo_no_inventa_ni_sustituye_valores_ausentes(
     db, gestor, convenio_exportable
 ):
+    # La ausencia oficial se define en el snapshot, no en cambios posteriores.
+    version = next(v for v in convenio_exportable.versiones if v.numero == convenio_exportable.version_actual)
+    version.snapshot_metadata = {**version.snapshot_metadata, "objeto": None, "implicacion_financiera": None}
     convenio_exportable.implicacion_financiera = None
     convenio_exportable.objeto = None
     convenio_exportable.aliado.ciudad = None

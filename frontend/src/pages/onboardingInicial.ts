@@ -28,7 +28,7 @@ export function pasosOnboardingInicial(sesion: Pick<Sesion, 'rol' | 'permisos'>)
   const pasos: PasoRecorrido[] = [
     {
       titulo: '¡Bienvenido a ORI Manager!',
-      descripcion: 'ORI Manager es la plataforma de la Oficina de Relaciones Internacionales para gestionar los convenios '
+      descripcion: 'ORI Manager es la plataforma de la Oficina de Relaciones Interinstitucionales para gestionar los convenios '
         + 'de la Universidad. Reúne en un solo lugar cada solicitud, sus documentos, observaciones y estado. '
         + (esInterno
           ? 'Como solicitante interno, aquí puedes iniciar solicitudes de convenio y hacer seguimiento desde la Universidad.'

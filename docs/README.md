@@ -6,14 +6,17 @@
 |---|---|
 | Estado de HU y HT | [Inventario 13/10/2026](product/estado-hu-2026-10-13.md) |
 | Sprints | [Sprint 1](sprints/sprint-01.md) · [Sprint 2](sprints/sprint-02.md) · [Sprint 3 en curso](sprints/sprint-03.md) |
+| Manual de usuario | [Manual de usuario](manual-usuario.md): uso de toda la plataforma por rol, desde el registro y las solicitudes hasta la elaboración, revisiones, firmas, renovaciones, reportes y administración |
 | Arquitectura, entornos y acceso | [Arquitectura](architecture/overview.md) |
 | Solicitudes y radicación | [HU-11](hu11-solicitudes.md) |
 | Formatos y normalización de solicitudes | [HT-14 — Validación de formatos](hu/ht-14-validacion-formatos-solicitud.md), identificaciones/DV, teléfonos idempotentes, direcciones y rollback conservador |
+| Vigencia contractual | [HT-17](hu/ht-17-duracion-vigencia.md), calculo automatico y compatibilidad historica CA-06 |
 | Consistencia de solicitudes | [HT-01](ht01-validacion.md) |
 | Navegación de retorno en convenios | [HT-12 — Acción Volver](hu/ht-12-accion-volver.md), contexto encadenado, accesibilidad y alternativos por rol |
 | Introducción para solicitantes | [HU-38 — Onboarding inicial](hu/hu-38-onboarding-inicial.md), roles, recorrido reutilizable, estados individuales y errores recuperables |
 | Guía contextual de solicitudes | [HU-39 — Crear y radicar](hu/hu-39-guia-radicacion.md), contenido del formulario actual, caché individual, sincronización y regresión de HU-38 |
 | Borradores, versiones formales y concurrencia | [HT-13 — Borrador y versionamiento](hu/ht-13-borrador-versionamiento.md), contrato y dependencia con HT-09 |
+| Numeración de versiones formales y reenvíos | [HT-15 — Versionamiento formal](hu/ht-15-versionamiento-formal.md), decisiones del PO sobre la versión inicial y el reenvío sin cambios |
 | Consulta del contenido histórico de convenios | [HT-05 — Versiones históricas](hu/HT-05-consulta-versiones-historicas.md), ocho CA, permisos, compatibilidad y reversión |
 | Autoría y ejecución de la auditoría | [HT-09 — Auditoría ampliada](hu/ht-09-auditoria-ampliada.md), responsables, contratos y rollback conservador |
 | Código institucional y modo de emisión del documento | [HT-06 — Código del convenio](hu/ht-06-codigo-convenio.md), generación al formalizar, contador anual y exportación en trámite u oficial |
@@ -21,6 +24,10 @@
 | Base de datos e infraestructura | [Operaciones](operations/README.md) |
 | Contribuciones | [Política documental](development/documentation-policy.md) |
 | Wiki de GitHub | [Portada preparada](wiki/Home.md), pendiente de publicar |
+
+## Auditorías correctivas
+
+- [HT-16 — Contraparte por definir](hu/ht-16-contraparte-por-definir.md) · [PR #180](https://github.com/ORI-USB-CALI/ori-manager/pull/180) y [QA #172](https://github.com/ORI-USB-CALI/ori-manager/issues/172); cierre técnico: identidad jurídica congelada, idempotencia obligatoria, concurrencia y correo. No se infiere el estado oficial ni el sprint de HT-16 de este índice.
 
 ## Historias técnicas en desarrollo (Sprint 4)
 
@@ -55,9 +62,13 @@
 
 ## Fuentes de referencia y trazabilidad
 
+- [Directorio público — referencia HU-09, PR #181](hu/hu-09-directorio-publico.md): contrato anónimo, vigencia, identidad y decisiones pendientes de CA-06/identificador oficial. [Validación del cierre](development/pr-181-hu09-cierre.md).
+
 **GitHub (`docs/`)** conserva los procedimientos técnicos versionados junto al código. **GitHub Wiki** se utiliza como guía de navegación y enlaces hacia documentos técnicos, no como segunda copia divergente. **Google Drive** alberga planes de release, fichas, actas, aprobaciones y evidencias de negocio.
 
 - [Drive — Gestión de Releases](https://drive.google.com/drive/folders/1TwlYItxGI0bYmJ6nxw6Ggk0Sbc08cRdb)
 - [Drive — Quality Assurance](https://drive.google.com/drive/folders/12aOj3os-8IVkqfuDmK2E85NWJABSQg8j)
 
 Las pruebas integrales de todo el sistema están previstas al finalizar **Sprint 5**; no deben confundirse con las pruebas de cada HU durante los sprints. Tampoco debe considerarse desplegado algo solo porque esté integrado en `develop`.
+
+- [Cierre de integración HT-15 — PR #183](development/pr-183-ht15-cierre.md).

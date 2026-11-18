@@ -266,6 +266,38 @@ describe('ExportarConvenioMenu (FE-01, FE-03, CA-01, CA-03)', () => {
     expect(screen.queryByText(/documento oficial/i)).toBeNull()
   })
 
+  it.each([
+    ['pdf', ['contenido_contractual_ambiguo']],
+    ['excel', ['contenido_contractual_ambiguo']],
+    ['pdf', ['objeto', 'contenido_contractual_ambiguo: precarga HU-12; precarga_hu12_reconocible()']],
+    ['excel', ['objeto', 'contenido_contractual_ambiguo: precarga HU-12; precarga_hu12_reconocible()']],
+  ])('explica la inconsistencia contractual sin detalles técnicos al exportar %s (%j)', async (formato, campos) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      text: () => Promise.resolve(JSON.stringify({
+        error: 'CONVENIO_INCOMPLETO',
+        message: 'Error interno de HU-12 en precarga_hu12_reconocible()',
+        campos_faltantes: campos,
+      })),
+    }))
+    const { notify } = renderizarMenu(15)
+    fireEvent.click(screen.getByRole('button', { name: /exportar o generar documento/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`exportar como ${formato}`, 'i') }))
+
+    const modal = await screen.findByRole('dialog')
+    expect(screen.getByRole('heading', { name: 'No es posible generar el documento.' })).toBeTruthy()
+    expect(screen.getByText('Se encontró una inconsistencia entre el contenido del documento y la información definitiva del convenio. Para proteger la integridad del acuerdo, la descarga no está disponible. Comuníquese con el personal autorizado de la ORI para revisar esta situación.')).toBeTruthy()
+    expect(modal.textContent).not.toMatch(/HU-12|contenido_contractual_ambiguo|precarga_hu12_reconocible|Error interno/)
+    expect(screen.queryByRole('list')).toBeNull()
+    expect(screen.queryByText(/complete.*campos/i)).toBeNull()
+    expect(notify).not.toHaveBeenCalled()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Entendido' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
   it('notifica error 403 cuando el usuario no tiene permisos', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,

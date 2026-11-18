@@ -126,7 +126,7 @@ def test_creacion_manual_audita_una_sola_insercion_incluso_fuera_de_la_api(
     assert registro.campo is None
     assert convenio.origen == OrigenConvenio.MANUAL_ORI.value
     assert convenio.solicitud_id is None
-    assert convenio.version_actual == 1
+    assert convenio.version_actual == 0
 
 
 def test_guardar_avance_del_convenio_manual_no_versiona_ni_copia_el_contenido(
@@ -144,10 +144,10 @@ def test_guardar_avance_del_convenio_manual_no_versiona_ni_copia_el_contenido(
         }],
     }
 
-    guardado = client.patch(ruta, json={"expected_revision": 0, "contenido": contenido})
+    guardado = client.patch(ruta, json={"expected_revision": 1, "contenido": contenido})
     assert guardado.status_code == 200
-    assert guardado.json()["version_actual"] == 1
-    assert guardado.json()["revision_borrador"] == 1
+    assert guardado.json()["version_actual"] == 0
+    assert guardado.json()["revision_borrador"] == 2
     registros = _bitacora(db, "convenio", convenio_id)
     assert [(r.accion, r.campo) for r in registros] == [(AccionAuditoria.INSERT, None)]
     assert db.scalar(
@@ -159,9 +159,9 @@ def test_guardar_avance_del_convenio_manual_no_versiona_ni_copia_el_contenido(
         )
     ) is None
 
-    repetido = client.patch(ruta, json={"expected_revision": 1, "contenido": contenido})
+    repetido = client.patch(ruta, json={"expected_revision": 2, "contenido": contenido})
     assert repetido.status_code == 200
-    assert repetido.json()["revision_borrador"] == 1
+    assert repetido.json()["revision_borrador"] == 2
     assert [r.id for r in _bitacora(db, "convenio", convenio_id)] == [
         r.id for r in registros
     ]
@@ -169,7 +169,7 @@ def test_guardar_avance_del_convenio_manual_no_versiona_ni_copia_el_contenido(
 
 @pytest.mark.parametrize("origen", list(OrigenConvenio))
 def test_renovar_ambos_origenes_atribuye_toda_la_creacion_al_nuevo_responsable(
-    db, crear_usuario, crear_convenio, origen
+    db, crear_usuario, crear_convenio, formalizar_version, origen
 ) -> None:
     autor = crear_usuario(CodigoRol.GESTOR_ORI)
     responsable = crear_usuario(CodigoRol.ADMINISTRADOR_ORI)
@@ -177,6 +177,7 @@ def test_renovar_ambos_origenes_atribuye_toda_la_creacion_al_nuevo_responsable(
         padre = ServicioConvenios(db).crear_manual(ConvenioCrearManual(), autor)
     else:
         padre = crear_convenio(autor)
+    formalizar_version(padre, autor)
     padre.estado = EstadoConvenio.FINALIZADO.value
     padre.fecha_vencimiento = date(2025, 12, 31)
     db.commit()
@@ -188,7 +189,7 @@ def test_renovar_ambos_origenes_atribuye_toda_la_creacion_al_nuevo_responsable(
     registros = [registro]
     assert hijo.origen == origen.value
     assert hijo.convenio_origen_id == padre.id
-    assert hijo.version_actual == 1
+    assert hijo.version_actual == 0
     if origen == OrigenConvenio.SOLICITUD:
         assert hijo.solicitud_id != padre.solicitud_id
         (solicitud,) = _bitacora(db, "solicitud", hijo.solicitud_id)

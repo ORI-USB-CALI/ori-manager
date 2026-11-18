@@ -11,6 +11,7 @@ const gestor = { id: 1, nombre_completo: 'Gestor ORI', correo: 'gestor@example.c
 const contraparte = { id: 2, nombre_completo: 'Solicitante', correo: 'solicitante@example.com' }
 const observacion: ObservacionRevision = {
   id: 100, origen: 'CONTRAPARTE', descripcion: 'Precisar las obligaciones de la Universidad',
+  requiere_correccion: true,
   estado: 'ATENDIDA', respuesta: 'Se especificaron las obligaciones',
   registrada_por: contraparte, responsable: gestor, atendida_por: gestor,
   creado_en: '2026-10-01T14:00:00Z', fecha_atencion: '2026-10-02T15:00:00Z',

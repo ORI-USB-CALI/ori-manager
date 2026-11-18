@@ -18,6 +18,7 @@ from backend.core.security import hash_contrasena
 from backend.main import app
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.documento import Documento
 from backend.models.enums import (
@@ -58,6 +59,7 @@ from backend.services.firma_electronica import (
 )
 from backend.services.firma_png import MAX_FIRMA_PNG_BYTES
 from backend.services.firmas import ServicioFirmas
+from backend.services.vigencia import ZONA_HORARIA_DOMINIO
 
 ROLES_ESPERADOS = [
     "ADMINISTRADOR_ORI",
@@ -282,6 +284,9 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
         sesion.execute(
             delete(VersionConvenio).where(VersionConvenio.convenio_id == convenio_id)
         )
+        sesion.execute(
+            delete(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio_id)
+        )
         sesion.execute(delete(Convenio).where(Convenio.id == convenio_id))
         sesion.execute(
             delete(SolicitudConvenio).where(
@@ -301,16 +306,10 @@ def _limpiar_escenario_concurrente(db_engine, escenario: dict[str, object]) -> N
 
 
 @pytest.fixture
-def escenario_final(db, convenio_listo, gestor, revisor):
+def escenario_final(db, convenio_listo, gestor, revisor, formalizar_version):
     etapa_final = db.scalar(select(Etapa).where(Etapa.codigo == "REVISION_FINAL"))
     assert etapa_final is not None
-    version = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == convenio_listo.version_actual,
-        )
-    )
-    assert version is not None
+    version = formalizar_version(convenio_listo, gestor)
     historial = HistorialEtapa(
         convenio_id=convenio_listo.id,
         etapa_origen_id=convenio_listo.etapa_actual_id,
@@ -458,6 +457,40 @@ def _formalizar(client, escenario):
     )
 
 
+@pytest.mark.parametrize("instante,fecha_fisica,esperada", [
+    ("2026-11-16T00:04:53+00:00", "2026-11-15", "2026-11-15"),
+    ("2026-11-16T00:04:53+00:00", "2026-11-16", "2026-11-16"),
+    ("2026-11-16T04:59:59+00:00", "2026-11-15", "2026-11-15"),
+    ("2026-11-16T05:00:00+00:00", "2026-11-15", "2026-11-16"),
+    ("2027-01-01T00:04:53+00:00", "2026-12-31", "2026-12-31"),
+    ("2027-01-01T05:00:00+00:00", "2026-12-31", "2027-01-01"),
+])
+def test_formalizar_fechas_civiles_mixtas_sin_modificar_eventos(
+    client, db, escenario_final, monkeypatch, instante, fecha_fisica, esperada
+):
+    proceso = _proceso_listo_para_formalizar(client, db, escenario_final)
+    firmas = list(db.scalars(select(FirmaConvenio).where(FirmaConvenio.proceso_firmas_id == proceso["id"]).order_by(FirmaConvenio.orden)))
+    for firma in firmas:
+        firma.fecha_firma = datetime.fromisoformat(fecha_fisica).replace(tzinfo=UTC)
+    electronica = firmas[0]
+    electronica.modalidad = "ELECTRONICA"
+    electronica.correo_firmante = "firmante@example.com"
+    electronica.fecha_firma = datetime.fromisoformat(instante)
+    electronica.firma_png = base64.b64decode(FIRMA_PNG.split(",", 1)[1])
+    electronica.firma_sha256 = sha256(electronica.firma_png).hexdigest()
+    db.commit()
+    fechas_antes = {f.id: f.fecha_firma for f in firmas}
+    ahora = datetime.fromisoformat(instante).astimezone(ZONA_HORARIA_DOMINIO)
+    monkeypatch.setattr(servicio_firmas, "instante_actual_dominio", lambda: ahora)
+    respuesta = _formalizar(client, escenario_final)
+    assert respuesta.status_code == 200, respuesta.text
+    db.expire_all()
+    convenio = db.get(Convenio, escenario_final["convenio"].id)
+    assert convenio.fecha_firma.isoformat() == esperada
+    assert convenio.codigo.startswith(f"USB-ORI-{ahora.year}-")
+    assert {f.id: f.fecha_firma for f in firmas} == fechas_antes
+
+
 def _obtener_documento_aprobado(client, convenio_id):
     return client.get(
         f"/api/convenios/{convenio_id}/firmas/documento-aprobado"
@@ -531,10 +564,11 @@ def test_documento_aprobado_rechaza_convenio_sin_proceso(
 
 
 def test_documento_aprobado_rechaza_version_ajena_sin_fallback(
-    client, db, escenario_final, crear_convenio
+    client, db, escenario_final, crear_convenio, formalizar_version
 ):
     proceso = _aprobar(client, escenario_final).json()
     otro_convenio = crear_convenio(escenario_final["gestor"])
+    formalizar_version(otro_convenio, escenario_final["gestor"])
     version_ajena = db.scalar(
         select(VersionConvenio).where(
             VersionConvenio.convenio_id == otro_convenio.id
@@ -2012,6 +2046,23 @@ def test_segunda_formalizacion_es_rechazada(client, db, escenario_final):
     assert _formalizar(client, escenario_final).status_code == 409
 
 
+@pytest.mark.parametrize("formato", ["pdf", "excel"])
+def test_contrato_limpio_formalizado_exporta_sin_antecedentes(client, db, escenario_final, formato):
+    from backend.services.pdf_convenio import ServicioPdfConvenio
+
+    convenio = escenario_final["convenio"]
+    contenido = deepcopy(escenario_final["version"].contenido)
+    assert convenio.plantilla_origen_id is None
+    _proceso_listo_para_formalizar(client, db, escenario_final)
+    assert _formalizar(client, escenario_final).status_code == 200
+    respuesta = client.get(f"/api/convenios/{convenio.id}/exportar?formato={formato}")
+    assert respuesta.status_code == 200, respuesta.text
+    db.expire_all()
+    assert escenario_final["version"].contenido == contenido
+    dto = ServicioPdfConvenio().mapear_convenio_a_dto(convenio.id, db)
+    assert dto.objeto == escenario_final["version"].snapshot_metadata["objeto"]
+
+
 def test_formalizacion_crea_y_asocia_aliado(client, db, escenario_final):
     identificacion = str(900000000 + uuid4().int % 99999999)
     _proceso_listo_para_formalizar(
@@ -2668,3 +2719,71 @@ def test_formalizaciones_concurrentes_producen_un_unico_cierre(db_engine):
             ) == 1
     finally:
         _limpiar_escenario_concurrente(db_engine, escenario)
+
+
+@pytest.fixture
+def evidencia_registrada(db, escenario_final):
+    # Registro historico persistido: la consulta no depende de repetir el flujo.
+    proceso = ProcesoFirmasConvenio(
+        convenio_id=escenario_final["convenio"].id,
+        version_convenio_id=escenario_final["version"].id,
+        revision_final_id=escenario_final["revision_final"].id,
+        creado_por_id=escenario_final["gestor"].id,
+        estado="COMPLETADO",
+    )
+    db.add(proceso)
+    db.flush()
+    contenido = base64.b64decode(FIRMA_PNG.split(",", 1)[1])
+    firma = FirmaConvenio(
+        proceso_firmas_id=proceso.id, orden=1, rol_firmante="ADMINISTRADOR_ORI",
+        parte="UNIVERSIDAD", modalidad="ELECTRONICA", estado="FIRMADA",
+        correo_firmante="firmante@example.com", fecha_firma=datetime.now(UTC),
+        firma_png=contenido, firma_sha256=sha256(contenido).hexdigest(),
+    )
+    db.add(firma)
+    db.commit()
+    return firma
+
+
+@pytest.mark.parametrize("disposicion", ["inline", "attachment"])
+def test_consulta_evidencia_electronica_no_modifica_base(
+    client, db, escenario_final, evidencia_registrada, disposicion
+):
+    firma = evidencia_registrada
+    convenio_id = escenario_final["convenio"].id
+
+    def snapshot():
+        tablas = (
+            FirmaConvenio, ProcesoFirmasConvenio, Convenio, VersionConvenio,
+            RevisionConvenio, Documento, InvitacionFirmaConvenio,
+            HistorialEtapa, Auditoria,
+        )
+        return {modelo.__tablename__: list(db.execute(select(modelo.__table__).order_by(*modelo.__table__.primary_key)).all())
+                for modelo in tablas}
+
+    antes = snapshot()
+    respuesta = client.get(
+        f"/api/convenios/{convenio_id}/firmas/{firma.id}/evidencia?disposicion={disposicion}"
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.content == firma.firma_png
+    assert snapshot() == antes
+    seguimiento = client.get(f"/api/convenios/{convenio_id}/firmas").json()
+    assert seguimiento["firmas"][0]["evidencia_electronica_disponible"] is True
+    assert "firma_png" not in seguimiento["firmas"][0]
+    assert "firma_sha256" not in seguimiento["firmas"][0]
+
+
+def test_consulta_evidencia_rechaza_convenio_ajeno_y_cancelacion(
+    client, db, escenario_final, crear_convenio, evidencia_registrada
+):
+    firma = evidencia_registrada
+    ajeno = crear_convenio(escenario_final["gestor"])
+    assert client.get(
+        f"/api/convenios/{ajeno.id}/firmas/{firma.id}/evidencia"
+    ).status_code == 404
+    db.get(ProcesoFirmasConvenio, firma.proceso_firmas_id).estado = "CANCELADO"
+    db.commit()
+    assert client.get(
+        f"/api/convenios/{escenario_final['convenio'].id}/firmas/{firma.id}/evidencia"
+    ).status_code == 404

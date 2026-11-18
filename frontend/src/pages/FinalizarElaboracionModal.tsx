@@ -8,6 +8,7 @@ import type { Convenio } from './epica02'
 interface Props {
   convenioId: number
   valores: Record<string, unknown>
+  tieneVersionFormal: boolean
   onFinalizado: () => Promise<unknown>
   onErrorValidacion: (error: unknown) => void
   onCerrar: () => void
@@ -19,7 +20,7 @@ function texto(error: unknown): string {
   return 'No fue posible completar la operación.'
 }
 
-export function FinalizarElaboracionModal({ convenioId, valores, onFinalizado, onErrorValidacion, onCerrar }: Props) {
+export function FinalizarElaboracionModal({ convenioId, valores, tieneVersionFormal, onFinalizado, onErrorValidacion, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
   const notify = useNotifications()
 
@@ -45,19 +46,25 @@ export function FinalizarElaboracionModal({ convenioId, valores, onFinalizado, o
   })
 
   return (
-    <dialog ref={dialogo} className="modal" onClose={onCerrar} aria-labelledby="finalizar-modal-titulo">
+    <dialog ref={dialogo} className="modal" onClose={onCerrar} onCancel={(event) => {
+      if (finalizar.isPending) event.preventDefault()
+    }} aria-labelledby="finalizar-modal-titulo">
       <div className="modal-header">
         <h2 id="finalizar-modal-titulo">Finalizar elaboración del proyecto</h2>
-        <button type="button" className="btn-icon" aria-label="Cerrar" onClick={() => dialogo.current?.close()}>
+        <button type="button" className="btn-icon" aria-label="Cerrar" disabled={finalizar.isPending} onClick={() => dialogo.current?.close()}>
           ×
         </button>
       </div>
 
       <section className="modal-section">
         <p>
-          Al enviar el proyecto se crea su versión formal con el último contenido; si no
-          cambió desde la versión anterior, se reutiliza esa versión. Después se abre la
-          revisión jurídica y el proyecto deja de ser editable desde esta pantalla.
+          {tieneVersionFormal
+            ? 'Al enviar el proyecto se crea su versión formal con el último contenido; '
+              + 'si no cambió desde la versión anterior, se reutiliza esa versión.'
+            : 'Al enviar el proyecto por primera vez se crea su versión formal 1 (V1) '
+              + 'con el contenido actual.'}
+          {' '}Después se abre la revisión jurídica y el proyecto deja de ser editable
+          desde esta pantalla.
         </p>
         <p className="texto-secundario">¿Confirma que desea finalizar la elaboración?</p>
       </section>

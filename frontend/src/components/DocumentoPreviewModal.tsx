@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError, apiFetchArchivo } from '../app/api'
+import { descargarBlob } from '../app/descargas'
 
 export interface DocumentoPreviewModalProps {
   nombreArchivo: string
@@ -8,6 +9,9 @@ export interface DocumentoPreviewModalProps {
   urlDescarga?: string
   tipoMime?: string
   puedeDescargar?: boolean
+  permitirPng?: boolean
+  resumen?: ReactNode
+  etiquetaDescarga?: string
   onCerrar: () => void
 }
 
@@ -17,10 +21,15 @@ export function DocumentoPreviewModal({
   urlDescarga,
   tipoMime,
   puedeDescargar = true,
+  permitirPng = false,
+  resumen,
+  etiquetaDescarga,
   onCerrar,
 }: DocumentoPreviewModalProps) {
   const dialogo = useRef<HTMLDialogElement>(null)
   const focoPrevioRef = useRef<HTMLElement | null>(null)
+  const posicionPreviaRef = useRef<{ x: number; y: number } | null>(null)
+  const desplazamientosPreviosRef = useRef<Array<{ elemento: HTMLElement; top: number; left: number }>>([])
 
   // Criterio principal: tipoMime registrado si existe; de lo contrario, extensión del nombre como indicio inicial
   const tipoMimeNormalizado = tipoMime?.trim().toLowerCase()
@@ -28,8 +37,11 @@ export function DocumentoPreviewModal({
     ? (tipoMimeNormalizado === 'application/pdf' || tipoMimeNormalizado === 'application/x-pdf')
     : nombreArchivo.toLowerCase().endsWith('.pdf')
 
-  const [incompatible, setIncompatible] = useState(!esPdfInicial)
-  const [cargando, setCargando] = useState(esPdfInicial)
+  const esPng = permitirPng && tipoMimeNormalizado === 'image/png'
+  const esCompatible = esPdfInicial || esPng
+
+  const [incompatible, setIncompatible] = useState(!esCompatible)
+  const [cargando, setCargando] = useState(esCompatible)
   const [error, setError] = useState<string | null>(null)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [intento, setIntento] = useState(0)
@@ -37,6 +49,8 @@ export function DocumentoPreviewModal({
   const [accesoDenegado, setAccesoDenegado] = useState(false)
   const blobUrlRef = useRef<string | null>(null)
   const peticionRef = useRef<AbortController | null>(null)
+  const descargaRef = useRef<AbortController | null>(null)
+  const [descargando, setDescargando] = useState(false)
   const cierreNotificadoRef = useRef(false)
   const mostrarDescarga = puedeDescargar && !accesoDenegado
 
@@ -58,14 +72,43 @@ export function DocumentoPreviewModal({
     return url.startsWith('/api') ? url.slice(4) : url
   }
 
+  // HT-18: conservar el lugar de lectura, incluso dentro de contenedores con scroll.
+  // Capturar antes de showModal(), que puede modificar el foco y el desplazamiento.
+  const restaurarNavegacion = () => {
+    const focoPrevio = focoPrevioRef.current
+    if (focoPrevio?.isConnected) {
+      focoPrevio.focus({ preventScroll: true })
+    }
+    for (const { elemento, top, left } of desplazamientosPreviosRef.current) {
+      if (elemento.isConnected) {
+        elemento.scrollTop = top
+        elemento.scrollLeft = left
+      }
+    }
+    const posicion = posicionPreviaRef.current
+    if (posicion && (window.scrollX !== posicion.x || window.scrollY !== posicion.y)) {
+      window.scrollTo(posicion.x, posicion.y)
+    }
+  }
+
   useEffect(() => {
-    if (!dialogo.current?.open) {
-      focoPrevioRef.current = document.activeElement as HTMLElement | null
+    focoPrevioRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    posicionPreviaRef.current = { x: window.scrollX, y: window.scrollY }
+    desplazamientosPreviosRef.current = []
+    let ancestro = focoPrevioRef.current?.parentElement
+    while (ancestro) {
+      desplazamientosPreviosRef.current.push({
+        elemento: ancestro,
+        top: ancestro.scrollTop,
+        left: ancestro.scrollLeft,
+      })
+      ancestro = ancestro.parentElement
     }
     dialogo.current?.showModal()
 
     return () => {
-      if (focoPrevioRef.current?.isConnected) focoPrevioRef.current.focus()
+      descargaRef.current?.abort()
+      restaurarNavegacion()
     }
   }, [])
 
@@ -79,9 +122,9 @@ export function DocumentoPreviewModal({
       setBlobUrl(null)
       setError(null)
       setAccesoDenegado(false)
-      setIncompatible(!esPdfInicial)
-      setCargando(esPdfInicial)
-      if (!esPdfInicial) return
+      setIncompatible(!esCompatible)
+      setCargando(esCompatible)
+      if (!esCompatible) return
 
       try {
         const ruta = normalizarRutaApi(urlContenido)
@@ -90,7 +133,7 @@ export function DocumentoPreviewModal({
 
         // 1. Validar tipo MIME retornado por la respuesta
         const mimeRespuesta = resultado.blob.type?.trim().toLowerCase()
-        if (mimeRespuesta && mimeRespuesta !== 'application/pdf' && mimeRespuesta !== 'application/x-pdf') {
+        if (mimeRespuesta && (esPng ? mimeRespuesta !== 'image/png' : mimeRespuesta !== 'application/pdf' && mimeRespuesta !== 'application/x-pdf')) {
           setIncompatible(true)
           setCargando(false)
           return
@@ -99,14 +142,14 @@ export function DocumentoPreviewModal({
         // 2. Validar firma mágica del PDF (%PDF-)
         let encabezado = ''
         try {
-          encabezado = await resultado.blob.slice(0, 5).text()
+          encabezado = esPng ? '' : await resultado.blob.slice(0, 5).text()
         } catch {
           encabezado = ''
         }
         // Blob.text() no es cancelable: comprobar de nuevo antes de crear recursos o estado.
         if (controlador.signal.aborted) return
 
-        if (!encabezado.startsWith('%PDF-')) {
+        if (!esPng && !encabezado.startsWith('%PDF-')) {
           setIncompatible(true)
           setCargando(false)
           return
@@ -149,20 +192,37 @@ export function DocumentoPreviewModal({
       liberarUrl()
       if (peticionRef.current === controlador) peticionRef.current = null
     }
-  }, [urlContenido, esPdfInicial, intento, abierto])
+  }, [urlContenido, esCompatible, esPng, intento, abierto])
+
+  const descargarPng = async () => {
+    const controlador = new AbortController()
+    descargaRef.current = controlador
+    setDescargando(true)
+    try {
+      const archivo = await apiFetchArchivo(normalizarRutaApi(descargaUrl), controlador.signal)
+      if (!controlador.signal.aborted) descargarBlob(archivo.blob, archivo.nombreArchivo ?? nombreArchivo)
+    } catch (err) {
+      if (controlador.signal.aborted) return
+      setAccesoDenegado(err instanceof ApiError && (err.status === 401 || err.status === 403))
+      setError(err instanceof ApiError ? err.message : 'No fue posible descargar la evidencia.')
+    } finally {
+      if (!controlador.signal.aborted) setDescargando(false)
+    }
+  }
 
   const manejarReintentar = () => {
     peticionRef.current?.abort()
     liberarUrl()
     setBlobUrl(null)
     setError(null)
-    setIncompatible(!esPdfInicial)
-    setCargando(esPdfInicial)
+    setIncompatible(!esCompatible)
+    setCargando(esCompatible)
     setIntento((actual) => actual + 1)
   }
 
   const manejarCerrar = () => {
     peticionRef.current?.abort()
+    descargaRef.current?.abort()
     liberarUrl()
     dialogo.current?.close()
   }
@@ -171,9 +231,10 @@ export function DocumentoPreviewModal({
     if (cierreNotificadoRef.current) return
     cierreNotificadoRef.current = true
     peticionRef.current?.abort()
+    descargaRef.current?.abort()
     liberarUrl()
     setAbierto(false)
-    if (focoPrevioRef.current?.isConnected) focoPrevioRef.current.focus()
+    restaurarNavegacion()
     onCerrar()
   }
 
@@ -204,6 +265,7 @@ export function DocumentoPreviewModal({
       </div>
 
       <section className="modal-section" aria-live="polite">
+        {resumen}
         {incompatible ? (
           <div className="preview-estado" data-testid="preview-no-compatible">
             <span className="preview-estado-icono" aria-hidden="true">⚠️</span>
@@ -212,7 +274,7 @@ export function DocumentoPreviewModal({
               El formato de este archivo no puede previsualizarse mediante el visor del MVP.
               Actualmente solo se admite la previsualización de archivos PDF.
             </p>
-            {mostrarDescarga && descargaUrl && (
+            {!esPng && mostrarDescarga && descargaUrl && (
               <a
                 href={descargaUrl}
                 className="btn btn-primary"
@@ -240,7 +302,7 @@ export function DocumentoPreviewModal({
               >
                 Reintentar
               </button>}
-              {mostrarDescarga && descargaUrl && (
+              {!esPng && mostrarDescarga && descargaUrl && (
                 <a
                   href={descargaUrl}
                   className="btn btn-primary"
@@ -251,6 +313,8 @@ export function DocumentoPreviewModal({
               )}
             </div>
           </div>
+        ) : blobUrl && esPng ? (
+          <img src={blobUrl} alt="Evidencia de firma electrónica" style={{ maxWidth: '100%', height: 'auto' }} />
         ) : blobUrl ? (
           <iframe
             src={blobUrl}
@@ -262,14 +326,18 @@ export function DocumentoPreviewModal({
       </section>
 
       <div className="modal-acciones">
-        {mostrarDescarga && descargaUrl && (
+        {esPng && blobUrl && !error && mostrarDescarga ? (
+          <button type="button" className="btn btn-outline" disabled={descargando} onClick={() => void descargarPng()}>
+            {descargando ? 'Descargando...' : etiquetaDescarga ?? 'Descargar PNG'}
+          </button>
+        ) : !esPng && mostrarDescarga && descargaUrl && (
           <a
             href={descargaUrl}
             className="btn btn-outline"
             download={nombreArchivo}
             style={{ marginRight: 'auto' }}
           >
-            Descargar
+            {etiquetaDescarga ?? 'Descargar'}
           </a>
         )}
         <button

@@ -1,0 +1,41 @@
+.solicitudes-recibidas-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.solicitud-recibida > .card,
+.convenio-informacion,
+.convenio-elaboracion .card {
+  padding: 24px;
+}
+
+.solicitud-recibida .card h2,
+.convenio-informacion h2,
+.convenio-elaboracion .card h2 {
+  margin: 0 0 16px;
+}
+
+.convenio-elaboracion .datos-clave-campos .form-group {
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.convenio-elaboracion .datos-clave-campos .form-control {
+  color: var(--text-primary);
+  font-weight: 400;
+}
+
+@media (max-width: 600px) {
+  .solicitud-recibida > .card,
+  .convenio-informacion,
+  .convenio-elaboracion .card {
+    padding: 16px;
+  }
+
+  .convenio-elaboracion .editor-cabecera {
+    flex-wrap: wrap;
+  }
+}

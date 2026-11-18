@@ -2,6 +2,7 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
+from helpers_contenido import preparar_documento_contractual
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
@@ -47,6 +48,7 @@ def _entregar_a_juridica(db, crear_convenio, autor, **cambios):
         **cambios,
     }
     convenio = crear_convenio(autor, **datos)
+    preparar_documento_contractual(db, convenio)
     return ServicioConvenios(db).finalizar_elaboracion(convenio.id, autor)
 
 
@@ -325,7 +327,7 @@ def crear_filtrable(db, crear_convenio, autor):
     def crear(*, estado=EstadoConvenio.VIGENTE, tipo=TipoAliado.EMPRESA,
               firma=date(2026, 6, 15), **datos):
         convenio = crear_convenio(
-            autor, fecha_inicio=date(2026, 1, 1),
+            autor, historico=True, fecha_inicio=date(2026, 1, 1),
             fecha_vencimiento=date(2026, 12, 31), **datos,
         )
         convenio.estado = estado.value

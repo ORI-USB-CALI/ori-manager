@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from uuid import uuid4
 
 import pytest
+from helpers_revision import revision_actual
 from sqlalchemy import func, select
 
 from backend.models.convenio import Convenio
@@ -199,7 +200,7 @@ def test_ca02_crear_manual_rechaza_inicio_posterior(client, gestor) -> None:
     "fechas",
     [
         pytest.param({}, id="sin-fechas"),
-        pytest.param({"fecha_inicio": AYER, "fecha_vencimiento": HOY}, id="vence-hoy"),
+        pytest.param({"fecha_inicio": HOY, "fecha_vencimiento": HOY}, id="vence-hoy"),
     ],
 )
 def test_ca03_crear_manual_acepta_vigencia_valida_u_omitida(
@@ -249,7 +250,7 @@ def test_editar_otro_campo_no_revalida_vigencia_heredada(
     client, db, gestor, crear_convenio
 ) -> None:
     # Dato cargado antes de HT-08: la regla solo aplica cuando se tocan las fechas.
-    convenio = crear_convenio(gestor, fecha_vencimiento=AYER)
+    convenio = crear_convenio(gestor, historico=True, fecha_vencimiento=AYER)
 
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}", json={"objeto": "Objeto ajustado"}
@@ -261,7 +262,7 @@ def test_editar_otro_campo_no_revalida_vigencia_heredada(
 def test_reenviar_la_misma_vigencia_heredada_no_bloquea_el_guardado(
     client, db, gestor, crear_convenio
 ) -> None:
-    convenio = crear_convenio(gestor, fecha_vencimiento=AYER)
+    convenio = crear_convenio(gestor, historico=True, fecha_vencimiento=AYER)
 
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}",
@@ -280,7 +281,7 @@ def test_ca02_guardar_elaboracion_bloquea_el_guardado(
     respuesta = client.patch(
         f"/api/convenios/{convenio.id}/elaboracion",
         json={
-            "expected_revision": 0,
+            "expected_revision": 1,
             "contenido": {"type": "doc", "content": [{"type": "paragraph", "content": [
                 {"type": "text", "text": "Cláusula nueva"},
             ]}]},
@@ -295,12 +296,13 @@ def test_ca02_guardar_elaboracion_bloquea_el_guardado(
     guardado = db.get(Convenio, convenio.id)
     assert guardado.version_actual == version_antes
     assert guardado.fecha_vencimiento is None
-    assert guardado.borrador is None
+    assert guardado.borrador.revision == 1
+    assert "Cláusula nueva" not in str(guardado.borrador.contenido)
     assert db.scalar(
         select(func.count())
         .select_from(VersionConvenio)
         .where(VersionConvenio.convenio_id == convenio.id)
-    ) == 1
+    ) == 0
 
 
 # --- BE-02: finalización de la elaboración y formalización ---
@@ -314,7 +316,7 @@ def test_ca01_finalizar_elaboracion_bloquea_vencimiento_que_ya_paso(
     db.commit()
 
     validacion = client.get(f"/api/convenios/{convenio_listo.id}/elaboracion/validacion")
-    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")
+    respuesta = client.post(f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"/api/convenios/{convenio_listo.id}/elaboracion/finalizar")})
 
     assert ("fecha_vencimiento", MOTIVO_VENCIMIENTO_PASADO) in [
         (f["campo"], f["motivo"]) for f in validacion.json()["faltantes"]
@@ -327,7 +329,7 @@ def test_ca01_finalizar_elaboracion_bloquea_vencimiento_que_ya_paso(
 
 @pytest.fixture
 def convenio_en_firmas(db, gestor, crear_convenio) -> Convenio:
-    convenio = crear_convenio(gestor, fecha_inicio=AYER, fecha_vencimiento=MANANA)
+    convenio = crear_convenio(gestor, historico=True, fecha_inicio=AYER, fecha_vencimiento=MANANA)
     convenio.etapa_actual = db.scalar(
         select(Etapa).where(Etapa.codigo == "APROBACION_FIRMAS")
     )

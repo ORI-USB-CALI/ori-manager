@@ -110,3 +110,12 @@ class FirmaConvenio(Base):
     invitaciones: Mapped[list[InvitacionFirmaConvenio]] = relationship(
         back_populates="firma_convenio", cascade="all, delete-orphan"
     )
+
+    @property
+    def evidencia_electronica_disponible(self) -> bool:
+        return (
+            self.modalidad == ModalidadFirma.ELECTRONICA.value
+            and self.estado == EstadoFirmaConvenio.FIRMADA.value
+            and bool(self.firma_png)
+            and bool(self.firma_sha256)
+        )

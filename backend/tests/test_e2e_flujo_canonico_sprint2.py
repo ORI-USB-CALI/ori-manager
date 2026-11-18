@@ -7,6 +7,8 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from helpers_contenido import documento_contractual
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -237,9 +239,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
 
     elaboracion = client.get(f"/api/convenios/{convenio_id}/elaboracion")
     assert elaboracion.status_code == 200, elaboracion.text
-    contenido_editado = _anadir_parrafo(
-        elaboracion.json()["contenido"], "Edición inicial reconocible del E2E"
-    )
+    contenido_editado = documento_contractual("Edición inicial reconocible del E2E")
     guardada = client.patch(
         f"/api/convenios/{convenio_id}/elaboracion",
         json={
@@ -249,7 +249,7 @@ def test_e2e_flujo_canonico_sprint2_por_api(
             "objeto": "Convenio canónico completo del Sprint 2",
             "alcance": "INSTITUCIONAL",
             "implicacion_financiera": "Sin erogación presupuestal",
-            "duracion_meses": 24,
+            **vigencia_json(duracion_meses=24),
         },
     )
     assert guardada.status_code == 200, guardada.text

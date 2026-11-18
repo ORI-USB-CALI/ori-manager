@@ -15,7 +15,7 @@ FECHA_REFERENCIA = date(2026, 10, 7)
 def test_consulta_agregada_no_produce_n_mas_uno(db, gestor, crear_convenio) -> None:
     for dias in (15, 45, 75):
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             fecha_vencimiento=FECHA_REFERENCIA + timedelta(days=dias),
         )
         convenio.estado = EstadoConvenio.VIGENTE.value
@@ -41,7 +41,7 @@ def test_consulta_es_read_only_y_no_fuerza_flush(
     db, gestor, crear_convenio, monkeypatch
 ) -> None:
     convenio = crear_convenio(
-        gestor,
+        gestor, historico=True,
         fecha_vencimiento=FECHA_REFERENCIA + timedelta(days=30),
     )
     convenio.estado = EstadoConvenio.VIGENTE.value

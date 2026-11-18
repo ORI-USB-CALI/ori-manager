@@ -1,11 +1,12 @@
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { ApiError } from '../app/api'
 import { useSesion } from '../auth/sesion'
 import { AccionVolver } from '../components/AccionVolver'
 import { volverA } from '../components/retornoVolver'
 import { ConvenioEditor } from '../components/ConvenioEditor'
-import { contextoVersion, useVersionConvenio } from './epica02'
+import { contextoVersion, useVersionConvenio, useVersionesConvenio } from './epica02'
 
 // Etiquetas de los campos que congela el snapshot. Un campo desconocido (por
 // ejemplo, de un snapshot más antiguo o más reciente) se muestra con su clave.
@@ -14,6 +15,7 @@ const CAMPOS_SNAPSHOT: Record<string, string> = {
   solicitud_id: 'Solicitud (ID)',
   origen: 'Origen',
   aliado_id: 'Aliado (ID)',
+  aliado_identidad: 'Identidad jurídica del aliado',
   tipo_convenio_id: 'Tipo de convenio (ID)',
   objeto: 'Objeto',
   alcance: 'Alcance',
@@ -48,6 +50,7 @@ export function ConvenioVersionPage() {
   const numero = Number(params.numero)
   const parametrosValidos = Number.isInteger(id) && id > 0 && Number.isInteger(numero) && numero > 0
   const version = useVersionConvenio(id, numero)
+  const versiones = useVersionesConvenio(id, parametrosValidos)
 
   // HU-21: una versión histórica no implica acceso al detalle operativo.
   const accionVolver = <AccionVolver alternativo={sesion?.rol.codigo === 'REVISOR_ORI' || !Number.isInteger(id) || id <= 0
@@ -80,6 +83,11 @@ export function ConvenioVersionPage() {
 
   const datos = version.data!
   const snapshot = Object.entries(datos.snapshot_metadata ?? {})
+  // La versión actual es la de mayor número entre las que existen; mientras
+  // esa lista cargue, no se afirma si es histórica o no.
+  const esVersionActual = versiones.data
+    ? datos.numero === Math.max(...versiones.data.map((v) => v.numero))
+    : null
 
   return (
     <>
@@ -87,14 +95,21 @@ export function ConvenioVersionPage() {
       <section className="header-banner">
         <h1>Versión {datos.numero} del convenio</h1>
         <p>
-          <span className="badge badge-historica">Versión histórica · Solo lectura</span>
+          <span className="badge badge-historica">
+            {esVersionActual ? 'Versión actual' : 'Versión histórica'} · Solo lectura
+          </span>
           {' · '}Convenio #{id}
         </p>
       </section>
 
       <div className="version-historica-aviso" role="note">
-        Estás consultando una versión formal almacenada. Su contenido no se puede editar
-        y no corresponde necesariamente al borrador de trabajo actual del convenio.
+        {esVersionActual
+          ? 'Estás consultando la versión formal vigente del convenio. Su contenido '
+            + 'no se puede editar desde aquí; el borrador de trabajo, si existe, puede '
+            + 'tener cambios sin enviar todavía.'
+          : 'Estás consultando una versión formal almacenada. Su contenido no se puede '
+            + 'editar y no corresponde necesariamente al borrador de trabajo actual del '
+            + 'convenio.'}
       </div>
 
       <div className="elaboracion-workspace">
@@ -114,27 +129,24 @@ export function ConvenioVersionPage() {
         <aside className="elaboracion-panel">
           <section className="card proyecto-resumen">
             <h2>Datos de la versión</h2>
-            <dl className="proyecto-datos">
-              <dt>Número de versión</dt><dd>{datos.numero}</dd>
-              <dt>Autor</dt><dd>{datos.autor.nombre_completo}</dd>
-              <dt>Fecha</dt><dd>{fechaHora(datos.creado_en)}</dd>
-              <dt>Etapa</dt><dd>{datos.etapa.nombre}</dd>
-              <dt>Contexto de generación</dt><dd>{contextoVersion(datos.contexto)}</dd>
-              <dt>Plantilla utilizada</dt><dd>{datos.plantilla?.nombre ?? 'Sin plantilla asociada'}</dd>
-            </dl>
+            <DetalleCampos compacto>
+              <CampoLectura etiqueta="Número de versión">{datos.numero}</CampoLectura>
+              <CampoLectura etiqueta="Autor">{datos.autor.nombre_completo}</CampoLectura>
+              <CampoLectura etiqueta="Fecha">{fechaHora(datos.creado_en)}</CampoLectura>
+              <CampoLectura etiqueta="Etapa">{datos.etapa.nombre}</CampoLectura>
+              <CampoLectura etiqueta="Contexto de generación">{contextoVersion(datos.contexto)}</CampoLectura>
+              <CampoLectura etiqueta="Plantilla utilizada">{datos.plantilla?.nombre ?? 'Sin plantilla asociada'}</CampoLectura>
+            </DetalleCampos>
           </section>
 
           <section className="card proyecto-resumen">
             <h2>Datos del convenio en esta versión</h2>
             {snapshot.length > 0 ? (
-              <dl className="proyecto-datos">
+              <DetalleCampos compacto>
                 {snapshot.map(([campo, valor]) => (
-                  <div className="snapshot-campo" key={campo}>
-                    <dt>{CAMPOS_SNAPSHOT[campo] ?? campo}</dt>
-                    <dd>{valorSnapshot(valor)}</dd>
-                  </div>
+                  <CampoLectura key={campo} etiqueta={CAMPOS_SNAPSHOT[campo] ?? campo}>{valorSnapshot(valor)}</CampoLectura>
                 ))}
-              </dl>
+              </DetalleCampos>
             ) : (
               <p className="section-help">Esta versión no registró datos del convenio.</p>
             )}

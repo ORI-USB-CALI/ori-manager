@@ -2,6 +2,7 @@ from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
+from helpers_contenido import preparar_documento_contractual
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -82,6 +83,7 @@ def _entregar_a_juridica(
         implicacion_financiera="Sin costo para la Universidad",
         duracion_meses=24,
     )
+    preparar_documento_contractual(db, convenio)
     return ServicioConvenios(db).finalizar_elaboracion(convenio.id, autor)
 
 

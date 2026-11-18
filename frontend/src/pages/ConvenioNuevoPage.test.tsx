@@ -81,38 +81,28 @@ describe('HT-08 - vigencia en la creación manual', () => {
     return () => peticiones.filter((peticion) => peticion.url === '/api/convenios/manual')
   }
 
-  it('CA-01: no envía un vencimiento pasado y lo indica en el campo', async () => {
+  it('rechaza inicio retroactivo y conserva el borrador sin enviar', async () => {
     const creaciones = stubCreacion()
     abrir()
-    fireEvent.change(screen.getByLabelText('Fecha de vencimiento (opcional)'), { target: { value: '2000-01-01' } })
+    fireEvent.change(screen.getByLabelText('Fecha de inicio de vigencia (opcional)'), { target: { value: '2000-01-01' } })
     fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
-
-    expect(await screen.findByText('La fecha de vencimiento no puede ser anterior a hoy.')).toBeTruthy()
+    expect(await screen.findByText('La fecha de inicio no puede ser anterior a hoy.')).toBeTruthy()
     expect(creaciones()).toHaveLength(0)
   })
 
-  it('CA-02: no envía un inicio posterior al vencimiento', async () => {
+  it('calcula inmediatamente un vencimiento de solo lectura', async () => {
     const creaciones = stubCreacion()
     abrir()
-    fireEvent.change(screen.getByLabelText('Fecha de inicio de vigencia (opcional)'), { target: { value: '2999-12-31' } })
-    fireEvent.change(screen.getByLabelText('Fecha de vencimiento (opcional)'), { target: { value: '2999-01-01' } })
+    fireEvent.change(screen.getByLabelText('Fecha de inicio de vigencia (opcional)'), { target: { value: '2999-01-31' } })
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '4' } })
+    const vencimiento = screen.getByLabelText('Fecha de vencimiento (opcional)') as HTMLInputElement
+    expect(vencimiento.readOnly).toBe(true)
+    expect(vencimiento.value).toBe('2999-05-31')
     fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
-
-    expect(await screen.findByText('La fecha de vencimiento debe ser igual o posterior a la fecha de inicio.')).toBeTruthy()
-    expect(creaciones()).toHaveLength(0)
-  })
-
-  it('CA-03: envía una vigencia válida con inicio igual al vencimiento', async () => {
-    const creaciones = stubCreacion()
-    abrir()
-    fireEvent.change(screen.getByLabelText('Fecha de inicio de vigencia (opcional)'), { target: { value: '2999-01-01' } })
-    fireEvent.change(screen.getByLabelText('Fecha de vencimiento (opcional)'), { target: { value: '2999-01-01' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
-
     expect(await screen.findByText('Editor disponible')).toBeTruthy()
     const payload = JSON.parse(String(creaciones()[0].init?.body)) as Record<string, unknown>
-    expect(payload.fecha_inicio).toBe('2999-01-01')
-    expect(payload.fecha_vencimiento).toBe('2999-01-01')
+    expect(payload.fecha_vencimiento).toBe('2999-05-31')
+    expect(payload.duracion_meses).toBe(4)
   })
 
   it('las fechas son opcionales: sin fechas se envían como null', async () => {
@@ -124,5 +114,23 @@ describe('HT-08 - vigencia en la creación manual', () => {
     const payload = JSON.parse(String(creaciones()[0].init?.body)) as Record<string, unknown>
     expect(payload.fecha_inicio).toBeNull()
     expect(payload.fecha_vencimiento).toBeNull()
+  })
+
+  // input/change ejercitan el contrato DOM; jsdom no abre el calendario nativo.
+  it.each(['input', 'change'] as const)('HT17: evento %s y ambos ordenes conservan fecha y payload', async (evento) => {
+    for (const fechaPrimero of [true, false]) {
+      const creaciones = stubCreacion()
+      abrir()
+      const inicio = screen.getByLabelText('Fecha de inicio de vigencia (opcional)') as HTMLInputElement
+      const cambiarFecha = () => fireEvent[evento](inicio, { target: { value: '2099-10-31' } })
+      const cambiarDuracion = () => fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '4' } })
+      if (fechaPrimero) { cambiarFecha(); cambiarDuracion() } else { cambiarDuracion(); cambiarFecha() }
+      expect(inicio.value).toBe('2099-10-31')
+      expect((screen.getByLabelText('Fecha de vencimiento (opcional)') as HTMLInputElement).value).toBe('2100-02-28')
+      fireEvent.click(screen.getByRole('button', { name: 'Crear y abrir editor' }))
+      await screen.findByText('Editor disponible')
+      expect(JSON.parse(String(creaciones()[0].init?.body))).toMatchObject({ fecha_inicio: '2099-10-31', duracion_meses: 4, fecha_vencimiento: '2100-02-28' })
+      cleanup()
+    }
   })
 })

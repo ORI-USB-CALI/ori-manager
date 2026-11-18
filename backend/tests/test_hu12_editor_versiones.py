@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pytest
+from helpers_revision import revision_actual
 from sqlalchemy import func, select
 
 from backend.models.auditoria import Auditoria
@@ -18,6 +19,13 @@ def _texto(nodo: dict[str, object]) -> str:
     return " ".join(str(parte) for parte in partes)
 
 
+@pytest.fixture
+def convenio_listo(convenio_listo, gestor, formalizar_version):
+    """Los casos de este módulo parten de un convenio que ya tiene versión formal."""
+    formalizar_version(convenio_listo, gestor)
+    return convenio_listo
+
+
 def _elaboracion(client, convenio_id: int) -> dict[str, object]:
     respuesta = client.get(f"/api/convenios/{convenio_id}/elaboracion")
     assert respuesta.status_code == 200
@@ -28,7 +36,7 @@ def test_snapshots_historicos_sin_origen_se_leen_y_no_se_reescriben(
     client, db, convenio_listo, revisor,
 ) -> None:
     ruta = f"/api/convenios/{convenio_listo.id}"
-    assert client.post(f"{ruta}/elaboracion/finalizar").status_code == 200
+    assert client.post(f"{ruta}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"{ruta}/elaboracion/finalizar")}).status_code == 200
     revision = db.scalar(select(RevisionConvenio).where(
         RevisionConvenio.convenio_id == convenio_listo.id,
     ))
@@ -61,30 +69,26 @@ def test_snapshots_historicos_sin_origen_se_leen_y_no_se_reescriben(
     assert db.get(RevisionConvenio, revision.id).snapshot_datos == snapshot_revision
 
 
-def test_iniciar_crea_plantilla_version_inicial_y_precarga_sin_tocar_solicitud(
-    client, db, convenio_listo
+def test_iniciar_documento_limpio_sin_tocar_solicitud(
+    client, db, gestor, crear_convenio
 ) -> None:
-    solicitud = db.get(SolicitudConvenio, convenio_listo.solicitud_id)
+    convenio = crear_convenio(gestor)
+    solicitud = db.get(SolicitudConvenio, convenio.solicitud_id)
     original = (solicitud.objeto, solicitud.justificacion, solicitud.actualizado_en)
 
-    cuerpo = _elaboracion(client, convenio_listo.id)
-    assert cuerpo["version_actual"] == 1
-    assert cuerpo["plantilla_origen"]["codigo"] == "BASE_HU12"
-    texto = _texto(cuerpo["contenido"])
-    assert solicitud.objeto in texto
-    assert solicitud.justificacion in texto
-    assert solicitud.nombre_aliado_propuesto in texto
+    cuerpo = _elaboracion(client, convenio.id)
+    assert cuerpo["version_actual"] == 0
+    assert cuerpo["revision_borrador"] == 1
+    assert cuerpo["plantilla_origen"] is None
+    assert cuerpo["contenido"] == {"type": "doc", "content": [{"type": "paragraph"}]}
+    assert cuerpo["contiene_antecedentes_iniciales"] is False
+    assert cuerpo["solicitud"]["id"] == solicitud.id
 
-    version = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == 1,
-        )
-    )
-    assert version.autor_id == convenio_listo.creado_por_id
-    assert version.etapa_id == convenio_listo.etapa_actual_id
-    assert version.contexto == ContextoVersionConvenio.INICIALIZACION
-    assert version.creado_en is not None
+    assert db.scalar(
+        select(func.count())
+        .select_from(VersionConvenio)
+        .where(VersionConvenio.convenio_id == convenio.id)
+    ) == 0
     db.refresh(solicitud)
     assert (
         solicitud.objeto,

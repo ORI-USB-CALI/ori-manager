@@ -2,6 +2,7 @@ from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
+from helpers_vigencia import vigencia_json
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.aliado import Aliado
 from backend.models.auditoria import Auditoria
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.contacto_aliado import ContactoAliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
@@ -550,7 +552,15 @@ CASOS_RESERVADOS_CREACION = [
 def _conteos_creacion(db):
     return {
         modelo.__tablename__: db.scalar(select(func.count()).select_from(modelo))
-        for modelo in (Convenio, VersionConvenio, HistorialEtapa, Auditoria, SolicitudConvenio, Aliado)
+        for modelo in (
+            Convenio,
+            BorradorConvenio,
+            VersionConvenio,
+            HistorialEtapa,
+            Auditoria,
+            SolicitudConvenio,
+            Aliado,
+        )
     }
 
 
@@ -600,24 +610,26 @@ def test_contrato_http_creacion_solicitud_tiene_lista_publica_explicita(client):
 
 
 @pytest.mark.parametrize("ruta", ["crear", "iniciar"])
-@pytest.mark.parametrize("punto", ["version", "commit"])
+@pytest.mark.parametrize("punto", ["borrador", "commit"])
 def test_creacion_solicitud_revierte_escrituras_si_falla_version_o_commit(
     db, client, crear_usuario, entrar_como, crear_solicitud, monkeypatch, ruta, punto,
 ):
     actor = _autenticar(client, crear_usuario, entrar_como, CodigoRol.GESTOR_ORI)
     solicitud = crear_solicitud(actor)
     antes = _conteos_creacion(db)
-    crear_version = ServicioConvenios._crear_version
+    crear_borrador = ServicioConvenios._crear_borrador_inicial
 
     def fallar_commit():
         raise SQLAlchemyError("Fallo transaccional simulado")
 
-    def crear_version_y_fallar(*args, **kwargs):
-        crear_version(*args, **kwargs)
+    def crear_borrador_y_fallar(*args, **kwargs):
+        crear_borrador(*args, **kwargs)
         raise SQLAlchemyError("Fallo transaccional simulado")
 
-    if punto == "version":
-        monkeypatch.setattr(ServicioConvenios, "_crear_version", crear_version_y_fallar)
+    if punto == "borrador":
+        monkeypatch.setattr(
+            ServicioConvenios, "_crear_borrador_inicial", crear_borrador_y_fallar
+        )
     else:
         monkeypatch.setattr(db, "commit", fallar_commit)
     with pytest.raises(SQLAlchemyError, match="Fallo transaccional simulado"):
@@ -641,8 +653,7 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
         "tipo_convenio_id": db.scalar(select(TipoConvenio.id).where(TipoConvenio.codigo == "MARCO")),
         "unidad_organizacional_id": None,
         "implicacion_financiera": "Sin costo",
-        "fecha_inicio": "2026-01-01", "fecha_vencimiento": "2028-01-01",
-        "duracion_meses": 24,
+        **vigencia_json(duracion_meses=24),
     }
     respuesta = client.post("/api/convenios", json=datos)
     assert respuesta.status_code == 201
@@ -678,15 +689,16 @@ def test_hu06_ca01_ca03_ca04_ca06_crea_desde_sesion_sin_aliado(
     assert historial.usuario_id == gestor.id
     assert historial.responsable_id == gestor.id
     assert historial.observacion is None
-    version = db.scalar(select(VersionConvenio).where(VersionConvenio.convenio_id == convenio.id))
-    assert version.numero == convenio.version_actual == 1
-    assert version.autor_id == gestor.id
-    assert version.etapa_id == elaboracion.id
-    assert version.contexto == "INICIALIZACION"
-    assert version.contenido["type"] == "doc"
-    assert version.snapshot_metadata["origen"] == "SOLICITUD"
-    assert version.snapshot_metadata["convenio_origen_id"] is None
-    assert version.snapshot_metadata["numero_renovacion"] is None
+    assert convenio.version_actual == 0
+    assert db.scalar(
+        select(VersionConvenio).where(VersionConvenio.convenio_id == convenio.id)
+    ) is None
+    borrador = db.scalar(
+        select(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio.id)
+    )
+    assert borrador.revision == 1
+    assert borrador.actualizado_por_id == gestor.id
+    assert borrador.contenido["type"] == "doc"
     assert (
         db.scalar(
             select(ObservacionRevision).where(
@@ -832,3 +844,38 @@ def test_hu06_rutas_sin_sesion_responden_401(client) -> None:
     assert client.post("/api/convenios", json=_payload_convenio(1)).status_code == 401
     assert client.get("/api/convenios/1").status_code == 401
     assert client.patch("/api/convenios/1", json={"objeto": "X"}).status_code == 401
+
+def test_listado_paginado_con_filtros_combinados(
+    db, client, crear_usuario, entrar_como, crear_aliado
+):
+    from backend.models.pais import Pais
+
+    _autenticar(client, crear_usuario, entrar_como, CodigoRol.ADMINISTRADOR_ORI)
+    paises = db.scalars(select(Pais).limit(2)).all()
+    assert len(paises) == 2
+    prefijo = uuid4().hex
+    esperados = []
+    for numero in range(105):
+        aliado = crear_aliado(
+            nombre=f"{prefijo} {numero:03}", pais_id=paises[0].id,
+            identificacion=f"{prefijo}{numero:08}",
+            tipo_identificacion=TipoIdentificacion.OTRO.value,
+        )
+        esperados.append(aliado.id)
+    crear_aliado(nombre=prefijo, pais_id=paises[1].id)
+    crear_aliado(nombre=prefijo, pais_id=paises[0].id, activo=False)
+    crear_aliado(nombre=prefijo, pais_id=paises[0].id, tipo=TipoAliado.COLEGIO.value)
+    filtros = {"buscar": prefijo, "pais_id": paises[0].id, "tipo": "UNIVERSIDAD", "activo": "true"}
+    recibidos = []
+    for desplazamiento in range(0, 105, 20):
+        respuesta = client.get('/api/aliados', params={**filtros, 'limite': 20, 'desplazamiento': desplazamiento})
+        assert respuesta.status_code == 200
+        datos = respuesta.json()
+        assert datos['total'] == 105
+        recibidos.extend(item['id'] for item in datos['items'])
+    assert recibidos == esperados
+    respuesta = client.get('/api/aliados', params={**filtros, 'buscar': f'{prefijo}00000104'})
+    assert respuesta.json()['total'] == 1
+    assert respuesta.json()['items'][0]['id'] == esperados[-1]
+    assert client.get('/api/aliados', params={**filtros, 'pais_id': 2147483647}).json() == {'items': [], 'total': 0}
+    assert client.get('/api/aliados', params={**filtros, 'pais_id': 0}).status_code == 422

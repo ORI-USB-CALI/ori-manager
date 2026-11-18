@@ -31,6 +31,111 @@ Los permisos, transiciones y excepciones se verifican contra las implementacione
 
 ## Evidencia y cambios posteriores
 
+### CA-02: reutilización opcional como texto libre
+
+La acción «Usar información de la solicitud como base» copia objeto,
+justificación, actividades y metas al editor existente. Omite secciones vacías,
+no agrega variables pendientes ni los 23 bloques históricos. Los títulos y los
+párrafos se pueden editar, eliminar o sustituir libremente; no se imponen como
+requisitos para finalizar. Se confirma cualquier reemplazo de contenido escrito
+y se conserva una copia local del contenido anterior hasta salir de la pantalla.
+
+La acción solo está disponible con permiso de edición, en Elaboración, para un
+convenio de origen SOLICITUD que no sea renovación. Usa la solicitud original que
+ya entrega la API de Elaboración y conserva su consulta íntegra. Prepara cambios
+locales; Guardar avance y Finalizar siguen enviando `expected_revision`. No cambia
+la solicitud ni tipo, fechas o duración del formulario estructurado. No modifica
+el servicio de versiones, snapshots, revisiones, firmas ni la exportación oficial.
+
+Ver evidencia y escenarios pendientes de staging en
+[Reutilización libre de solicitud](../development/hu12-reutilizacion-libre-solicitud.md).
+
+### Corrección bloqueante: antecedentes separados del documento contractual
+
+Esta corrección sustituye la prevención estructural del PR #186 y el ajuste de
+mensaje del PR #190 descrito abajo. La solicitud es referencia; sus antecedentes
+no se convierten automáticamente en cláusulas. Al iniciar un convenio nuevo desde
+solicitud se crea un documento vacío válido, o se copia la única plantilla activa
+si es válida, no contiene variables de solicitud ni la estructura de antecedentes.
+Los datos clave siguen disponibles y la solicitud conserva su relación y acceso.
+Los convenios manuales y las renovaciones mantienen su inicialización anterior.
+
+La lectura de Elaboración añade `contiene_antecedentes_iniciales`, calculado sin
+escrituras. En un borrador antiguo habilita «Empezar documento contractual limpio».
+La confirmación advierte que reemplaza todo el contenido local y permite cancelar.
+Antes de confirmar se puede revisar/copiar el editor; después se conserva una copia
+consultable en pantalla hasta salir. El reemplazo remonta el editor y se guarda
+solo mediante las acciones existentes y su `expected_revision`. Un 409 conserva
+los cambios locales. No se reescriben versiones ni se sustituye contenido al abrir.
+
+Finalizar valida datos obligatorios, texto válido no vacío, etapa, permisos,
+observaciones y concurrencia. Los títulos o la estructura de antecedentes no son
+una regla semántica de aceptación jurídica. La revisión jurídica existente decide
+el contenido. La exportación oficial sigue rechazando la estructura histórica
+ambigua, incluso si llegó a revisión: para emitirla se requiere una nueva versión
+contractual revisada; nunca se corrige una versión aprobada en el sitio.
+
+QA en staging, después de desplegar el PR: abrir #97, comprobar que conserva todo
+el texto y sus párrafos adicionales; copiar lo que deba conservarse; iniciar la
+acción, cancelar y verificar que nada cambió. Repetir y confirmar, redactar el
+contrato, guardar avance y finalizar. Debe pasar a Jurídica. En otra sesión,
+guardar antes de la primera debe producir conflicto, sin sobrescribir ese avance.
+Para un convenio nuevo, iniciar desde una solicitud aceptada: editor vacío,
+antecedentes accesibles por «Consultar solicitud original», datos clave separados.
+Completar el contrato, recorrer las revisiones y firmas habituales y verificar
+PDF/Excel contra los datos aprobados. Un documento vacío debe seguir rechazándose.
+
+No se agregan migraciones ni se cambian solicitudes, contenido firmado o históricos.
+Las pruebas de recuperación y concurrencia están en
+`test_obs003_prevencion_elaboracion.py` y `ConvenioElaboracionPage.test.tsx`;
+HU-15 cubre formalización y exportación del contrato limpio.
+
+Verificación local de esta corrección: 553 pruebas backend aprobadas (HU-12,
+HU-10, HU-15, HT-13, HT-15, HU-24, OBS-S3-003, integración de solicitud,
+exportación API y acciones de renovación HU-31); 57 frontend aprobadas
+(Elaboración, confirmación y vigencia). Ruff, TypeScript, ESLint y
+`git diff --check` aprobados. La base local anterior carecía de la columna de
+observaciones obligatorias: se creó `ori_contractual_test` en Docker y se aplicaron
+las migraciones ya existentes exclusivamente allí. No se crearon migraciones ni
+se accedió a staging/producción. Las advertencias restantes son deprecaciones de
+dependencias (20 backend), sin pruebas omitidas ni xfail en esta selección.
+
+### Corrección del mensaje de contenido inicial en Elaboración
+
+Al finalizar con información inicial de la solicitud sin sustituir, se conserva
+HTTP 422 y el contrato `detail.faltantes` con `campo=contenido`. El motivo ahora
+indica: «El documento todavía contiene información inicial de la solicitud.
+Debes reemplazarla por el texto definitivo del convenio antes de enviarlo a
+revisión jurídica». El resumen en pantalla se titula «Revisa lo siguiente antes
+de finalizar», y conserva los mensajes de otros campos y sus errores junto a
+cada control.
+
+Se mantienen los permisos de edición y las reglas contractuales. El rechazo no
+modifica documento, metadatos, borrador, versiones, revisiones, historial,
+auditoría ni solicitud; un texto contractual válido permite finalizar. No hay
+cambios de plantillas, estructura documental, snapshots o versiones históricas,
+ni se requieren migraciones.
+
+Regresión: `backend/tests/test_obs003_prevencion_elaboracion.py` cubre rechazo
+desde borrador, formulario y versión histórica, con o sin texto añadido,
+ausencia de efectos y aceptación de texto contractual.
+`frontend/src/pages/ConvenioElaboracionPage.test.tsx` comprueba el mensaje,
+el encabezado, la ausencia de referencias técnicas en pantalla y notificaciones,
+la conservación de lo escrito y los errores simultáneos de otros campos.
+
+Verificación local (15/11/2026): 51 pruebas backend aprobadas entre la regresión
+anterior, `test_hu12_elaboracion.py` y `test_integracion_solicitud_elaboracion.py`,
+contra PostgreSQL local en Docker, sin ejecutar migraciones; 54 pruebas frontend
+aprobadas entre la página, `FinalizarElaboracionModal.test.tsx` y
+`vigencia.test.tsx`. Ruff, TypeScript, ESLint y `git diff --check` aprobados.
+
+La revisión se limita a la página de Elaboración, su confirmación y las
+validaciones que consumen. Se detectaron además mensajes técnicos en los errores
+de estructura documental inválida (`contenido_convenio.py`) y de configuración
+de etapas; se registran sin alterarlos para preservar el contrato API y el
+alcance de esta corrección. No se atribuye esta revisión a una aceptación en
+staging ni se modifica el estado histórico de la HU.
+
 ### HU-10, bloque 4A: exportación sin solicitud de origen
 
 `GET /api/convenios/{id}/exportar?formato=pdf|excel` admite convenios

@@ -153,7 +153,7 @@ export function HomePage() {
     <>
       <section className="header-banner home-banner">
         <h1>Sistema de Gestión ORI</h1>
-        <p>Oficina de Relaciones Internacionales — Universidad de San Buenaventura Cali</p>
+        <p>Oficina de Relaciones Interinstitucionales — Universidad de San Buenaventura Cali</p>
       </section>
 
       {puedeRevisarContraparte && cantidadPendiente > 0 && (

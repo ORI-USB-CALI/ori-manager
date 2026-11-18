@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.roles import CodigoRol, TipoUsuario
 from backend.models.actividad_convenio import ActividadConvenio
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     EstadoActividadConvenio,
@@ -61,7 +62,7 @@ def crear_convenio_en_estado(
         fecha_vencimiento: date | None = VENCIMIENTO,
     ) -> Convenio:
         convenio = crear_convenio(
-            gestor,
+            gestor, historico=True,
             codigo=f"HU35-{uuid4().hex[:12]}",
             fecha_inicio=fecha_inicio,
             fecha_vencimiento=fecha_vencimiento,
@@ -459,6 +460,11 @@ def test_registro_recarga_estado_confirmado_por_otra_conexion(
             limpieza.execute(
                 delete(ActividadConvenio).where(
                     ActividadConvenio.convenio_id == convenio_id
+                )
+            )
+            limpieza.execute(
+                delete(BorradorConvenio).where(
+                    BorradorConvenio.convenio_id == convenio_id
                 )
             )
             limpieza.execute(delete(Convenio).where(Convenio.id == convenio_id))

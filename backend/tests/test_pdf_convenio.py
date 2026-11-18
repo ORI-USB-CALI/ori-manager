@@ -1,8 +1,8 @@
 import pytest
 from sqlalchemy import select
 
+from backend.models.borrador_convenio import BorradorConvenio
 from backend.models.tipo_convenio import TipoConvenio
-from backend.models.version_convenio import VersionConvenio
 from backend.services.convenios import ConvenioNoEncontrado
 from backend.services.pdf_convenio import ServicioPdfConvenio
 
@@ -65,7 +65,6 @@ def test_aislamiento_de_datos_concurrente_ca_02(db, gestor, crear_convenio):
 
 def test_generar_pdf_con_contenido_tiptap_estructurado(db, convenio_listo, gestor):
     """Verifica que el contenido ProseMirror/TipTap se parsea y formatea en cláusulas."""
-    etapa = convenio_listo.etapa_actual
     contenido_estructurado = {
         "type": "doc",
         "content": [
@@ -118,25 +117,10 @@ def test_generar_pdf_con_contenido_tiptap_estructurado(db, convenio_listo, gesto
         ],
     }
 
-    version_existente = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == convenio_listo.version_actual,
-        )
+    borrador = db.scalar(
+        select(BorradorConvenio).where(BorradorConvenio.convenio_id == convenio_listo.id)
     )
-    if version_existente is not None:
-        version_existente.contenido = contenido_estructurado
-    else:
-        version_existente = VersionConvenio(
-            convenio_id=convenio_listo.id,
-            numero=convenio_listo.version_actual,
-            contenido=contenido_estructurado,
-            snapshot_metadata={},
-            autor_id=gestor.id,
-            etapa_id=etapa.id,
-            contexto="GUARDADO",
-        )
-        db.add(version_existente)
+    borrador.contenido = contenido_estructurado
     db.commit()
 
     servicio = ServicioPdfConvenio()

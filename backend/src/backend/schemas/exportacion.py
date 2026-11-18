@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Representación explícita de un dato ausente en el PDF y el Excel. Un dato
 # que falta nunca se reemplaza por un valor supuesto.
 INFORMACION_NO_DISPONIBLE = "Información no disponible"
+SIN_VERSION_FORMAL = "Sin versión formal"
 
 
 # Marca visible de los documentos de trabajo, antes de formalizar el convenio.

@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { IdentidadInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { PasswordInput } from '../components/PasswordInput'
 import {
@@ -121,7 +122,7 @@ export function RegistroPage() {
     return (
       <main className="login-page">
         <section className="card card-auth">
-          <div className="login-brand">ORI Manager</div>
+          <IdentidadInstitucional acceso />
           <h1>Verificación pendiente</h1>
           <p className="alert-success" role="status">
             Tu cuenta ya fue creada y está pendiente de verificación.
@@ -149,7 +150,7 @@ export function RegistroPage() {
     return (
       <main className="login-page">
         <section className="card card-auth">
-          <div className="login-brand">ORI Manager</div>
+          <IdentidadInstitucional acceso />
           <h1>Cuenta existente</h1>
           <p className="alert-success" role="status">
             Ya existe una cuenta verificada con este correo.
@@ -176,7 +177,7 @@ export function RegistroPage() {
     return (
       <main className="login-page">
         <section className="card card-auth">
-          <div className="login-brand">ORI Manager</div>
+          <IdentidadInstitucional acceso />
           <h1>Cuenta creada</h1>
           <p className="alert-success" role="status">
             {registro.data.mensaje}
@@ -196,7 +197,7 @@ export function RegistroPage() {
   return (
     <main className="login-page">
       <section className="card card-auth card-registro">
-        <div className="login-brand">ORI Manager</div>
+        <IdentidadInstitucional acceso />
         <h1>Crear cuenta</h1>
         <p className="texto-secundario">
           Los dominios @correo.usbcali.edu.co y @usbcali.edu.co se clasifican como internos; los demás, como externos.

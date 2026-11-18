@@ -1,0 +1,2 @@
+Se solicitó restablecer la contraseña de su cuenta de ORI Manager. Restablezca su contraseña en: https://ori.example.invalid/restablecer-contrasena?token=FICTICIO_SIN_VALIDEZ_123
+El enlace vence en 30 minutos. Si no realizó esta solicitud, puede ignorar este mensaje.

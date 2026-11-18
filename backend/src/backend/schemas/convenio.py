@@ -114,7 +114,7 @@ class ConvenioElaboracionGuardar(ConvenioElaboracionActualizar):
 
 class ConvenioElaboracionFinalizar(ConvenioElaboracionActualizar):
     contenido: dict[str, Any] | None = None
-    expected_revision: int | None = Field(default=None, ge=0)
+    expected_revision: int = Field(ge=0)
 
 
 class UsuarioResumen(BaseModel):
@@ -128,9 +128,11 @@ class AliadoResumen(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     nombre: str
+    tipo: str | None = None
     tipo_identificacion: str
     identificacion: str
     digito_verificacion: str | None
+    correo: str | None = None
     activo: bool
 
     @computed_field
@@ -287,6 +289,7 @@ class ConvenioElaboracionLeer(ConvenioLeer):
     plantilla_origen: PlantillaConvenioResumen | None
     contenido: dict[str, Any] | None
     # Estado del borrador de trabajo, independiente de version_actual (HT-13).
+    contiene_antecedentes_iniciales: bool = False
     revision_borrador: int = 0
     borrador_guardado_en: datetime | None = None
 
@@ -314,6 +317,7 @@ class ObservacionRevisionLeer(BaseModel):
     id: int
     origen: OrigenObservacionRevision
     descripcion: str
+    requiere_correccion: bool
     respuesta: str | None
     estado: EstadoObservacionRevision
     registrada_por: UsuarioResumen | None
@@ -521,10 +525,22 @@ class EnviarRevisionContraparte(AprobarRevision):
     pass
 
 
+class ReenviarInvitacionContraparte(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_invitacion_id: int = Field(gt=0)
+
+
+class InvalidarRevisionPorIdentidad(AprobarRevision):
+    expected_invitacion_id: int = Field(gt=0)
+
+
 class CrearObservacionRevision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     descripcion: str = Field(min_length=1)
+    # HT-15: el Revisor ORI indica si obliga a corregir el documento.
+    requiere_correccion: bool = True
 
     @field_validator("descripcion")
     @classmethod
@@ -606,6 +622,7 @@ class FirmaConvenioLeer(BaseModel):
     fecha_firma: datetime | None
     documento_id: int | None
     documento: DocumentoConvenioLeer | None
+    evidencia_electronica_disponible: bool = False
     creado_en: datetime
     invitaciones: list[InvitacionFirmaConvenioLeer] = Field(default_factory=list)
 

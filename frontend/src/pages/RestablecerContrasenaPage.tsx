@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { IdentidadInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { PasswordInput } from '../components/PasswordInput'
 import {
@@ -83,7 +84,7 @@ export function RestablecerContrasenaPage() {
     return (
       <main className="login-page">
         <section className="card card-auth">
-          <div className="login-brand">ORI Manager</div>
+          <IdentidadInstitucional acceso />
           <h1>Validando enlace</h1>
           <p className="texto-secundario" role="status">
             Estamos comprobando que el enlace de recuperación siga disponible.
@@ -115,7 +116,7 @@ export function RestablecerContrasenaPage() {
     return (
       <main className="login-page">
         <section className="card card-auth">
-          <div className="login-brand">ORI Manager</div>
+          <IdentidadInstitucional acceso />
           <h1>Contraseña actualizada</h1>
           <p className="alert-success" role="status">
             Su contraseña fue actualizada. Ya puede iniciar sesión.
@@ -155,7 +156,7 @@ export function RestablecerContrasenaPage() {
   return (
     <main className="login-page">
       <section className="card card-auth">
-        <div className="login-brand">ORI Manager</div>
+        <IdentidadInstitucional acceso />
         <h1>Nueva contraseña</h1>
         <p className="texto-secundario">Defina la nueva credencial con la que accederá a su cuenta.</p>
         <form onSubmit={enviar}>
@@ -208,7 +209,7 @@ function EstadoEnlace({ titulo, mensaje }: { titulo: string; mensaje: string }) 
   return (
     <main className="login-page">
       <section className="card card-auth">
-        <div className="login-brand">ORI Manager</div>
+        <IdentidadInstitucional acceso />
         <h1>{titulo}</h1>
         <p className="texto-secundario" role="alert">{mensaje}</p>
         <Link className="btn btn-primary btn-block" to="/recuperar-contrasena">

@@ -83,15 +83,15 @@ export function RevisionesJuridicasPage() {
   }
 
   const columns: DataTableColumn<RevisionJuridicaPendiente>[] = [
-    { id: 'convenio', header: 'Convenio', render: (item) => <strong>{referenciaConvenio(item.codigo_convenio, item.convenio_id)}</strong> },
-    { id: 'solicitud', header: 'Solicitud origen', render: (item) => item.solicitud_consecutivo ?? 'Creación directa ORI' },
-    { id: 'objeto', header: 'Objeto', className: 'table-cell-wide', render: (item) => item.objeto ?? '—' },
-    { id: 'tipo', header: 'Tipo convenio', render: (item) => item.tipo_convenio?.nombre ?? '—' },
-    { id: 'revision', header: 'Revisión', render: (item) => item.instancia_juridica ? `${item.instancia_juridica} de 2` : 'Legacy' },
-    { id: 'ronda', header: 'Ronda', render: (item) => item.numero_ronda ?? '—' },
-    { id: 'version', header: 'Versión', render: (item) => item.version_numero ?? '—' },
+    { id: 'convenio', className: 'tabla-col-referencia', header: 'Convenio', render: (item) => <strong>{referenciaConvenio(item.codigo_convenio, item.convenio_id)}</strong> },
+    { id: 'solicitud', className: 'tabla-col-referencia', header: 'Solicitud origen', render: (item) => item.solicitud_consecutivo ?? 'Creación directa ORI' },
+    { id: 'objeto', className: 'tabla-col-descripcion', header: 'Objeto', render: (item) => item.objeto ?? '—' },
+    { id: 'tipo', className: 'tabla-col-texto', header: 'Tipo convenio', render: (item) => item.tipo_convenio?.nombre ?? '—' },
+    { id: 'revision', className: 'tabla-col-numero', header: 'Revisión', render: (item) => item.instancia_juridica ? `${item.instancia_juridica} de 2` : 'Legacy' },
+    { id: 'ronda', className: 'tabla-col-numero', header: 'Ronda', render: (item) => item.numero_ronda ?? '—' },
+    { id: 'version', className: 'tabla-col-numero', header: 'Versión', render: (item) => item.version_numero ?? '—' },
     {
-      id: 'responsable',
+      id: 'responsable', className: 'tabla-col-persona',
       header: 'Responsable',
       render: (item) => (
         <>
@@ -100,8 +100,8 @@ export function RevisionesJuridicasPage() {
         </>
       ),
     },
-    { id: 'fecha', header: 'Fecha de recepción', render: (item) => formatDateTime(item.fecha_recepcion) },
-    { id: 'acciones', header: 'Acciones', render: (item) => <Link className="btn btn-outline btn-small" to={`/convenios/${item.convenio_id}`} state={retorno}>Revisar</Link> },
+    { id: 'fecha', className: 'tabla-col-fecha', header: 'Fecha de recepción', render: (item) => formatDateTime(item.fecha_recepcion) },
+    { id: 'acciones', className: 'tabla-col-acciones', header: 'Acciones', render: (item) => <Link className="btn btn-outline btn-small" to={`/convenios/${item.convenio_id}`} state={retorno}>Revisar</Link> },
   ]
 
   return (
@@ -130,7 +130,7 @@ export function RevisionesJuridicasPage() {
           </TableFilters>
           <ResultsCount count={items.length} />
           {items.length > 0 ? (
-            <DataTable columns={columns} rows={items} rowKey={(item) => item.revision_id} label="Revisiones jurídicas" />
+            <DataTable containerClassName="tabla-densa-region" tableClassName="tabla-densa" columns={columns} rows={items} rowKey={(item) => item.revision_id} label="Revisiones jurídicas" />
           ) : (
             <TableEmptyState message="No se encontraron resultados con los filtros seleccionados." onClear={limpiarFiltros} />
           )}

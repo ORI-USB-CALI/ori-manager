@@ -1,0 +1,146 @@
+[
+  {
+    "name": "firma",
+    "width": 1440,
+    "height": 900,
+    "overflow": false
+  },
+  {
+    "name": "firma",
+    "width": 1280,
+    "height": 800,
+    "overflow": false
+  },
+  {
+    "name": "firma",
+    "width": 768,
+    "height": 1024,
+    "overflow": false
+  },
+  {
+    "name": "firma",
+    "width": 390,
+    "height": 844,
+    "overflow": false
+  },
+  {
+    "name": "firma",
+    "width": 360,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "firma",
+    "width": 320,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "contraparte",
+    "width": 1440,
+    "height": 900,
+    "overflow": false
+  },
+  {
+    "name": "contraparte",
+    "width": 1280,
+    "height": 800,
+    "overflow": false
+  },
+  {
+    "name": "contraparte",
+    "width": 768,
+    "height": 1024,
+    "overflow": false
+  },
+  {
+    "name": "contraparte",
+    "width": 390,
+    "height": 844,
+    "overflow": false
+  },
+  {
+    "name": "contraparte",
+    "width": 360,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "contraparte",
+    "width": 320,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "verificacion",
+    "width": 1440,
+    "height": 900,
+    "overflow": false
+  },
+  {
+    "name": "verificacion",
+    "width": 1280,
+    "height": 800,
+    "overflow": false
+  },
+  {
+    "name": "verificacion",
+    "width": 768,
+    "height": 1024,
+    "overflow": false
+  },
+  {
+    "name": "verificacion",
+    "width": 390,
+    "height": 844,
+    "overflow": false
+  },
+  {
+    "name": "verificacion",
+    "width": 360,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "verificacion",
+    "width": 320,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "recuperacion",
+    "width": 1440,
+    "height": 900,
+    "overflow": false
+  },
+  {
+    "name": "recuperacion",
+    "width": 1280,
+    "height": 800,
+    "overflow": false
+  },
+  {
+    "name": "recuperacion",
+    "width": 768,
+    "height": 1024,
+    "overflow": false
+  },
+  {
+    "name": "recuperacion",
+    "width": 390,
+    "height": 844,
+    "overflow": false
+  },
+  {
+    "name": "recuperacion",
+    "width": 360,
+    "height": 740,
+    "overflow": false
+  },
+  {
+    "name": "recuperacion",
+    "width": 320,
+    "height": 740,
+    "overflow": false
+  }
+]

@@ -1,0 +1,54 @@
+{
+  "browser": "157.0.8103.52",
+  "syntheticData": true,
+  "results": [
+    {
+      "width": 1440,
+      "height": 900,
+      "viewport": 1440,
+      "page": 1440,
+      "columns": 7,
+      "region": 1406
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "viewport": 1280,
+      "page": 1280,
+      "columns": 7,
+      "region": 1246
+    },
+    {
+      "width": 768,
+      "height": 1024,
+      "viewport": 768,
+      "page": 768,
+      "columns": 7,
+      "region": 734
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "viewport": 390,
+      "page": 390,
+      "columns": 7,
+      "region": 356
+    },
+    {
+      "width": 360,
+      "height": 740,
+      "viewport": 360,
+      "page": 360,
+      "columns": 7,
+      "region": 326
+    },
+    {
+      "width": 320,
+      "height": 740,
+      "viewport": 320,
+      "page": 320,
+      "columns": 7,
+      "region": 286
+    }
+  ]
+}

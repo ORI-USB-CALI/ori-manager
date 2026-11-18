@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers_vigencia import vigencia_nueva
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -17,6 +18,7 @@ from backend.models.aliado import Aliado
 from backend.models.convenio import Convenio
 from backend.models.enums import (
     AlcanceConvenio,
+    ContextoVersionConvenio,
     EstadoConvenio,
     EstadoFirmaConvenio,
     EstadoProcesoFirmasConvenio,
@@ -191,9 +193,9 @@ def solicitante(crear_usuario) -> Usuario:
 
 @pytest.fixture
 def crear_convenio(db: Session) -> Callable[..., Convenio]:
-    """Crea el convenio mediante el contrato canónico de HU-06."""
+    """Crea borradores nuevos por HU-06; historico=True carga datos anteriores a HT-17."""
 
-    def _crear(autor: Usuario, **cambios) -> Convenio:
+    def _crear(autor: Usuario, *, historico: bool = False, **cambios) -> Convenio:
         # HT-06, CA-05: el contrato de creación ya no acepta `codigo`; lo genera
         # el backend al formalizar. Las pruebas que necesitan un código concreto
         # (búsqueda por código, tablero) lo fijan sobre el modelo ya creado.
@@ -218,15 +220,17 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
             "alcance": AlcanceConvenio.INSTITUCIONAL,
             **cambios,
         }
-        # HT-08: el fixture fabrica convenios con vigencias históricas (vigentes,
-        # vencidos) para otras HU. Se congela "hoy" en date.min para que no aplique
-        # el CA-01 (vencimiento pasado); el CA-02 (inicio <= vencimiento) sí aplica.
-        # Las reglas de HT-08 se prueban en test_ht08_validacion_vigencia.py.
-        with patch.object(servicio_convenios, "fecha_actual_dominio", lambda: date.min):
-            convenio = ServicioConvenios(db).crear(
-                ConvenioCrear.model_validate(datos),
-                autor,
-            )
+        if not historico and datos.get("duracion_meses") is not None and "fecha_inicio" not in cambios and "fecha_vencimiento" not in cambios:
+            datos.update(vigencia_nueva(duracion_meses=datos["duracion_meses"]))
+        if historico:
+            # Carga explicita de datos anteriores a la migracion HT-17, con su
+            # snapshot original. No usar para registrar convenios nuevos.
+            with patch.object(servicio_convenios, "preparar_vigencia", lambda inicio, duracion, fin, hoy: (fin, [])):
+                convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
+            convenio.vigencia_ht17 = False
+            db.commit()
+        else:
+            convenio = ServicioConvenios(db).crear(ConvenioCrear.model_validate(datos), autor)
         if codigo is not None:
             convenio.codigo = codigo
             db.commit()
@@ -236,17 +240,47 @@ def crear_convenio(db: Session) -> Callable[..., Convenio]:
 
 
 @pytest.fixture
+def formalizar_version(db: Session) -> Callable[[Convenio, Usuario], VersionConvenio]:
+    """Genera la versión formal desde el borrador, como el envío a revisión.
+
+    Para las pruebas que llevan el convenio directamente a una etapa posterior:
+    un convenio nuevo no tiene versión formal hasta enviarse a revisión.
+    """
+
+    def _formalizar(
+        convenio: Convenio,
+        autor: Usuario,
+        contexto: ContextoVersionConvenio = ContextoVersionConvenio.FINALIZACION,
+    ) -> VersionConvenio:
+        servicio = ServicioConvenios(db)
+        borrador = servicio._borrador(convenio.id)
+        version = servicio._crear_version(
+            convenio, borrador.contenido, autor, contexto
+        )
+        db.delete(borrador)
+        db.commit()
+        return version
+
+    return _formalizar
+
+
+@pytest.fixture
 def convenio_listo(db: Session, gestor, crear_convenio) -> Convenio:
     """Convenio con todo lo requerido para entregarlo a Jurídica."""
     tipo = db.scalar(select(TipoConvenio).where(TipoConvenio.codigo == "MARCO"))
-    return crear_convenio(
+    convenio = crear_convenio(
         gestor,
         tipo_convenio_id=tipo.id,
         implicacion_financiera="Sin costo para la Universidad",
         duracion_meses=24,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2028, 1, 1),
     )
+
+    # Listo para Juridica incluye texto elaborado, no solo datos estructurales.
+    convenio.borrador.contenido = {"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "Las partes acuerdan cooperar en actividades academicas."}
+    ]}]}
+    db.commit()
+    return convenio
 
 
 # ---- Fixture compartida de HU-32 (evaluación) -----------------------------
@@ -280,7 +314,9 @@ def convenio_finalizado(gestor, crear_convenio_finalizado) -> Convenio:
 
 
 @pytest.fixture
-def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
+def convenio_exportable(
+    db: Session, gestor, convenio_listo, formalizar_version
+) -> Convenio:
     """Convenio con todos los datos que exige la exportación oficial (CA-03).
 
     Además de lo que trae `convenio_listo` (tipo, objeto, fechas y una versión
@@ -303,12 +339,11 @@ def convenio_exportable(db: Session, gestor, convenio_listo) -> Convenio:
     convenio_listo.aliado_id = aliado.id
     convenio_listo.codigo = f"CONV-{uuid4().hex[:8].upper()}"
 
-    version = db.scalar(
-        select(VersionConvenio).where(
-            VersionConvenio.convenio_id == convenio_listo.id,
-            VersionConvenio.numero == convenio_listo.version_actual,
-        )
-    )
+    version = formalizar_version(convenio_listo, gestor)
+    # Escenario exportable: cl?usulas elaboradas, no la precarga de solicitud.
+    version.contenido = {"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "Las partes acuerdan cooperar en movilidad academica."}
+    ]}]}
     revision_final = RevisionConvenio(
         convenio_id=convenio_listo.id,
         tipo=TipoRevisionConvenio.FINAL.value,

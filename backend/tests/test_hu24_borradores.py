@@ -81,11 +81,12 @@ def _parrafo(texto: str) -> dict:
 
 
 @pytest.fixture
-def borrador(gestor, crear_convenio) -> Convenio:
+def borrador(client, gestor, crear_convenio) -> Convenio:
     """Convenio recién creado: EN_TRAMITE en ELABORACION, sin código, sin
     fechas de vigencia y sin proceso de firmas, con objeto, entidad propuesta
-    y la versión inicial con contenido."""
+    y texto contractual guardado explícitamente por el Gestor."""
     convenio = crear_convenio(gestor)
+    _guardar_contenido(client, convenio, DOCUMENTO_CON_TEXTO)
     assert convenio.etapa_actual.codigo == "ELABORACION"
     assert convenio.codigo is None and convenio.fecha_inicio is None
     assert convenio.procesos_firmas == []
@@ -401,7 +402,9 @@ def _sin_entidad(db, client, convenio):
 
 def _sin_version(db, client, convenio):
     convenio.version_actual = 99
+    db.delete(convenio.borrador)
     db.commit()
+    db.expire(convenio, ["borrador"])
 
 
 def _contenido_vacio(db, client, convenio):

@@ -289,7 +289,7 @@ class ServicioRenovaciones:
                 "alcance": origen.alcance,
                 "unidad_organizacional_id": origen.unidad_organizacional_id,
                 "implicacion_financiera": origen.implicacion_financiera,
-                "duracion_meses": origen.duracion_meses,
+                "duracion_meses": origen.duracion_meses if origen.duracion_meses and origen.duracion_meses >= 4 else None,
             }
             numero_renovacion = (origen.numero_renovacion or 0) + 1
             describir_accion(
@@ -297,10 +297,9 @@ class ServicioRenovaciones:
                 usuario,
                 "Inició la renovación del convenio",
                 evento="RENOVACION_INICIADA",
-                # La operación crea al hijo en Elaboración, versión inicial 1,
+                # La operación crea al hijo en Elaboración, aún sin versión formal,
                 # con responsable explícito en su historial de entrada.
                 etapa="ELABORACION",
-                version=1,
                 responsable_id=usuario.id,
             )
             if origen.origen == OrigenConvenio.MANUAL_ORI.value:

@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
+import { CabeceraPublica, PieInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { ConvenioEditor, type DocumentoConvenio } from '../components/ConvenioEditor'
 import { FirmaCanvas } from '../components/FirmaCanvas'
@@ -138,15 +140,15 @@ export function FirmaConvenioPublicaPage() {
 
         <section className="card revision-publica-resumen">
           <h2>Datos de la firma</h2>
-          <dl className="proyecto-datos">
-            <dt>Elaboración</dt><dd>{datos.identificador}</dd>
-            <dt>Firmante</dt><dd>{datos.nombre_firmante}</dd>
-            <dt>Cargo</dt><dd>{datos.cargo_firmante}</dd>
-            <dt>Rol</dt><dd>{etiquetaRol(datos.rol)}</dd>
-            <dt>Correo</dt><dd>{datos.correo_firmante}</dd>
-            <dt>Versión</dt><dd>{datos.version_numero}</dd>
-            <dt>Enlace válido hasta</dt><dd>{new Date(datos.expira_en).toLocaleString()}</dd>
-          </dl>
+          <DetalleCampos>
+            <CampoLectura etiqueta="Elaboración">{datos.identificador}</CampoLectura>
+            <CampoLectura etiqueta="Firmante">{datos.nombre_firmante}</CampoLectura>
+            <CampoLectura etiqueta="Cargo">{datos.cargo_firmante}</CampoLectura>
+            <CampoLectura etiqueta="Rol">{etiquetaRol(datos.rol)}</CampoLectura>
+            <CampoLectura etiqueta="Correo">{datos.correo_firmante}</CampoLectura>
+            <CampoLectura etiqueta="Versión">{datos.version_numero}</CampoLectura>
+            <CampoLectura etiqueta="Enlace válido hasta">{new Date(datos.expira_en).toLocaleString()}</CampoLectura>
+          </DetalleCampos>
         </section>
 
         <section className="card revision-publica-documento">
@@ -182,9 +184,9 @@ export function FirmaConvenioPublicaPage() {
 
   return (
     <div className="revision-publica-shell">
-      <header className="revision-publica-header"><div><strong>USB</strong><span>Oficina de Relaciones Interinstitucionales</span></div></header>
+      <CabeceraPublica />
       {contenido}
-      <footer className="revision-publica-footer">Universidad de San Buenaventura Cali · Firma electrónica de elaboración de convenio</footer>
+      <PieInstitucional />
     </div>
   )
 }

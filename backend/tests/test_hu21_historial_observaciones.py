@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import pytest
+from helpers_revision import revision_actual
 from sqlalchemy import select
 
 from backend.core.roles import CodigoRol, TipoUsuario
@@ -64,7 +65,7 @@ def _devolver_y_corregir_ronda_1(
             "expected_revision": elaboracion["revision_borrador"],
         },
     ).status_code == 200
-    assert client.post(f"{base}/elaboracion/finalizar").status_code == 200
+    assert client.post(f"{base}/elaboracion/finalizar", json={"expected_revision": revision_actual(client, f"{base}/elaboracion/finalizar")}).status_code == 200
     db.refresh(convenio)
 
 

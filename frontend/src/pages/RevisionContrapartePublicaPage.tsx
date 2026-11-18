@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
+import { CabeceraPublica, PieInstitucional } from '../components/IdentidadInstitucional'
 import { ApiError, apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { ConvenioEditor } from '../components/ConvenioEditor'
@@ -257,18 +259,18 @@ export function RevisionContrapartePublicaPage() {
 
         <section className="card revision-publica-resumen" aria-labelledby="datos-convenio-titulo">
           <h2 id="datos-convenio-titulo">Datos de la elaboración de convenio</h2>
-          <dl className="proyecto-datos">
+          <DetalleCampos>
             {/* HT-06: la vista pública de la contraparte no recibe el
                 identificador interno del convenio (enlace con token, sin
                 sesión), así que aquí no se usa `referenciaConvenio`: no hay un
                 id que mostrar y exponerlo sería filtrar datos internos. */}
-            <dt>Código</dt><dd>{revision.codigo_convenio ?? 'En asignación'}</dd>
-            <dt>Contraparte</dt><dd>{revision.contraparte ?? '—'}</dd>
-            <dt>Versión recibida</dt><dd>{revision.version_numero}</dd>
-            <dt>Destinatario</dt><dd>{revision.correo_destino}</dd>
-            <dt>Enlace válido hasta</dt><dd>{fechaHora(revision.expira_en)}</dd>
-            <dt>Estado</dt><dd>{revision.estado}</dd>
-          </dl>
+            <CampoLectura etiqueta="Código">{revision.codigo_convenio ?? 'En asignación'}</CampoLectura>
+            <CampoLectura etiqueta="Contraparte">{revision.contraparte ?? '—'}</CampoLectura>
+            <CampoLectura etiqueta="Versión recibida">{revision.version_numero}</CampoLectura>
+            <CampoLectura etiqueta="Destinatario">{revision.correo_destino}</CampoLectura>
+            <CampoLectura etiqueta="Enlace válido hasta">{fechaHora(revision.expira_en)}</CampoLectura>
+            <CampoLectura etiqueta="Estado">{revision.estado}</CampoLectura>
+          </DetalleCampos>
           <h3>Objeto</h3>
           <p>{revision.objeto ?? '—'}</p>
         </section>
@@ -391,15 +393,9 @@ export function RevisionContrapartePublicaPage() {
 
   return (
     <div className="revision-publica-shell">
-      <header className="revision-publica-header">
-        <div>
-          <strong>ORI</strong>
-          <span>Oficina de Relaciones Interinstitucionales</span>
-        </div>
-        <span>Revisión externa de elaboración de convenio</span>
-      </header>
+      <CabeceraPublica />
       {contenido}
-      <footer className="revision-publica-footer">Universidad de San Buenaventura · Gestión de convenios</footer>
+      <PieInstitucional />
     </div>
   )
 }

@@ -35,6 +35,9 @@ function formatearNombreCampo(campo: string): string {
 
 export function ModalDatosIncompletosExportacion({ camposFaltantes, esBorrador = false, onCerrar }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null)
+  const contenidoAmbiguo = camposFaltantes.some(
+    (campo) => campo.split(':', 1)[0].trim() === 'contenido_contractual_ambiguo',
+  )
 
   useEffect(() => {
     dialogo.current?.showModal()
@@ -65,7 +68,9 @@ export function ModalDatosIncompletosExportacion({ camposFaltantes, esBorrador =
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <h2 id="modal-datos-incompletos-titulo">No se puede generar el documento</h2>
+          <h2 id="modal-datos-incompletos-titulo">
+            {contenidoAmbiguo ? 'No es posible generar el documento.' : 'No se puede generar el documento'}
+          </h2>
         </div>
         <button
           type="button"
@@ -78,18 +83,26 @@ export function ModalDatosIncompletosExportacion({ camposFaltantes, esBorrador =
       </div>
 
       <section className="modal-section">
-        <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>
-          {esBorrador
-            ? 'Para generar el borrador, el convenio necesita la siguiente información. Por favor complete estos campos antes de continuar:'
-            : 'El convenio no cuenta con la información requerida para emitir un documento oficial. Por favor complete los siguientes campos antes de continuar:'}
-        </p>
-        <ul style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {camposFaltantes.map((campo) => (
-            <li key={campo}>
-              <strong>{formatearNombreCampo(campo)}</strong>
-            </li>
-          ))}
-        </ul>
+        {contenidoAmbiguo ? (
+          <p style={{ lineHeight: 1.5 }}>
+            Se encontró una inconsistencia entre el contenido del documento y la información definitiva del convenio. Para proteger la integridad del acuerdo, la descarga no está disponible. Comuníquese con el personal autorizado de la ORI para revisar esta situación.
+          </p>
+        ) : (
+          <>
+            <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>
+              {esBorrador
+                ? 'Para generar el borrador, el convenio necesita la siguiente información. Por favor complete estos campos antes de continuar:'
+                : 'El convenio no cuenta con la información requerida para emitir un documento oficial. Por favor complete los siguientes campos antes de continuar:'}
+            </p>
+            <ul style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {camposFaltantes.map((campo) => (
+                <li key={campo}>
+                  <strong>{formatearNombreCampo(campo)}</strong>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </section>
 
       <div className="modal-acciones">

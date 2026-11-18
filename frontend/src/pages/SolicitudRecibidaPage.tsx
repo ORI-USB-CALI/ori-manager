@@ -2,12 +2,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import { enumLabel } from '../components/tableFormatters'
+import { CampoLectura, DetalleCampos } from '../components/DetalleCampos'
 import { apiFetch } from '../app/api'
 import { useNotifications } from '../app/notifications/useNotifications'
 import { useSesion } from '../auth/sesion'
 import { DocumentoPreviewModal } from '../components/DocumentoPreviewModal'
 import type { Convenio } from './epica02'
 import { type SolicitudRecibida, useSolicitudRecibida } from './solicitudes'
+import { accionConvenioSolicitud } from './accionConvenioSolicitud'
+import './gestorConvenios.css'
 
 function valor(dato: string | null | undefined) {
   return dato || '—'
@@ -81,41 +85,57 @@ export function SolicitudRecibidaPage() {
   const pendiente = ['RADICADA', 'EN_ESTUDIO'].includes(solicitud.estado)
   const gestiona = puede('solicitudes.gestionar_recibidas')
   const ocupado = aceptar.isPending || rechazar.isPending || devolver.isPending
+  const accionConvenio = accionConvenioSolicitud(solicitud, puede)
 
   return (
-    <>
+    <div className="solicitud-recibida detalle-secciones">
       <section className="header-banner">
         <h1>{solicitud.consecutivo}</h1>
         <p><span className="badge">{solicitud.estado.replaceAll('_', ' ')}</span> · Radicada {solicitud.fecha_radicacion ? new Date(solicitud.fecha_radicacion).toLocaleString() : '—'}</p>
       </section>
 
-      <section className="card"><h2>Información del solicitante</h2><dl>
-        <dt>Nombre</dt><dd>{valor(solicitud.solicitante_nombre)}</dd><dt>Correo</dt><dd>{valor(solicitud.solicitante_correo)}</dd>
-        <dt>Tipo</dt><dd>{solicitud.tipo_solicitante}</dd><dt>Documento</dt><dd>{valor(solicitud.solicitante_documento)}</dd>
-        <dt>Cargo</dt><dd>{valor(solicitud.solicitante_cargo)}</dd><dt>Entidad / Unidad / Programa</dt><dd>{[solicitud.solicitante_entidad, solicitud.solicitante_unidad, solicitud.solicitante_programa].filter(Boolean).join(' / ') || '—'}</dd>
-      </dl></section>
+      <section className="card"><h2>Información del solicitante</h2><DetalleCampos>
+        <CampoLectura etiqueta="Nombre">{valor(solicitud.solicitante_nombre)}</CampoLectura><CampoLectura etiqueta="Correo">{valor(solicitud.solicitante_correo)}</CampoLectura>
+        <CampoLectura etiqueta="Tipo de solicitante">{enumLabel(solicitud.tipo_solicitante)}</CampoLectura><CampoLectura etiqueta="Documento">{valor(solicitud.solicitante_documento)}</CampoLectura>
+        <CampoLectura etiqueta="Cargo">{valor(solicitud.solicitante_cargo)}</CampoLectura>
+        <CampoLectura etiqueta="Entidad">{valor(solicitud.solicitante_entidad)}</CampoLectura>
+        <CampoLectura etiqueta="Unidad">{valor(solicitud.solicitante_unidad)}</CampoLectura>
+        <CampoLectura etiqueta="Programa">{valor(solicitud.solicitante_programa)}</CampoLectura>
+      </DetalleCampos></section>
 
-      <section className="card"><h2>Contraparte propuesta y contacto</h2><dl>
-        <dt>Nombre</dt><dd>{valor(solicitud.nombre_aliado_propuesto)}</dd><dt>Identificación</dt><dd>{valor(solicitud.identificacion_aliado_propuesto)}</dd>
-        <dt>Tipo</dt><dd>{valor(solicitud.tipo_aliado_propuesto)}</dd><dt>Ubicación</dt><dd>{[solicitud.pais_aliado_propuesto, solicitud.ciudad_aliado_propuesto].filter(Boolean).join(' / ') || '—'}</dd>
-        <dt>Correo institucional</dt><dd>{valor(solicitud.correo_aliado_propuesto)}</dd><dt>Teléfono institucional</dt><dd>{valor(solicitud.telefono_aliado_propuesto)}</dd>
-        <dt>Dirección</dt><dd>{valor(solicitud.direccion_aliado_propuesto)}</dd><dt>Sector económico</dt><dd>{valor(solicitud.sector_economico_aliado_propuesto)}</dd>
-        <dt>Contacto</dt><dd>{valor(solicitud.contacto_contraparte_nombre)}</dd><dt>Cargo</dt><dd>{valor(solicitud.contacto_contraparte_cargo)}</dd>
-        <dt>Correo</dt><dd>{valor(solicitud.contacto_contraparte_correo)}</dd><dt>Teléfono</dt><dd>{valor(solicitud.contacto_contraparte_telefono)}</dd>
-      </dl></section>
+      <section className="card"><h2>Contraparte propuesta y contacto</h2><div className="detalle-grupo"><h3>Institución propuesta</h3><DetalleCampos>
+        <CampoLectura etiqueta="Nombre">{valor(solicitud.nombre_aliado_propuesto)}</CampoLectura><CampoLectura etiqueta="Identificación">{valor(solicitud.identificacion_aliado_propuesto)}</CampoLectura>
+        <CampoLectura etiqueta="Tipo">{solicitud.tipo_aliado_propuesto ? enumLabel(solicitud.tipo_aliado_propuesto) : valor(null)}</CampoLectura>
+        <CampoLectura etiqueta="País">{valor(solicitud.pais_aliado_propuesto)}</CampoLectura>
+        <CampoLectura etiqueta="Ciudad">{valor(solicitud.ciudad_aliado_propuesto)}</CampoLectura>
+        <CampoLectura etiqueta="Correo institucional">{valor(solicitud.correo_aliado_propuesto)}</CampoLectura><CampoLectura etiqueta="Teléfono institucional">{valor(solicitud.telefono_aliado_propuesto)}</CampoLectura>
+        <CampoLectura etiqueta="Dirección">{valor(solicitud.direccion_aliado_propuesto)}</CampoLectura><CampoLectura etiqueta="Sector económico">{valor(solicitud.sector_economico_aliado_propuesto)}</CampoLectura>
+        </DetalleCampos></div><div className="detalle-grupo"><h3>Contacto de la contraparte</h3><DetalleCampos><CampoLectura etiqueta="Nombre">{valor(solicitud.contacto_contraparte_nombre)}</CampoLectura><CampoLectura etiqueta="Cargo">{valor(solicitud.contacto_contraparte_cargo)}</CampoLectura>
+        <CampoLectura etiqueta="Correo">{valor(solicitud.contacto_contraparte_correo)}</CampoLectura><CampoLectura etiqueta="Teléfono">{valor(solicitud.contacto_contraparte_telefono)}</CampoLectura>
+      </DetalleCampos></div></section>
 
-      <section className="card"><h2>Convenio solicitado</h2><dl>
-        <dt>Tipo de convenio</dt><dd>{valor(solicitud.tipo_convenio_nombre)}</dd><dt>Objeto</dt><dd>{valor(solicitud.objeto)}</dd>
-        <dt>Justificación</dt><dd>{valor(solicitud.justificacion)}</dd><dt>Implicación financiera</dt><dd>{valor(solicitud.implicacion_financiera)}</dd>
-        <dt>Actividades</dt><dd>{valor(solicitud.actividades_por_parte)}</dd><dt>Metas</dt><dd>{valor(solicitud.metas_esperadas)}</dd>
-        <dt>Vigencia estimada</dt><dd>{valor(solicitud.vigencia_estimada)}</dd><dt>Requisitos de renovación</dt><dd>{valor(solicitud.requisitos_renovacion)}</dd>
-        <dt>Observaciones originales</dt><dd>{valor(solicitud.observaciones)}</dd>
-      </dl></section>
+      <section className="card"><h2>Convenio solicitado</h2><DetalleCampos>
+        <CampoLectura etiqueta="Tipo de convenio">{valor(solicitud.tipo_convenio_nombre)}</CampoLectura><CampoLectura etiqueta="Objeto" amplio>{valor(solicitud.objeto)}</CampoLectura>
+        <CampoLectura etiqueta="Justificación" amplio>{valor(solicitud.justificacion)}</CampoLectura><CampoLectura etiqueta="Implicación financiera" amplio>{valor(solicitud.implicacion_financiera)}</CampoLectura>
+        <CampoLectura etiqueta="Actividades" amplio>{valor(solicitud.actividades_por_parte)}</CampoLectura><CampoLectura etiqueta="Metas" amplio>{valor(solicitud.metas_esperadas)}</CampoLectura>
+        <CampoLectura etiqueta="Vigencia estimada">{valor(solicitud.vigencia_estimada)}</CampoLectura><CampoLectura etiqueta="Requisitos de renovación" amplio>{valor(solicitud.requisitos_renovacion)}</CampoLectura>
+        <CampoLectura etiqueta="Observaciones del solicitante" amplio>{valor(solicitud.observaciones)}</CampoLectura>
+      </DetalleCampos></section>
 
-      <section className="card"><h2>Supervisores</h2><dl>
-        <dt>Supervisor USB</dt><dd>{[solicitud.supervisor_usb_nombre, solicitud.supervisor_usb_cargo, solicitud.supervisor_usb_correo, solicitud.supervisor_usb_telefono].filter(Boolean).join(' · ') || '—'}</dd>
-        <dt>Supervisor contraparte</dt><dd>{[solicitud.supervisor_contraparte_nombre, solicitud.supervisor_contraparte_cargo, solicitud.supervisor_contraparte_correo, solicitud.supervisor_contraparte_telefono].filter(Boolean).join(' · ') || '—'}</dd>
-      </dl></section>
+      <section className="card"><h2>Supervisores</h2>
+        <div className="detalle-grupo"><h3>Supervisor de la USB</h3><DetalleCampos>
+          <CampoLectura etiqueta="Nombre">{valor(solicitud.supervisor_usb_nombre)}</CampoLectura>
+          <CampoLectura etiqueta="Cargo">{valor(solicitud.supervisor_usb_cargo)}</CampoLectura>
+          <CampoLectura etiqueta="Correo">{valor(solicitud.supervisor_usb_correo)}</CampoLectura>
+          <CampoLectura etiqueta="Teléfono">{valor(solicitud.supervisor_usb_telefono)}</CampoLectura>
+        </DetalleCampos></div>
+        <div className="detalle-grupo"><h3>Supervisor de la contraparte</h3><DetalleCampos>
+          <CampoLectura etiqueta="Nombre">{valor(solicitud.supervisor_contraparte_nombre)}</CampoLectura>
+          <CampoLectura etiqueta="Cargo">{valor(solicitud.supervisor_contraparte_cargo)}</CampoLectura>
+          <CampoLectura etiqueta="Correo">{valor(solicitud.supervisor_contraparte_correo)}</CampoLectura>
+          <CampoLectura etiqueta="Teléfono">{valor(solicitud.supervisor_contraparte_telefono)}</CampoLectura>
+        </DetalleCampos></div>
+      </section>
 
       <section className="card">
         <h2>Documentos adjuntos</h2>
@@ -174,18 +194,18 @@ export function SolicitudRecibidaPage() {
       </section>
 
       {solicitud.fecha_decision && (
-        <section className="card"><h2>Decisión ORI</h2><dl>
-          <dt>Resultado</dt><dd>{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : solicitud.estado === 'DEVUELTA' ? 'Devuelta' : 'Aprobada'}</dd>
-          <dt>Responsable</dt><dd>{valor(solicitud.decidida_por_nombre)}</dd>
-          <dt>Fecha y hora</dt><dd>{new Date(solicitud.fecha_decision).toLocaleString()}</dd>
-          {solicitud.estado === 'RECHAZADA' && solicitud.motivo_rechazo && <><dt>Motivo del rechazo</dt><dd>{solicitud.motivo_rechazo}</dd></>}
-          {solicitud.estado === 'DEVUELTA' && solicitud.observaciones_devolucion && <><dt>Observaciones de devolución</dt><dd>{solicitud.observaciones_devolucion}</dd></>}
-        </dl></section>
+        <section className="card"><h2>Decisión ORI</h2><DetalleCampos>
+          <CampoLectura etiqueta="Resultado">{solicitud.estado === 'RECHAZADA' ? 'Rechazada' : solicitud.estado === 'DEVUELTA' ? 'Devuelta' : 'Aprobada'}</CampoLectura>
+          <CampoLectura etiqueta="Responsable">{valor(solicitud.decidida_por_nombre)}</CampoLectura>
+          <CampoLectura etiqueta="Fecha y hora">{new Date(solicitud.fecha_decision).toLocaleString()}</CampoLectura>
+          {solicitud.estado === 'RECHAZADA' && solicitud.motivo_rechazo && <><CampoLectura etiqueta="Motivo del rechazo" amplio>{solicitud.motivo_rechazo}</CampoLectura></>}
+          {solicitud.estado === 'DEVUELTA' && solicitud.observaciones_devolucion && <><CampoLectura etiqueta="Observaciones de devolución">{solicitud.observaciones_devolucion}</CampoLectura></>}
+        </DetalleCampos></section>
       )}
 
       {solicitud.estado !== 'DEVUELTA' && solicitud.observaciones_devolucion && (
         <section className="card"><h2>Observaciones de devolución anterior</h2>
-          <p>{solicitud.observaciones_devolucion}</p>
+          <p className="detalle-texto">{solicitud.observaciones_devolucion}</p>
         </section>
       )}
 
@@ -212,15 +232,16 @@ export function SolicitudRecibidaPage() {
       )}
 
       <div className="page-toolbar">
-        <Link className="btn btn-outline" to="/ori/solicitudes">Volver</Link>
+        <Link className="btn accion-volver" to="/ori/solicitudes">Volver</Link>
         <Link className="btn btn-outline" to={`/ori/solicitudes/${solicitud.id}/historial`}>Ver historial</Link>
         {pendiente && gestiona && !rechazando && !devolviendo && <>
           <button className="btn btn-danger" type="button" disabled={ocupado} onClick={() => setRechazando(true)}>Rechazar</button>
           <button className="btn btn-outline" type="button" disabled={ocupado} onClick={() => setDevolviendo(true)}>Devolver</button>
           <button className="btn btn-primary" type="button" disabled={ocupado} onClick={() => window.confirm('¿Confirma que aprueba esta solicitud?') && aceptar.mutate()}>Aprobar</button>
         </>}
-        {solicitud.estado === 'APROBADA' && solicitud.convenio_id && gestiona && <Link className="btn btn-primary" to={`/convenios/${solicitud.convenio_id}/elaboracion`}>Continuar elaboración</Link>}
-        {solicitud.estado === 'APROBADA' && !solicitud.convenio_id && gestiona && <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>Iniciar elaboración</button>}
+        {accionConvenio && (solicitud.convenio_id
+          ? <Link className="btn btn-primary" to={accionConvenio.to}>{accionConvenio.texto}</Link>
+          : <button className="btn btn-primary" type="button" disabled={iniciarElaboracion.isPending} onClick={() => iniciarElaboracion.mutate()}>{accionConvenio.texto}</button>)}
       </div>
 
       {documentoPreview && (
@@ -232,6 +253,6 @@ export function SolicitudRecibidaPage() {
           onCerrar={() => setDocumentoPreview(null)}
         />
       )}
-    </>
+    </div>
   )
 }

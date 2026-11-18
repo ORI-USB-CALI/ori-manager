@@ -5,7 +5,7 @@ export function NotFoundPage() {
     <section className="card estado-vacio">
       <h1>404</h1>
       <p>La página solicitada no existe.</p>
-      <Link to="/" className="btn btn-primary">
+      <Link to="/" className="btn accion-volver">
         Volver al inicio
       </Link>
     </section>

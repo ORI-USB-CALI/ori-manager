@@ -13,12 +13,15 @@ import { Select } from '../components/Select'
 import { TableFilters } from '../components/TableFilters'
 import { enumLabel, formatDateTime } from '../components/tableFormatters'
 import { StatusBadge } from '../components/tablePresentation'
-import type { TipoUsuario } from '../auth/sesion'
+import { useSesion, type TipoUsuario } from '../auth/sesion'
 import type { EstadoSolicitud, SolicitudRecibida } from './solicitudes'
+import { accionConvenioSolicitud } from './accionConvenioSolicitud'
+import './gestorConvenios.css'
 
 const ESTADOS: EstadoSolicitud[] = ['RADICADA', 'EN_ESTUDIO', 'APROBADA', 'DEVUELTA', 'RECHAZADA']
 
 export function SolicitudesRecibidasPage() {
+  const { puede } = useSesion()
   const [busqueda, setBusqueda] = useState('')
   const [estado, setEstado] = useState<EstadoSolicitud | ''>('')
   const [etapa, setEtapa] = useState('')
@@ -74,9 +77,9 @@ export function SolicitudesRecibidasPage() {
   }
 
   const columns: DataTableColumn<SolicitudRecibida>[] = [
-    { id: 'consecutivo', header: 'Consecutivo', render: (item) => <strong>{item.consecutivo}</strong> },
+    { id: 'consecutivo', className: 'tabla-col-referencia', header: 'Consecutivo', render: (item) => <strong>{item.consecutivo}</strong> },
     {
-      id: 'solicitante',
+      id: 'solicitante', className: 'tabla-col-persona',
       header: 'Solicitante',
       render: (item) => (
         <>
@@ -87,17 +90,23 @@ export function SolicitudesRecibidasPage() {
         </>
       ),
     },
-    { id: 'contraparte', header: 'Contraparte', render: (item) => item.nombre_aliado_propuesto ?? '—' },
-    { id: 'tipo', header: 'Tipo convenio', render: (item) => item.tipo_convenio_nombre ?? '—' },
-    { id: 'estado-solicitud', header: 'Estado solicitud', render: (item) => <StatusBadge value={item.estado} /> },
+    { id: 'contraparte', className: 'tabla-col-texto', header: 'Contraparte', render: (item) => item.nombre_aliado_propuesto ?? '—' },
+    { id: 'tipo', className: 'tabla-col-texto', header: 'Tipo convenio', render: (item) => item.tipo_convenio_nombre ?? '—' },
+    { id: 'estado-solicitud', className: 'tabla-col-estado', header: 'Estado solicitud', render: (item) => <StatusBadge value={item.estado} /> },
     {
-      id: 'etapa-convenio',
+      id: 'etapa-convenio', className: 'tabla-col-estado',
       header: 'Etapa convenio',
       render: (item) => item.convenio_etapa ? <StatusBadge value={item.convenio_etapa.codigo} label={item.convenio_etapa.nombre} /> : '—',
     },
-    { id: 'estado-convenio', header: 'Estado convenio', render: (item) => item.convenio_estado ? <StatusBadge value={item.convenio_estado} /> : '—' },
-    { id: 'radicacion', header: 'Radicación', render: (item) => formatDateTime(item.fecha_radicacion) },
-    { id: 'acciones', header: 'Acciones', render: (item) => <Link className="btn btn-outline btn-small" to={`/ori/solicitudes/${item.id}`}>Ver</Link> },
+    { id: 'estado-convenio', className: 'tabla-col-estado', header: 'Estado convenio', render: (item) => item.convenio_estado ? <StatusBadge value={item.convenio_estado} /> : '—' },
+    { id: 'radicacion', className: 'tabla-col-fecha', header: 'Radicación', render: (item) => formatDateTime(item.fecha_radicacion) },
+    { id: 'acciones', className: 'tabla-col-acciones', header: 'Acciones', render: (item) => {
+      const accion = accionConvenioSolicitud(item, puede)
+      return <div className="solicitudes-recibidas-acciones">
+        <Link className="btn btn-outline btn-small" to={`/ori/solicitudes/${item.id}`}>Ver</Link>
+        {accion && <Link className="btn btn-outline btn-small" to={accion.to}>{accion.texto}</Link>}
+      </div>
+    } },
   ]
 
   return (
@@ -128,7 +137,7 @@ export function SolicitudesRecibidasPage() {
           </TableFilters>
           <ResultsCount count={items.length} />
           {items.length > 0 ? (
-            <DataTable columns={columns} rows={items} rowKey={(item) => item.id} label="Solicitudes recibidas" />
+            <DataTable containerClassName="tabla-densa-region" tableClassName="tabla-densa" columns={columns} rows={items} rowKey={(item) => item.id} label="Solicitudes recibidas" />
           ) : (
             <TableEmptyState message="No se encontraron resultados con los filtros seleccionados." onClear={limpiarFiltros} />
           )}
