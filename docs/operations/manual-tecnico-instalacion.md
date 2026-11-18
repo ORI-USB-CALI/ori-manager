@@ -1,6 +1,6 @@
 # Manual técnico e instalación desde cero — ORI Manager
 
-**Versión documentada:** `main` al 16/11/2026, revisión de base de datos Alembic `0b2fb1bed5b2`.
+**Referencia del script SQL adjunto:** `main` al 12/11/2026 (commit `e94e97b`, revisión Alembic `0b2fb1bed5b2`). Este script es una **foto histórica** de esa versión; `develop` ya incorpora migraciones posteriores. Para una instalación se ejecuta el `head` de Alembic de la rama elegida.
 **Público:** persona técnica de la ORI o de TI que va a instalar, configurar y desplegar el sistema sin conocimiento previo del proyecto.
 
 > **Regla de este documento:** las variables de entorno se citan siempre por **nombre**, nunca por valor. Ninguna contraseña, llave ni token va en Git, en capturas, en el chat ni en este manual.
@@ -48,7 +48,7 @@ git clone https://github.com/ORI-USB-CALI/ori-manager.git
 cd ori-manager
 ```
 
-Ramas: `develop` es Staging, `main` es Producción. Para instalar, usar `main`.
+Ramas: `develop` corresponde a Staging y `main` a Producción. Para reproducir la versión **publicada y aprobada**, use `main`; para validar funcionalidades pendientes del siguiente release, use `develop`. No promueva cambios de `develop` a Producción sin el proceso de aprobación del [runbook](production-release.md).
 
 ## 4. Instalación local (desarrollo o prueba)
 
@@ -62,16 +62,17 @@ Ramas: `develop` es Staging, `main` es Producción. Para instalar, usar `main`.
 ### 4.2 Camino alternativo: sin DevContainer
 
 ```bash
-docker compose up -d db          # solo PostgreSQL 18, puerto 5432
-cd backend && uv sync --frozen   # requiere Python 3.13.17 disponible para uv
-cd ../frontend && npm ci
+# Desde la raíz del repositorio; los paréntesis conservan el directorio actual.
+docker compose up -d db
+(cd backend && uv sync --frozen)   # requiere Python 3.13.17 disponible para uv
+(cd frontend && npm ci)
 ```
 
 ### 4.3 Variables de entorno del backend
 
 ```bash
-cd backend
-cp .env.example .env     # .env está ignorado por Git
+# Desde la raíz del repositorio.
+(cd backend && cp .env.example .env)   # .env está ignorado por Git
 ```
 
 Editar `backend/.env`. Para desarrollo local solo hace falta que `DATABASE_PASSWORD` coincida con `POSTGRES_PASSWORD` del servicio `db` en `compose.yaml`; el resto de valores de `.env.example` ya sirven. Si el backend corre **dentro** del DevContainer, `DATABASE_HOST` debe ser `db`; si corre en tu máquina, `localhost`.
@@ -83,10 +84,13 @@ La lista completa de variables está en la [§6](#6-variables-de-entorno-referen
 Con PostgreSQL arriba y el `.env` listo, la base se crea con Alembic (la usan CI, Staging y Producción). Crea la estructura y los catálogos que la aplicación necesita (roles, etapas, tipos de convenio, países y plantilla base):
 
 ```bash
-cd backend
-uv run alembic upgrade head
-uv run alembic current        # debe mostrar: 0b2fb1bed5b2 (head)
+# Desde la raíz del repositorio.
+(cd backend && uv run alembic upgrade head)
+(cd backend && uv run alembic current)
+(cd backend && uv run alembic heads)
 ```
+
+La revisión que muestre `current` debe coincidir con `heads` para la rama instalada. **No espere siempre `0b2fb1bed5b2`**: esa es la revisión del script SQL de `main` del 12/11/2026; `develop` incorpora revisiones posteriores (`c17a20261115` y `3816fbbdff1a` al 17/11/2026).
 
 > El [script SQL de base de datos](base-de-datos/README.md) contiene solo la estructura, sin ningún dato. Sirve para revisar el modelo, **no** para instalar la aplicación: sin catálogos no se puede crear el administrador ni usar Alembic después.
 
@@ -95,9 +99,12 @@ uv run alembic current        # debe mostrar: 0b2fb1bed5b2 (head)
 La base nueva no tiene usuarios. El primer `ADMINISTRADOR_ORI` se crea por línea de comandos; pide la contraseña de forma interactiva (no queda en el historial):
 
 ```bash
-cd backend
-uv run python -m backend.scripts.crear_admin --correo <correo-del-admin> --nombre "<Nombre Apellido>"
+# Desde la raíz del repositorio. Sustituya el correo y el nombre de ejemplo.
+(cd backend && uv run python -m backend.scripts.crear_admin \
+  --correo "admin@example.org" --nombre "Nombre Apellido")
 ```
+
+No escriba el marcador `<correo-del-admin>` sin comillas en la terminal: los signos `<` y `>` tienen significado especial en la shell. Use el correo real de la persona administradora.
 
 Responde `Administrador creado: <correo>`. Si el correo ya existe como usuario interno, lo promueve. Los demás usuarios se crean desde la aplicación con ese administrador.
 
@@ -130,17 +137,16 @@ En desarrollo, Vite reenvía `/api` a `http://localhost:8000` (se cambia con `VI
 
 En local, los documentos se guardan en `backend/var/documentos` y los correos **no se envían** (`EMAIL_PROVIDER=local`).
 
-**Verificado el 16/11/2026** en un contenedor limpio (`python:3.13-slim`, `uv 0.13.5`, PostgreSQL 18 de `compose.yaml`): `uv sync --frozen`, `alembic upgrade head` hasta `0b2fb1bed5b2`, arranque de uvicorn con `/health` y `/ready` en `ok`, y creación del administrador con `crear_admin`.
+**Verificado por el autor el 16/11/2026**, sobre el esquema de `main` (`0b2fb1bed5b2`), en un contenedor limpio (`python:3.13-slim`, `uv 0.13.5`, PostgreSQL 18 de `compose.yaml`): `uv sync --frozen`, `alembic upgrade head`, arranque de uvicorn con `/health` y `/ready` en `ok`, y creación del administrador con `crear_admin`. Esta evidencia no certifica una instalación limpia del `head` posterior de `develop`.
 
 ## 5. Pruebas y calidad (opcional)
 
 Lo mismo que ejecuta [`ci.yml`](../../.github/workflows/ci.yml):
 
 ```bash
-# backend
-cd backend && uv run ruff check . && uv run pytest
-# frontend
-cd frontend && npm run typecheck && npm test && npm run lint && npm run build
+# Desde la raíz del repositorio; cada bloque conserva el directorio actual.
+(cd backend && uv run ruff check . && uv run pytest)
+(cd frontend && npm run typecheck && npm test && npm run lint && npm run build)
 ```
 
 ## 6. Variables de entorno: referencia completa
