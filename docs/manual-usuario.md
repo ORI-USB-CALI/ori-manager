@@ -65,7 +65,7 @@ Cada cuenta tiene un rol, y la plataforma solo muestra las opciones que ese rol 
 1. Un **solicitante** diligencia y **radica** una solicitud de convenio.
 2. La **ORI** la revisa y puede **aprobarla**, **devolverla** para que se corrija o **rechazarla**.
 3. Si la aprueba, el **Gestor ORI** inicia la **elaboración** del proyecto de convenio.
-4. La oficina **jurídica** lo revisa y lo aprueba (aval jurídico) o lo devuelve con observaciones.
+4. La oficina **jurídica** realiza **dos revisiones sucesivas (RJ1 y RJ2) con revisores distintos** sobre la versión formal de la ronda. Cada revisor puede aprobar o devolver con observaciones; solo después de los **dos avales** puede avanzar a contraparte.
 5. La **contraparte** revisa la versión enviada y la aprueba o la devuelve con observaciones.
 6. La **ORI** hace la **revisión final** y lo aprueba para firmas.
 7. Se registran las **siete firmas** obligatorias y la ORI **formaliza** el convenio, que pasa a **Vigente**.
@@ -443,16 +443,16 @@ Desde el detalle, pulse **Continuar elaboración**. Allí el Gestor ORI prepara 
 
 ## 15. Revisión jurídica
 
-Para el **Revisor ORI**.
+Para el **Revisor ORI**. El trámite requiere **dos avales jurídicos independientes y secuenciales: RJ1 y RJ2**. Deben realizarlos **usuarios diferentes** sobre la versión formal correspondiente a la misma ronda.
 
 1. **Menú › Convenios › Revisiones jurídicas** muestra los convenios pendientes de revisión y aval jurídico. Tiene buscador y filtros por tipo y responsable, que se conservan al volver o recargar la página.
-2. Pulse **Revisar** para abrir el convenio.
+2. Pulse **Revisar** para abrir el convenio. El panel indica si corresponde a **Revisión jurídica 1 de 2** o **2 de 2**, además de la ronda y la versión recibida.
 3. Registre observaciones con **Nueva observación** e indique si **Obliga a corregir** o **No obliga a corregir**.
 4. Decida:
-   - **Aprobar revisión:** da el aval jurídico y el convenio pasa a la revisión de contraparte.
+   - **Aprobar revisión:** si aprueba **RJ1**, habilita **RJ2** para otro revisor; solo la aprobación de **RJ2** completa el aval jurídico y permite avanzar hacia la revisión de contraparte.
    - **Devolver a Elaboración:** el Gestor debe atender las observaciones y reenviar.
 
-Cada ronda de revisión queda registrada. En **Observaciones jurídicas** se ve quién hizo cada observación, en qué revisión y cómo se atendió.
+Cada ronda queda registrada. **El reenvío abre una ronda jurídica nueva con RJ1 y RJ2**, incluso cuando se puede reutilizar una versión formal sin cambios. Los avales de rondas previas no se reutilizan. En **Observaciones jurídicas** se ve quién hizo cada observación, en qué revisión y cómo se atendió.
 
 ## 16. Revisión de la contraparte
 
