@@ -2,7 +2,7 @@
 
 **Propósito:** dejar registrado qué se entrega a la ORI, qué debe revisarse antes de transferir los derechos del repositorio y cómo comprobar, después, que la ORI tiene control real del código y de los servicios.
 **Estado:** plantilla de verificación para el cierre del Sprint 5. Este archivo no se edita en cada paso: el seguimiento (fecha, responsable y decisiones tomadas, como visibilidad, licencia u opción de transferencia) se registra en la carpeta de [Gestión de releases](https://drive.google.com/drive/folders/1TwlYItxGI0bYmJ6nxw6Ggk0Sbc08cRdb) en Drive. Solo se hace un PR adicional si cambia un archivo del repositorio (por ejemplo `LICENSE` o `CODEOWNERS`).
-**Fuente base de los hallazgos:** `main` en el commit `00ede0f` (17/11/2026), idéntico a `develop`.
+**Fuente base de los hallazgos:** estado de los archivos de `main` en el commit `00ede0f` (17/11/2026), equivalente al de `develop` antes de los PR documentales del 19/11/2026. Las ramas tenían historiales de integración distintos.
 
 > **Regla:** este documento no contiene credenciales y nunca debe contenerlas. Las variables se citan por **nombre**; sus valores se entregan por un canal seguro fuera de Git, de la wiki y del chat.
 
@@ -67,9 +67,9 @@ gitleaks detect --source . --log-opts="--all" --redact
 
 ### 3.3 La base de datos entregada debe coincidir con el último código
 
-El script SQL es una foto de la revisión de Alembic que existía al generarlo. Al 18/11/2026, `main` y `develop` tienen el mismo contenido y su head de Alembic es **`3816fbbdff1a`**. El script de [`base-de-datos/`](base-de-datos/README.md) se generó contra **`0b2fb1bed5b2`**, es decir, **dos migraciones atrás** (`c17a20261115` y `3816fbbdff1a`, de HT-17 y HT-15). Su README ya lo advierte y deja a Alembic como fuente de verdad (`uv run alembic upgrade head`).
+El script SQL representa una foto del esquema en la revisión de Alembic usada para generarlo. El **19/11/2026**, el PR **#204** actualizó el script de [`base-de-datos/`](base-de-datos/README.md) al head **`3816fbbdff1a`**, incorporando las columnas correspondientes a HT-17 (`c17a20261115`) y HT-15 (`3816fbbdff1a`). El volcado contiene **solo estructura, sin datos**, y no sustituye la creación de una base funcional mediante Alembic.
 
-Antes de entregar, **regenerar el script** contra el head vigente y actualizar la revisión escrita en el README de la base de datos y en el [manual técnico](manual-tecnico-instalacion.md). Si luego entra otra migración, repetir.
+Antes de entregar, **verificar que la revisión documentada coincide con el head vigente**. Si entra otra migración, regenerar el script SQL y actualizar el README de la base de datos y el [manual técnico](manual-tecnico-instalacion.md).
 
 - [ ] `uv run alembic heads` en la rama de entrega = revisión escrita en el README de la base de datos
 - [ ] Script SQL regenerado si el head cambió
