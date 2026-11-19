@@ -1,9 +1,9 @@
 # Script de base de datos — ORI Manager
 
-**Revisión Alembic:** `0b2fb1bed5b2` (head de `main` al 12/11/2026, commit `e94e97b`)
+**Revisión Alembic:** `3816fbbdff1a` (head de `main` y `develop` al 19/11/2026, commit `00ede0f`)
 **Motor:** PostgreSQL 18
 
-> **Alcance temporal (17/11/2026):** este archivo SQL representa únicamente el esquema de `main` en la revisión `0b2fb1bed5b2`. La rama `develop` ya contiene las migraciones `c17a20261115` y `3816fbbdff1a`, que **no están incluidas** en el volcado. No debe presentarse como el esquema final de Sprint 5 ni como una exportación actualizada de Staging. Se deberá regenerar desde una base desechable, con el `head` efectivamente liberado, para la entrega definitiva.
+> **Alcance temporal (19/11/2026):** este archivo SQL representa el esquema de `main` en la revisión `3816fbbdff1a`, que incluye las migraciones `c17a20261115` (HT-17) y `3816fbbdff1a` (HT-15). No debe presentarse como una exportación de Staging. Si entra una migración nueva antes de la entrega, hay que regenerarlo (ver más abajo).
 
 | Archivo | Qué contiene |
 |---|---|
@@ -42,7 +42,7 @@ Como el script no incluye datos, la base resultante **no es utilizable por la ap
 ```bash
 cd backend
 uv run alembic upgrade head
-uv run alembic current        # debe mostrar 0b2fb1bed5b2 (head)
+uv run alembic current        # debe mostrar 3816fbbdff1a (head)
 ```
 
 Es el camino que usan CI, Staging y Producción. Ver el [manual técnico](../manual-tecnico-instalacion.md#44-crear-la-base-de-datos).
@@ -66,9 +66,9 @@ dropdb ori_script_bd
 
 **Por qué no se usa `alembic upgrade head --sql` (modo offline):** varias migraciones consultan datos mientras corren, por ejemplo `d9e1f3a5b7c2_hu14_hardening_revision_externa`, y `7f2a4c9d1e30_hu12_editor_versiones` inserta un JSONB que el modo offline no puede escribir. Por eso el script se saca de una base real ya migrada.
 
-## Verificación realizada (12/11/2026)
+## Verificación realizada (19/11/2026)
 
-1. Base desechable en el PostgreSQL local, `alembic upgrade head` hasta `0b2fb1bed5b2`: sin errores.
-2. Volcado con `pg_dump` 18.7.
+1. Base desechable en el PostgreSQL local, `alembic upgrade head` hasta `3816fbbdff1a`: sin errores.
+2. Volcado con `pg_dump` 18.6.
 3. `ori_manager_schema.sql` en una base limpia con `ON_ERROR_STOP=1`: sin errores, 35 tablas y 0 filas.
 4. Búsqueda de contraseñas, correos y credenciales en el archivo: no hay ninguna.

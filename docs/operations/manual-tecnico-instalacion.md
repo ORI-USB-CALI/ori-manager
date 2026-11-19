@@ -1,6 +1,6 @@
 # Manual técnico e instalación desde cero — ORI Manager
 
-**Referencia del script SQL adjunto:** `main` al 12/11/2026 (commit `e94e97b`, revisión Alembic `0b2fb1bed5b2`). Este script es una **foto histórica** de esa versión; `develop` ya incorpora migraciones posteriores. Para una instalación se ejecuta el `head` de Alembic de la rama elegida.
+**Referencia del script SQL adjunto:** `main` al 19/11/2026 (commit `00ede0f`, revisión Alembic `3816fbbdff1a`). Este script es una **foto** de esa versión; si luego entran migraciones nuevas, hay que regenerarlo. Para una instalación se ejecuta el `head` de Alembic de la rama elegida.
 **Público:** persona técnica de la ORI o de TI que va a instalar, configurar y desplegar el sistema sin conocimiento previo del proyecto.
 
 > **Regla de este documento:** las variables de entorno se citan siempre por **nombre**, nunca por valor. Ninguna contraseña, llave ni token va en Git, en capturas, en el chat ni en este manual.
@@ -90,7 +90,7 @@ Con PostgreSQL arriba y el `.env` listo, la base se crea con Alembic (la usan CI
 (cd backend && uv run alembic heads)
 ```
 
-La revisión que muestre `current` debe coincidir con `heads` para la rama instalada. **No espere siempre `0b2fb1bed5b2`**: esa es la revisión del script SQL de `main` del 12/11/2026; `develop` incorpora revisiones posteriores (`c17a20261115` y `3816fbbdff1a` al 17/11/2026).
+La revisión que muestre `current` debe coincidir con `heads` para la rama instalada. **No espere siempre `3816fbbdff1a`**: esa es la revisión del script SQL al 19/11/2026; cuando entren migraciones nuevas, el `head` cambia.
 
 > El [script SQL de base de datos](base-de-datos/README.md) contiene solo la estructura, sin ningún dato. Sirve para revisar el modelo, **no** para instalar la aplicación: sin catálogos no se puede crear el administrador ni usar Alembic después.
 
@@ -137,7 +137,7 @@ En desarrollo, Vite reenvía `/api` a `http://localhost:8000` (se cambia con `VI
 
 En local, los documentos se guardan en `backend/var/documentos` y los correos **no se envían** (`EMAIL_PROVIDER=local`).
 
-**Verificado por el autor el 16/11/2026**, sobre el esquema de `main` (`0b2fb1bed5b2`), en un contenedor limpio (`python:3.13-slim`, `uv 0.13.5`, PostgreSQL 18 de `compose.yaml`): `uv sync --frozen`, `alembic upgrade head`, arranque de uvicorn con `/health` y `/ready` en `ok`, y creación del administrador con `crear_admin`. Esta evidencia no certifica una instalación limpia del `head` posterior de `develop`.
+**Verificado por el autor el 16/11/2026**, sobre el esquema de `main` (`0b2fb1bed5b2`), en un contenedor limpio (`python:3.13-slim`, `uv 0.13.5`, PostgreSQL 18 de `compose.yaml`): `uv sync --frozen`, `alembic upgrade head`, arranque de uvicorn con `/health` y `/ready` en `ok`, y creación del administrador con `crear_admin`. Esa prueba completa se hizo en la revisión anterior; el 19/11/2026 solo se repitió `alembic upgrade head` hasta `3816fbbdff1a` en una base limpia, sin errores, y no el arranque del servidor.
 
 ## 5. Pruebas y calidad (opcional)
 

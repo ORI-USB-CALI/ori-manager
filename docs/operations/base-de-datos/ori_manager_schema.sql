@@ -5,7 +5,7 @@
 \restrict orimanager
 
 -- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
--- Dumped by pg_dump version 18.7 (Ubuntu 18.7-1.pgdg24.04+2)
+-- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -444,6 +444,7 @@ CREATE TABLE public.convenio (
     origen character varying(20) DEFAULT 'SOLICITUD'::character varying NOT NULL,
     elaboracion_iniciada_en timestamp with time zone,
     activado_en timestamp with time zone,
+    vigencia_ht17 boolean DEFAULT false NOT NULL,
     CONSTRAINT ck_convenio_alcance CHECK (((alcance IS NULL) OR ((alcance)::text = ANY ((ARRAY['PROGRAMA'::character varying, 'INSTITUCIONAL'::character varying])::text[])))),
     CONSTRAINT ck_convenio_estado CHECK (((estado)::text = ANY ((ARRAY['EN_TRAMITE'::character varying, 'VIGENTE'::character varying, 'POR_VENCER'::character varying, 'VENCIDO'::character varying, 'RENOVADO'::character varying, 'FINALIZADO'::character varying, 'CANCELADO'::character varying])::text[]))),
     CONSTRAINT ck_convenio_origen CHECK (((origen)::text = ANY ((ARRAY['SOLICITUD'::character varying, 'MANUAL_ORI'::character varying])::text[]))),
@@ -880,6 +881,7 @@ CREATE TABLE public.observacion_revision (
     estado character varying(20) DEFAULT 'PENDIENTE'::character varying NOT NULL,
     creado_en timestamp with time zone DEFAULT now() NOT NULL,
     revision_convenio_id integer,
+    requiere_correccion boolean DEFAULT true NOT NULL,
     CONSTRAINT ck_observacion_revision_actor_registrado CHECK ((((origen)::text = 'CONTRAPARTE'::text) OR (registrada_por_id IS NOT NULL))),
     CONSTRAINT ck_observacion_revision_estado CHECK (((estado)::text = ANY ((ARRAY['PENDIENTE'::character varying, 'ATENDIDA'::character varying])::text[]))),
     CONSTRAINT ck_observacion_revision_origen CHECK (((origen)::text = ANY ((ARRAY['REVISOR_ORI'::character varying, 'CONTRAPARTE'::character varying, 'REVISION_FINAL_ORI'::character varying])::text[])))
